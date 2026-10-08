@@ -1,6 +1,6 @@
 # Image de production de l'API (construite depuis la racine du projet) :
 #   docker build -f apps/api/Dockerfile -t rankguess-api .
-FROM node:22-alpine AS build
+FROM node:26-alpine AS build
 WORKDIR /repo
 COPY package.json package-lock.json ./
 COPY packages/shared/package.json packages/shared/
@@ -11,7 +11,7 @@ COPY apps/api apps/api
 RUN npm run build -w @ranksight/shared && npm run build -w @ranksight/api \
  && npm prune --omit=dev --workspace @ranksight/api --workspace @ranksight/shared
 
-FROM node:22-alpine
+FROM node:26-alpine
 ENV NODE_ENV=production
 # ffmpeg : compression des vidéos (720p) et images d'aperçu
 RUN apk add --no-cache ffmpeg

@@ -1,0 +1,44 @@
+{
+  "name": "ranksight",
+  "private": true,
+  "packageManager": "npm@10.9.4",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "node scripts/prepare.mjs && turbo run dev --filter=!@ranksight/mobile",
+    "mobile": "node scripts/prepare-mobile.mjs && npm run dev -w @ranksight/mobile",
+    "build": "turbo run build --filter=!@ranksight/mobile",
+    "typecheck": "turbo run typecheck",
+    "lint": "eslint .",
+    "test": "turbo run test",
+    "db:up": "docker compose up -d --wait",
+    "db:down": "docker compose down",
+    "admin:promote": "npm run promote -w @ranksight/api --",
+    "account:password": "npm run account:password -w @ranksight/api --"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.12.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^16.4.0",
+    "prettier": "^3.6.0",
+    "turbo": "^2.11.7",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.71.1"
+  },
+  "overrides": {
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "@types/react": "~19.2.18",
+    "mysql2": "^3.24.5",
+    "deepmerge-ts": "^8.0.2",
+    "shell-quote": "^1.12.0",
+    "react-native-reanimated": "4.5.1",
+    "react-native-worklets": "0.10.1"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

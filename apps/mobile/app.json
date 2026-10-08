@@ -1,0 +1,59 @@
+{
+  "expo": {
+    "name": "RankGuess",
+    "slug": "ranksight",
+    "scheme": "ranksight",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#07060B",
+    "ios": {
+      "bundleIdentifier": "com.rankguess.app",
+      "supportsTablet": true,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.rankguess.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#07060B"
+      },
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      "expo-iap",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#07060B"
+        }
+      ],
+      "expo-secure-store",
+      "expo-video",
+      [
+        "expo-notifications",
+        {
+          "color": "#8B5CF6"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "RankGuess a besoin d'accéder à tes photos et vidéos pour que tu puisses proposer un clip ou choisir ta photo de profil."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "icon": "./assets/icon.png"
+  }
+}

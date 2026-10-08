@@ -1,0 +1,14 @@
+*.log
+.env
+.env.local
+.expo
+.next
+.turbo
+AGENTS.md
+apps/api/src/generated
+apps/api/storage
+apps/mobile/.env
+coverage
+dist
+node_modules
+deploy/.env.production

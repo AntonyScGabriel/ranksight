@@ -1,0 +1,23 @@
+# Environnement de développement local : PostgreSQL + Redis.
+# Les vidéos sont stockées sur ton disque par l'API (STORAGE_DRIVER=local), pas besoin de service S3.
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ranksight
+      POSTGRES_PASSWORD: ranksight
+      POSTGRES_DB: ranksight
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ranksight"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+
+volumes:
+  pgdata:

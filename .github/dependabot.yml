@@ -1,0 +1,16 @@
+# Mises à jour de sécurité des dépendances : une demande de fusion par semaine et par écosystème
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 10
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: monthly }
+  - package-ecosystem: docker
+    directories: [/apps/api, /apps/web, /apps/admin]
+    schedule: { interval: monthly }

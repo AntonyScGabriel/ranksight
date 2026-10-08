@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env: { POSTGRES_USER: ranksight, POSTGRES_PASSWORD: ranksight, POSTGRES_DB: ranksight }
+        ports: ["5432:5432"]
+        options: --health-cmd pg_isready --health-interval 5s
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: cp .env.example .env
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run prisma:migrate -w @ranksight/api
+      - run: npm run build
+      # Code exécuté sur les serveurs (API, site, administration). Les dépendances de l'application mobile
+      # sont surtout l'outillage de build Expo/Metro, suivi à chaque montée de version du SDK Expo.
+      - name: Audit des dépendances
+        run: npm audit --audit-level=high --omit=dev --workspace @ranksight/api --workspace @ranksight/web --workspace @ranksight/admin --workspace @ranksight/shared

@@ -1,0 +1,116 @@
+# Mise en production sur un serveur (VPS) avec Docker :
+#   cd deploy && cp .env.production.example .env.production && nano .env.production
+#   docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
+# Caddy obtient et renouvelle automatiquement les certificats HTTPS (Let's Encrypt) pour les 3 domaines.
+name: rankguess
+
+x-build-args: &build-args
+  API_PUBLIC_URL: https://${API_DOMAIN}
+  WEB_URL: https://${WEB_DOMAIN}
+  ADMIN_URL: https://${ADMIN_DOMAIN}
+  NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
+  LEGAL_PUBLISHER_NAME: ${LEGAL_PUBLISHER_NAME:-}
+  LEGAL_PUBLISHER_STATUS: ${LEGAL_PUBLISHER_STATUS:-}
+  LEGAL_ADDRESS: ${LEGAL_ADDRESS:-}
+  LEGAL_EMAIL: ${LEGAL_EMAIL:-}
+  LEGAL_SIRET: ${LEGAL_SIRET:-}
+  LEGAL_VAT_NOTE: ${LEGAL_VAT_NOTE:-}
+  LEGAL_DIRECTOR: ${LEGAL_DIRECTOR:-}
+  LEGAL_HOST_NAME: ${LEGAL_HOST_NAME:-}
+  LEGAL_HOST_ADDRESS: ${LEGAL_HOST_ADDRESS:-}
+  LEGAL_HOST_CONTACT: ${LEGAL_HOST_CONTACT:-}
+  LEGAL_MEDIATOR_NAME: ${LEGAL_MEDIATOR_NAME:-}
+  LEGAL_MEDIATOR_URL: ${LEGAL_MEDIATOR_URL:-}
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: rankguess
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD manquant}
+      POSTGRES_DB: rankguess
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rankguess"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD manquant}", "--appendonly", "yes"]
+    volumes: [redisdata:/data]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+
+  api:
+    build: { context: .., dockerfile: apps/api/Dockerfile }
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    env_file: .env.production
+    environment:
+      NODE_ENV: production
+      API_PORT: 4000
+      API_PUBLIC_URL: https://${API_DOMAIN}
+      WEB_URL: https://${WEB_DOMAIN}
+      ADMIN_URL: https://${ADMIN_DOMAIN}
+      CORS_ORIGINS: https://${WEB_DOMAIN},https://${ADMIN_DOMAIN}
+      DATABASE_URL: postgresql://rankguess:${POSTGRES_PASSWORD}@postgres:5432/rankguess
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      LOCAL_STORAGE_DIR: /repo/apps/api/storage
+    volumes: [storage:/repo/apps/api/storage]
+
+  web:
+    build: { context: .., dockerfile: apps/web/Dockerfile, args: *build-args }
+    restart: unless-stopped
+    depends_on: [api]
+
+  admin:
+    build: { context: .., dockerfile: apps/admin/Dockerfile, args: *build-args }
+    restart: unless-stopped
+    depends_on: [api]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      WEB_DOMAIN: ${WEB_DOMAIN}
+      API_DOMAIN: ${API_DOMAIN}
+      ADMIN_DOMAIN: ${ADMIN_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+      - caddyconfig:/config
+    depends_on: [web, admin, api]
+
+  # Sauvegarde de la base chaque nuit (14 jours conservés) dans deploy/backups
+  backup:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+    volumes:
+      - ./backups:/backups
+      - ./backup.sh:/backup.sh:ro
+    entrypoint: ["sh", "/backup.sh"]
+
+volumes:
+  pgdata:
+  redisdata:
+  storage:
+  caddydata:
+  caddyconfig:

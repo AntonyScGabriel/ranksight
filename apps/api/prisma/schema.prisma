@@ -1,0 +1,999 @@
+// =============================================================================
+// RankGuess — modèle de données (PostgreSQL 17, Prisma 7)
+// Conventions : UUID v7 côté app, snake_case en base, timestamps UTC,
+// soft-delete uniquement sur User (RGPD : anonymisation, pas d'effacement en cascade des scores).
+// =============================================================================
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ----------------------------------------------------------------------------
+// Utilisateurs & authentification
+// ----------------------------------------------------------------------------
+
+enum Role {
+  USER
+  REVIEWER  // trieur de clips : pré-valide ou pré-refuse les clips proposés, sans autre accès
+  MODERATOR
+  ADMIN
+  OWNER     // fondateur : propriétaire unique du site, intouchable par l'équipe ; seul lui gère les administrateurs
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  BANNED
+  DELETED
+}
+
+enum OAuthProvider {
+  GOOGLE
+  DISCORD
+}
+
+model User {
+  id              String     @id @default(uuid(7)) @db.Uuid
+  email           String?    @unique // toujours stocké en minuscules
+  /// Email confirmé : par Google/Discord (email vérifié) ou par un lien de réinitialisation reçu
+  emailVerifiedAt DateTime?  @map("email_verified_at")
+  /// Compte classique : hash scrypt du mot de passe (jamais le mot de passe lui-même). NULL = connexion Google/Discord uniquement
+  passwordHash    String?    @map("password_hash")
+  /// Pseudo RankGuess en minuscules, unique : garantit qu'aucun joueur ne porte le même pseudo, quelle que soit la casse
+  username        String     @unique
+  /// Pseudo RankGuess tel qu'affiché (même valeur que username, casse conservée)
+  displayName     String     @map("display_name") @db.VarChar(32)
+  avatarUrl       String?    @map("avatar_url")
+  /// Photo envoyée par le joueur (clé du fichier dans le stockage), supprimée quand elle est remplacée ou retirée
+  avatarKey       String?    @map("avatar_key")
+  /// Récompenses équipées (titre sous le pseudo, badge à côté du pseudo, cadre autour de l'avatar)
+  titleId         String?    @map("title_id") @db.Uuid
+  badgeId         String?    @map("badge_id") @db.Uuid
+  frameId         String?    @map("frame_id") @db.Uuid
+  timezone        String     @default("Europe/Paris")
+  locale          String     @default("fr")
+  role            Role       @default(USER)
+  status          UserStatus @default(ACTIVE)
+
+  // Progression (dénormalisée pour lecture rapide ; source = table guesses)
+  xp              Int        @default(0)
+  level           Int        @default(1)
+  dailyStreak     Int        @default(0) @map("daily_streak")
+  bestDailyStreak Int        @default(0) @map("best_daily_streak")
+  lastDailyDate   DateTime?  @map("last_daily_date") @db.Date
+  infiniteBest    Int        @default(0) @map("infinite_best")
+  /// Série de victoires : réponses exactes consécutives (tous modes confondus)
+  winStreak       Int        @default(0) @map("win_streak")
+  bestWinStreak   Int        @default(0) @map("best_win_streak")
+  totalGuesses    Int        @default(0) @map("total_guesses")
+  exactGuesses    Int        @default(0) @map("exact_guesses")
+  /// Statistiques remises à zéro par l'équipe (faille exploitée) : les réponses antérieures ne comptent plus
+  statsResetAt    DateTime?  @map("stats_reset_at")
+  /// Acceptation des CGU (et déclaration d'avoir 15 ans ou plus) : date et version des CGU acceptées
+  termsAcceptedAt DateTime?  @map("terms_accepted_at")
+  termsVersion    String?    @map("terms_version")
+  /// Chat coupé par la modération jusqu'à cette date (messages privés et chat global)
+  chatMutedUntil  DateTime?  @map("chat_muted_until")
+  /// Double authentification (TOTP) : secret chiffré (AES-256-GCM) et date d'activation
+  totpSecret      String?    @map("totp_secret")
+  totpEnabledAt   DateTime?  @map("totp_enabled_at")
+  /// Codes de secours de la double authentification (hash SHA-256, usage unique)
+  totpRecovery    String[]   @default([]) @map("totp_recovery")
+
+  notifyDaily     Boolean    @default(true) @map("notify_daily")
+  createdAt       DateTime   @default(now()) @map("created_at")
+  updatedAt       DateTime   @updatedAt @map("updated_at")
+  deletedAt       DateTime?  @map("deleted_at")
+
+  oauthAccounts    OAuthAccount[]
+  refreshTokens    RefreshToken[]
+  guesses          Guess[]
+  infiniteRuns     InfiniteRun[]
+  achievements     UserAchievement[]
+  gameStats        UserGameStats[]
+  reports          Report[]           @relation("reporter")
+  resolvedReports  Report[]           @relation("resolver")
+  uploadedClips    Clip[]             @relation("uploader")
+  reviewedClips    Clip[]             @relation("reviewer")
+  triagedClips     Clip[]             @relation("triager")
+  friendsSent      Friendship[]       @relation("requester")
+  friendsReceived  Friendship[]       @relation("addressee")
+  subscription     Subscription?
+  purchases        Purchase[]         @relation("buyer")
+  versusCreated    VersusMatch[]      @relation("versusCreator")
+  versusJoined     VersusMatch[]      @relation("versusOpponent")
+  versusWon        VersusMatch[]      @relation("versusWinner")
+  grantedPurchases Purchase[]         @relation("granter")
+  giftsReceived    Purchase[]         @relation("giftRecipient")
+  giftCodesCreated GiftCode[]         @relation("giftCodeCreator")
+  giftRedemptions  GiftRedemption[]
+  pushTokens       PushToken[]
+  leaderboardRows  LeaderboardSnapshot[]
+  auditLogs        AuditLog[]
+  messagesSent     DirectMessage[]    @relation("sender")
+  messagesReceived DirectMessage[]    @relation("recipient")
+  passwordResets   PasswordResetToken[]
+  emailVerifications EmailVerificationToken[]
+  blocking         UserBlock[]        @relation("blocker")
+  blockedBy        UserBlock[]        @relation("blocked")
+  chatReportsMade  ChatReport[]       @relation("chatReporter")
+  chatReportsAbout ChatReport[]       @relation("chatTarget")
+  chatReportsDone  ChatReport[]       @relation("chatResolver")
+  globalMessages   GlobalMessage[]    @relation("author")
+  moderatedGlobal  GlobalMessage[]    @relation("moderator")
+  cosmetics        UserCosmetic[]     @relation("owner")
+  cosmeticsGranted UserCosmetic[]     @relation("granter")
+  title            Cosmetic?          @relation("equippedTitle", fields: [titleId], references: [id], onDelete: SetNull)
+  badge            Cosmetic?          @relation("equippedBadge", fields: [badgeId], references: [id], onDelete: SetNull)
+  frame            Cosmetic?          @relation("equippedFrame", fields: [frameId], references: [id], onDelete: SetNull)
+
+  @@index([xp(sort: Desc)])
+  @@map("users")
+}
+
+/// Lien de confirmation de l'adresse email : seul le hash SHA-256 du jeton est stocké, valable 48 heures, à usage unique.
+model EmailVerificationToken {
+  id        String    @id @default(uuid(7)) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  email     String
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("email_verification_tokens")
+}
+
+/// Joueur bloqué : plus de messages privés, de demandes d'ami ni de duels entre eux ; ses messages du chat global sont masqués.
+model UserBlock {
+  blockerId String   @map("blocker_id") @db.Uuid
+  blockedId String   @map("blocked_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  blocker User @relation("blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked User @relation("blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@id([blockerId, blockedId])
+  @@index([blockedId])
+  @@map("user_blocks")
+}
+
+/// Lien « mot de passe oublié » : seul le hash SHA-256 du jeton est stocké, valable 1 heure, à usage unique.
+model PasswordResetToken {
+  id        String    @id @default(uuid(7)) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+model OAuthAccount {
+  id                String        @id @default(uuid(7)) @db.Uuid
+  userId            String        @map("user_id") @db.Uuid
+  provider          OAuthProvider
+  providerAccountId String        @map("provider_account_id")
+  providerUsername  String?       @map("provider_username")
+  createdAt         DateTime      @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@map("oauth_accounts")
+}
+
+/// Refresh tokens rotatifs : on ne stocke que le hash SHA-256.
+/// `familyId` permet de révoquer toute la chaîne en cas de réutilisation détectée.
+model RefreshToken {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  familyId   String    @map("family_id") @db.Uuid
+  tokenHash  String    @unique @map("token_hash")
+  userAgent  String?   @map("user_agent")
+  ip         String?   @db.Inet
+  expiresAt  DateTime  @map("expires_at")
+  revokedAt  DateTime? @map("revoked_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
+  @@map("refresh_tokens")
+}
+
+enum FriendshipStatus {
+  PENDING
+  ACCEPTED
+  BLOCKED
+}
+
+model Friendship {
+  requesterId String           @map("requester_id") @db.Uuid
+  addresseeId String           @map("addressee_id") @db.Uuid
+  status      FriendshipStatus @default(PENDING)
+  createdAt   DateTime         @default(now()) @map("created_at")
+  respondedAt DateTime?        @map("responded_at")
+
+  requester User @relation("requester", fields: [requesterId], references: [id], onDelete: Cascade)
+  addressee User @relation("addressee", fields: [addresseeId], references: [id], onDelete: Cascade)
+
+  @@id([requesterId, addresseeId])
+  @@index([addresseeId, status])
+  @@index([requesterId, status])
+  @@map("friendships")
+}
+
+// ----------------------------------------------------------------------------
+// Catalogue : jeux, rangs, clips
+// ----------------------------------------------------------------------------
+
+model Game {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  slug      String   @unique
+  name      String
+  iconUrl   String?  @map("icon_url")
+  accent    String   @default("#7C3AED")
+  isActive  Boolean  @default(true) @map("is_active")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  ranks       Rank[]
+  clips       Clip[]
+  stats       UserGameStats[]
+  achievements Achievement[]
+  dailies     DailyChallenge[]
+  versus      VersusMatch[]
+
+  @@map("games")
+}
+
+/// `order` est la position absolue du rang dans l'échelle du jeu (0 = plus bas).
+/// L'écart de score = |order(réponse) − order(réel)|.
+model Rank {
+  id       String  @id @default(uuid(7)) @db.Uuid
+  gameId   String  @map("game_id") @db.Uuid
+  name     String
+  tier     String
+  division Int?
+  order    Int
+  iconUrl  String? @map("icon_url")
+  color    String  @default("#A78BFA")
+
+  game    Game      @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  clips   Clip[]
+  guesses Guess[]
+  icon    RankIcon?
+
+  @@unique([gameId, order])
+  @@unique([gameId, name])
+  @@map("ranks")
+}
+
+/// Image d'un rang, envoyée depuis l'administration (PNG, JPEG ou WebP, 512 Ko max).
+/// Sans image, les écrans affichent un emblème généré aux couleurs du rang.
+model RankIcon {
+  rankId    String   @id @map("rank_id") @db.Uuid
+  mimeType  String   @map("mime_type")
+  data      Bytes
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  rank Rank @relation(fields: [rankId], references: [id], onDelete: Cascade)
+
+  @@map("rank_icons")
+}
+
+enum ClipStatus {
+  PROCESSING
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+  ARCHIVED
+}
+
+enum TriageDecision {
+  APPROVE
+  REJECT
+}
+
+enum ClipSource {
+  ADMIN
+  COMMUNITY
+}
+
+model Clip {
+  id              String     @id @default(uuid(7)) @db.Uuid
+  gameId          String     @map("game_id") @db.Uuid
+  rankId          String     @map("rank_id") @db.Uuid
+  uploaderId      String     @map("uploader_id") @db.Uuid
+  reviewerId      String?    @map("reviewer_id") @db.Uuid
+  source          ClipSource @default(ADMIN)
+  status          ClipStatus @default(PROCESSING)
+
+  storageKey      String     @unique @map("storage_key")
+  hlsKey          String?    @map("hls_key")
+  posterKey       String?    @map("poster_key")
+  durationSec     Float      @map("duration_sec")
+  difficulty      Int        @default(3) // 1..5, recalculée selon l'écart moyen des joueurs
+
+  /// Preuve du rang (lien match history, capture tracker…) — visible admin uniquement
+  proofUrl        String?    @map("proof_url")
+  creatorConsent  Boolean    @default(false) @map("creator_consent")
+  /// Pseudo du joueur filmé, tel qu'il apparaît dans le jeu (distinct du pseudo RankGuess de l'auteur de l'envoi)
+  inGamePseudo    String?    @map("in_game_pseudo") @db.VarChar(32)
+  platform        String?    @db.VarChar(20)
+  region          String?    @db.VarChar(20)
+  /// Message du joueur qui propose le clip (contexte, match…) — visible par la modération
+  submitterNote   String?    @map("submitter_note") @db.VarChar(300)
+  /// Motif communiqué au joueur quand le clip est refusé
+  rejectionReason String?    @map("rejection_reason") @db.VarChar(300)
+  reviewedAt      DateTime?  @map("reviewed_at")
+  /// Pré-tri par un trieur de clips : avis à confirmer par la modération (le clip reste en attente)
+  triageDecision  TriageDecision? @map("triage_decision")
+  /// Motif du pré-refus ou remarque pour la modération
+  triageNote      String?    @map("triage_note") @db.VarChar(300)
+  triagedById     String?    @map("triaged_by_id") @db.Uuid
+  triagedAt       DateTime?  @map("triaged_at")
+  /// Suppression par la modération : le clip disparaît partout, ses réponses restent dans les statistiques
+  deletedAt       DateTime?  @map("deleted_at")
+
+  /// Compression (720p, H.264) : date, taille d'origine et taille stockée
+  processedAt       DateTime? @map("processed_at")
+  originalSizeBytes Int?      @map("original_size_bytes")
+  sizeBytes         Int?      @map("size_bytes")
+  /// Fichiers vidéo supprimés du stockage (clip refusé depuis longtemps ou supprimé) : la fiche reste pour l'historique
+  fileDeletedAt     DateTime? @map("file_deleted_at")
+
+  // Statistiques agrégées (mises à jour par job)
+  timesPlayed     Int        @default(0) @map("times_played")
+  avgDistance     Float      @default(0) @map("avg_distance")
+  reportCount     Int        @default(0) @map("report_count")
+
+  createdAt       DateTime   @default(now()) @map("created_at")
+  updatedAt       DateTime   @updatedAt @map("updated_at")
+
+  game      Game             @relation(fields: [gameId], references: [id])
+  rank      Rank             @relation(fields: [rankId], references: [id])
+  uploader  User             @relation("uploader", fields: [uploaderId], references: [id])
+  reviewer  User?            @relation("reviewer", fields: [reviewerId], references: [id])
+  triagedBy User?            @relation("triager", fields: [triagedById], references: [id], onDelete: SetNull)
+  guesses   Guess[]
+  reports   Report[]
+  dailies   DailyChallenge[]
+  versus    VersusClip[]
+
+  @@unique([id, gameId])
+  @@index([status, gameId, difficulty])
+  @@index([status, createdAt])
+  @@index([uploaderId, createdAt(sort: Desc)])
+  @@index([triagedById])
+  @@map("clips")
+}
+
+/// Un défi par jour ET par jeu, identique pour tous. Planifié par la modération, ou tiré au sort parmi les clips acceptés du jeu.
+/// La clé étrangère (clip_id, game_id) garantit que le clip appartient bien au jeu du défi.
+model DailyChallenge {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  date      DateTime @db.Date
+  gameId    String   @map("game_id") @db.Uuid
+  clipId    String   @map("clip_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  game    Game    @relation(fields: [gameId], references: [id])
+  clip    Clip    @relation(fields: [clipId, gameId], references: [id, gameId])
+  guesses Guess[]
+
+  @@unique([date, gameId])
+  @@index([clipId])
+  @@map("daily_challenges")
+}
+
+// ----------------------------------------------------------------------------
+// Jeu : réponses, parties infinies, stats
+// ----------------------------------------------------------------------------
+
+enum GameMode {
+  DAILY
+  INFINITE
+  VERSUS
+  EXCLUSIVE // modes Premium (ex. "Pro scene", "Blind 10s")
+}
+
+model Guess {
+  id               String    @id @default(uuid(7)) @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  clipId           String    @map("clip_id") @db.Uuid
+  guessedRankId    String    @map("guessed_rank_id") @db.Uuid
+  mode             GameMode
+  dailyChallengeId String?   @map("daily_challenge_id") @db.Uuid
+  infiniteRunId    String?   @map("infinite_run_id") @db.Uuid
+  versusMatchId    String?   @map("versus_match_id") @db.Uuid
+  distance         Int
+  score            Int
+  xpGained         Int       @map("xp_gained")
+  watchedMs        Int       @map("watched_ms")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clip           Clip            @relation(fields: [clipId], references: [id])
+  guessedRank    Rank            @relation(fields: [guessedRankId], references: [id])
+  dailyChallenge DailyChallenge? @relation(fields: [dailyChallengeId], references: [id])
+  infiniteRun    InfiniteRun?    @relation(fields: [infiniteRunId], references: [id])
+  versusMatch    VersusMatch?    @relation(fields: [versusMatchId], references: [id], onDelete: Cascade)
+
+  /// Une seule réponse par joueur et par défi quotidien, donc par jeu et par jour (NULL autorisés pour le mode Infini)
+  @@unique([userId, dailyChallengeId])
+  @@unique([userId, clipId, infiniteRunId])
+  /// Une seule réponse par joueur et par clip d'un duel
+  @@unique([userId, versusMatchId, clipId])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([clipId])
+  @@map("guesses")
+}
+
+model InfiniteRun {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  lives       Int       @default(3)
+  difficulty  Int       @default(1)
+  score       Int       @default(0)
+  clipsPlayed Int       @default(0) @map("clips_played")
+  startedAt   DateTime  @default(now()) @map("started_at")
+  endedAt     DateTime? @map("ended_at")
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  guesses Guess[]
+
+  @@index([userId, score(sort: Desc)])
+  @@map("infinite_runs")
+}
+
+model UserGameStats {
+  userId        String @map("user_id") @db.Uuid
+  gameId        String @map("game_id") @db.Uuid
+  guesses       Int    @default(0)
+  exact         Int    @default(0)
+  totalDistance Int    @default(0) @map("total_distance")
+  totalScore    Int    @default(0) @map("total_score")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  game Game @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  @@id([userId, gameId])
+  @@map("user_game_stats")
+}
+
+// ----------------------------------------------------------------------------
+// Succès
+// ----------------------------------------------------------------------------
+
+enum AchievementCategory {
+  PROGRESSION
+  STREAK
+  ACCURACY
+  GAME_EXPERT
+  SOCIAL
+  SEASON
+  VERSUS
+  SECRET
+}
+
+/// `criteria` est interprété par l'AchievementEngine, ex. :
+/// { "type": "exact_guesses", "threshold": 100 }
+/// { "type": "daily_streak", "threshold": 7 }
+/// { "type": "game_exact", "game": "valorant", "threshold": 50 }
+/// { "type": "win_streak", "threshold": 10 }               réponses exactes consécutives
+/// { "type": "season_rank", "season": 1, "maxRank": 1 }    attribué à la clôture de la saison (mois)
+model Achievement {
+  id          String              @id @default(uuid(7)) @db.Uuid
+  code        String              @unique
+  name        String
+  description String
+  iconUrl     String?             @map("icon_url")
+  category    AchievementCategory
+  gameId      String?             @map("game_id") @db.Uuid
+  criteria    Json
+  xpReward    Int                 @default(0) @map("xp_reward")
+  isHidden    Boolean             @default(false) @map("is_hidden")
+  isActive    Boolean             @default(true) @map("is_active")
+  createdAt   DateTime            @default(now()) @map("created_at")
+
+  game  Game?             @relation(fields: [gameId], references: [id])
+  users UserAchievement[]
+  rewards Cosmetic[]
+
+  @@map("achievements")
+}
+
+model UserAchievement {
+  userId        String   @map("user_id") @db.Uuid
+  achievementId String   @map("achievement_id") @db.Uuid
+  unlockedAt    DateTime @default(now()) @map("unlocked_at")
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievement Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+
+  @@id([userId, achievementId])
+  @@map("user_achievements")
+}
+
+// ----------------------------------------------------------------------------
+// Classements
+// Le temps réel vit dans Redis (sorted sets). Cette table archive les
+// classements clôturés (jour, semaine, saison) pour l'historique et l'anti-triche.
+// ----------------------------------------------------------------------------
+
+enum LeaderboardPeriod {
+  DAILY
+  WEEKLY
+  SEASON
+  ALL_TIME
+  INFINITE
+}
+
+model LeaderboardSnapshot {
+  id          String            @id @default(uuid(7)) @db.Uuid
+  period      LeaderboardPeriod
+  periodKey   String            @map("period_key") // 2026-10-05 (jour) · 2026-10 (saison) · 2026-10:valorant (saison, par jeu)
+  userId      String            @map("user_id") @db.Uuid
+  position    Int
+  score       Int
+  createdAt   DateTime          @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([period, periodKey, userId])
+  @@index([period, periodKey, position])
+  @@map("leaderboard_snapshots")
+}
+
+// ----------------------------------------------------------------------------
+// Modération
+// ----------------------------------------------------------------------------
+
+enum ReportReason {
+  WRONG_RANK
+  INAPPROPRIATE
+  LOW_QUALITY
+  SPOILER_UI
+  COPYRIGHT
+  OTHER
+}
+
+enum ReportStatus {
+  OPEN
+  IN_REVIEW
+  RESOLVED
+  DISMISSED
+}
+
+model Report {
+  id           String       @id @default(uuid(7)) @db.Uuid
+  clipId       String       @map("clip_id") @db.Uuid
+  reporterId   String       @map("reporter_id") @db.Uuid
+  reason       ReportReason
+  details      String?      @db.VarChar(500)
+  status       ReportStatus @default(OPEN)
+  resolverId   String?      @map("resolver_id") @db.Uuid
+  resolution   String?
+  resolvedAt   DateTime?    @map("resolved_at")
+  createdAt    DateTime     @default(now()) @map("created_at")
+
+  clip     Clip  @relation(fields: [clipId], references: [id], onDelete: Cascade)
+  reporter User  @relation("reporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  resolver User? @relation("resolver", fields: [resolverId], references: [id])
+
+  @@unique([clipId, reporterId])
+  @@index([status, createdAt])
+  @@map("reports")
+}
+
+// ----------------------------------------------------------------------------
+// Monétisation, notifications, audit
+// ----------------------------------------------------------------------------
+
+enum SubscriptionProvider {
+  STRIPE
+  APPLE
+  GOOGLE_PLAY
+  MANUAL // VIP offert depuis l'administration
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  TRIALING
+  PAST_DUE
+  CANCELED
+  EXPIRED
+}
+
+model Subscription {
+  id               String               @id @default(uuid(7)) @db.Uuid
+  userId           String               @unique @map("user_id") @db.Uuid
+  provider         SubscriptionProvider
+  externalId       String               @unique @map("external_id")
+  plan             String               // premium_monthly | premium_yearly
+  status           SubscriptionStatus
+  currentPeriodEnd DateTime             @map("current_period_end")
+  cancelAtPeriodEnd Boolean             @default(false) @map("cancel_at_period_end")
+  createdAt        DateTime             @default(now()) @map("created_at")
+  updatedAt        DateTime             @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("subscriptions")
+}
+
+enum PurchaseStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED // remboursé (Google Play ou équipe) : les jours de VIP correspondants ont été retirés
+}
+
+/// Achat d'un pass VIP (boutique) ou VIP offert par l'équipe. Chaque achat payé prolonge l'abonnement de `days` jours.
+/// `externalId` = identifiant de la session de paiement Stripe ou jeton d'achat Google Play : garantit qu'un paiement n'est crédité qu'une fois.
+model Purchase {
+  id          String               @id @default(uuid(7)) @db.Uuid
+  userId      String               @map("user_id") @db.Uuid
+  product     String               // vip_1m | vip_3m | vip_12m | manual
+  days        Int
+  amountCents Int                  @map("amount_cents")
+  currency    String               @default("eur")
+  provider    SubscriptionProvider
+  externalId  String?              @unique @map("external_id")
+  status      PurchaseStatus       @default(PENDING)
+  grantedById String?              @map("granted_by_id") @db.Uuid
+  createdAt   DateTime             @default(now()) @map("created_at")
+  paidAt      DateTime?            @map("paid_at")
+  /// Le joueur a demandé l'exécution immédiate et renoncé à son droit de rétractation (contenu numérique, art. L221-28 du Code de la consommation)
+  withdrawalWaivedAt DateTime?     @map("withdrawal_waived_at")
+  /// Numéro de commande du magasin d'applications (Google Play : GPA.xxxx), utile au support
+  orderId     String?              @map("order_id")
+  refundedAt  DateTime?            @map("refunded_at")
+  /// Achat offert : à un ami (recipientId) ou sous forme de code cadeau (giftCode)
+  giftType    GiftType?            @map("gift_type")
+  recipientId String?              @map("recipient_id") @db.Uuid
+
+  user      User      @relation("buyer", fields: [userId], references: [id], onDelete: Cascade)
+  grantedBy User?     @relation("granter", fields: [grantedById], references: [id], onDelete: SetNull)
+  recipient User?     @relation("giftRecipient", fields: [recipientId], references: [id], onDelete: SetNull)
+  giftCode  GiftCode?
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("purchases")
+}
+
+enum GiftType {
+  FRIEND // VIP offert directement à un ami
+  CODE   // code cadeau à transmettre
+}
+
+/// Code cadeau VIP : acheté pour l'offrir (un seul usage) ou créé par l'équipe (concours, créateurs…, plusieurs usages possibles).
+/// Seule l'empreinte SHA-256 sert à la recherche ; le code est aussi gardé chiffré pour être réaffiché à son propriétaire.
+model GiftCode {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  codeHash    String    @unique @map("code_hash")
+  codeEnc     String    @map("code_enc")
+  days        Int
+  maxUses     Int       @default(1) @map("max_uses")
+  uses        Int       @default(0)
+  expiresAt   DateTime? @map("expires_at")
+  purchaseId  String?   @unique @map("purchase_id") @db.Uuid
+  createdById String?   @map("created_by_id") @db.Uuid
+  /// Raison interne (ex. « concours Discord »)
+  note        String?   @db.VarChar(200)
+  disabledAt  DateTime? @map("disabled_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  purchase    Purchase?        @relation(fields: [purchaseId], references: [id], onDelete: SetNull)
+  createdBy   User?            @relation("giftCodeCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  redemptions GiftRedemption[]
+
+  @@map("gift_codes")
+}
+
+model GiftRedemption {
+  codeId     String   @map("code_id") @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  redeemedAt DateTime @default(now()) @map("redeemed_at")
+
+  code GiftCode @relation(fields: [codeId], references: [id], onDelete: Cascade)
+  user User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([codeId, userId])
+  @@index([userId])
+  @@map("gift_redemptions")
+}
+
+enum Platform {
+  IOS
+  ANDROID
+  WEB
+}
+
+model PushToken {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  token     String   @unique
+  platform  Platform
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("push_tokens")
+}
+
+/// Toute action d'administration est journalisée (qui, quoi, quand).
+model AuditLog {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  actorId    String   @map("actor_id") @db.Uuid
+  action     String   // clip.approve, user.ban, report.resolve…
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id")
+  metadata   Json?
+  ip         String?  @db.Inet
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  actor User @relation(fields: [actorId], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ----------------------------------------------------------------------------
+// Messagerie privée entre amis
+// `conversationKey` = les deux identifiants triés et joints par ":" ; il sert
+// d'index unique pour lire l'historique d'une conversation sans OR coûteux.
+// ----------------------------------------------------------------------------
+
+model DirectMessage {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  conversationKey String    @map("conversation_key") @db.VarChar(73)
+  senderId        String    @map("sender_id") @db.Uuid
+  recipientId     String    @map("recipient_id") @db.Uuid
+  body            String    @db.VarChar(1000)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  readAt          DateTime? @map("read_at")
+
+  sender    User @relation("sender", fields: [senderId], references: [id], onDelete: Cascade)
+  recipient User @relation("recipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  reports   ChatReport[]
+
+  @@index([conversationKey, createdAt(sort: Desc)])
+  @@index([recipientId, readAt])
+  @@map("direct_messages")
+}
+
+// ----------------------------------------------------------------------------
+// Chat global : salon public commun à tous les joueurs connectés.
+// Distinct de la messagerie privée. Un message supprimé est masqué (deletedAt),
+// pas effacé, pour garder une trace de la modération.
+// ----------------------------------------------------------------------------
+
+model GlobalMessage {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  body        String    @db.VarChar(500)
+  createdAt   DateTime  @default(now()) @map("created_at")
+  deletedAt   DateTime? @map("deleted_at")
+  deletedById String?   @map("deleted_by_id") @db.Uuid
+  /// Masqué automatiquement après plusieurs signalements, en attente de décision (rétabli si le signalement est rejeté)
+  autoHidden  Boolean   @default(false) @map("auto_hidden")
+
+  user      User  @relation("author", fields: [userId], references: [id], onDelete: Cascade)
+  deletedBy User? @relation("moderator", fields: [deletedById], references: [id], onDelete: SetNull)
+  reports   ChatReport[]
+
+  @@index([createdAt(sort: Desc)])
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("global_messages")
+}
+
+// ----------------------------------------------------------------------------
+// Duels en direct : deux joueurs voient le même clip au même moment (5 manches de 30 s) ; le meilleur total gagne.
+// OPEN    : recherche « joueur au hasard » en attente d'un adversaire (tant que son auteur reste sur la page)
+// PENDING : invitation envoyée à un ami, qui doit l'accepter pendant que l'auteur attend
+// ACTIVE  : duel en cours (manche courante, début et fin du chrono) · FINISHED : 5 manches jouées ou abandon
+// ----------------------------------------------------------------------------
+
+enum VersusStatus {
+  OPEN
+  PENDING
+  ACTIVE
+  FINISHED
+  DECLINED
+  EXPIRED
+  CANCELED
+}
+
+model VersusMatch {
+  id                 String       @id @default(uuid(7)) @db.Uuid
+  creatorId          String       @map("creator_id") @db.Uuid
+  opponentId         String?      @map("opponent_id") @db.Uuid
+  /// Jeu imposé, ou NULL pour des clips de tous les jeux
+  gameId             String?      @map("game_id") @db.Uuid
+  random             Boolean      @default(false)
+  status             VersusStatus
+  rounds             Int          @default(5)
+  creatorScore       Int          @default(0) @map("creator_score")
+  opponentScore      Int          @default(0) @map("opponent_score")
+  /// Duel en direct : manche en cours (0 = pas commencé), début (après le compte à rebours) et fin de la manche
+  currentRound       Int          @default(0) @map("current_round")
+  roundStartsAt      DateTime?    @map("round_starts_at")
+  roundEndsAt        DateTime?    @map("round_ends_at")
+  /// Joueur qui a abandonné en cours de duel (l'autre gagne)
+  forfeitedById      String?      @map("forfeited_by_id") @db.Uuid
+  /// NULL si égalité ou duel non terminé
+  winnerId           String?      @map("winner_id") @db.Uuid
+  createdAt          DateTime     @default(now()) @map("created_at")
+  acceptedAt         DateTime?    @map("accepted_at")
+  finishedAt         DateTime?    @map("finished_at")
+  expiresAt          DateTime     @map("expires_at")
+
+  creator  User         @relation("versusCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  opponent User?        @relation("versusOpponent", fields: [opponentId], references: [id], onDelete: Cascade)
+  winner   User?        @relation("versusWinner", fields: [winnerId], references: [id], onDelete: SetNull)
+  game     Game?        @relation(fields: [gameId], references: [id])
+  clips    VersusClip[]
+  guesses  Guess[]
+
+  @@index([status, gameId, createdAt])
+  @@index([creatorId, createdAt(sort: Desc)])
+  @@index([opponentId, createdAt(sort: Desc)])
+  @@index([status, expiresAt])
+  @@index([status, roundEndsAt])
+  @@map("versus_matches")
+}
+
+model VersusClip {
+  matchId  String @map("match_id") @db.Uuid
+  position Int
+  clipId   String @map("clip_id") @db.Uuid
+
+  match VersusMatch @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  clip  Clip        @relation(fields: [clipId], references: [id])
+
+  @@id([matchId, position])
+  @@unique([matchId, clipId])
+  @@map("versus_clips")
+}
+
+// ----------------------------------------------------------------------------
+// Signalements de joueurs (chat global, messages privés, profil)
+// ----------------------------------------------------------------------------
+
+enum ChatReportReason {
+  HARASSMENT
+  HATE
+  SPAM
+  CHEATING
+  INAPPROPRIATE_NAME
+  INAPPROPRIATE_AVATAR
+  OTHER
+}
+
+model ChatReport {
+  id              String           @id @default(uuid(7)) @db.Uuid
+  reporterId      String           @map("reporter_id") @db.Uuid
+  targetUserId    String           @map("target_user_id") @db.Uuid
+  globalMessageId String?          @map("global_message_id") @db.Uuid
+  directMessageId String?          @map("direct_message_id") @db.Uuid
+  reason          ChatReportReason
+  details         String?          @db.VarChar(500)
+  /// Copie du message signalé au moment du signalement (il peut être supprimé ensuite)
+  excerpt         String?          @db.VarChar(1000)
+  status          ReportStatus     @default(OPEN)
+  resolverId      String?          @map("resolver_id") @db.Uuid
+  resolution      String?          @db.VarChar(300)
+  resolvedAt      DateTime?        @map("resolved_at")
+  createdAt       DateTime         @default(now()) @map("created_at")
+
+  reporter      User           @relation("chatReporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  target        User           @relation("chatTarget", fields: [targetUserId], references: [id], onDelete: Cascade)
+  resolver      User?          @relation("chatResolver", fields: [resolverId], references: [id], onDelete: SetNull)
+  globalMessage GlobalMessage? @relation(fields: [globalMessageId], references: [id], onDelete: SetNull)
+  directMessage DirectMessage? @relation(fields: [directMessageId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([targetUserId])
+  @@map("chat_reports")
+}
+
+// ----------------------------------------------------------------------------
+// Récompenses : titres (sous le pseudo), badges (à côté du pseudo) et cadres d'avatar.
+// Obtenues automatiquement (niveau atteint, succès, classement de fin de saison) ou attribuées par l'équipe.
+// ----------------------------------------------------------------------------
+
+enum CosmeticType {
+  TITLE
+  BADGE
+  FRAME
+}
+
+enum CosmeticSource {
+  MANUAL      // attribuée depuis l'administration
+  LEVEL       // palier de niveau atteint
+  ACHIEVEMENT // succès obtenu
+  SEASON      // classement de fin de saison
+}
+
+model Cosmetic {
+  id          String       @id @default(uuid(7)) @db.Uuid
+  /// Identifiant stable (ex. title-youtubeur, season-1-champion)
+  key         String       @unique
+  type        CosmeticType
+  name        String       @db.VarChar(40)
+  description String?      @db.VarChar(200)
+  /// Couleur principale (#RRGGBB) ; cadre : couleur de départ du dégradé
+  color       String       @db.VarChar(7)
+  /// Cadre : couleur de fin du dégradé (vide = couleur unie)
+  color2      String?      @db.VarChar(7)
+  /// Badge : icône (clé de la liste BADGE_ICONS)
+  icon        String?      @db.VarChar(24)
+  /// Obtenue automatiquement en atteignant ce niveau
+  unlockLevel Int?         @map("unlock_level")
+  /// Obtenue automatiquement avec ce succès
+  unlockAchievementId String? @map("unlock_achievement_id") @db.Uuid
+  /// Masquée = plus attribuable ni équipable (les joueurs qui l'ont la gardent dans l'historique)
+  isActive    Boolean      @default(true) @map("is_active")
+  createdAt   DateTime     @default(now()) @map("created_at")
+
+  unlockAchievement Achievement?  @relation(fields: [unlockAchievementId], references: [id], onDelete: SetNull)
+  owners            UserCosmetic[]
+  titleOf           User[]        @relation("equippedTitle")
+  badgeOf           User[]        @relation("equippedBadge")
+  frameOf           User[]        @relation("equippedFrame")
+
+  @@index([unlockLevel])
+  @@map("cosmetics")
+}
+
+model UserCosmetic {
+  userId      String         @map("user_id") @db.Uuid
+  cosmeticId  String         @map("cosmetic_id") @db.Uuid
+  source      CosmeticSource
+  grantedAt   DateTime       @default(now()) @map("granted_at")
+  grantedById String?        @map("granted_by_id") @db.Uuid
+  /// Raison visible par l'équipe (ex. « chaîne YouTube vérifiée »)
+  note        String?        @db.VarChar(200)
+  /// Le joueur a vu cette nouvelle récompense
+  seenAt      DateTime?      @map("seen_at")
+
+  user      User     @relation("owner", fields: [userId], references: [id], onDelete: Cascade)
+  cosmetic  Cosmetic @relation(fields: [cosmeticId], references: [id], onDelete: Cascade)
+  grantedBy User?    @relation("granter", fields: [grantedById], references: [id], onDelete: SetNull)
+
+  @@id([userId, cosmeticId])
+  @@index([cosmeticId])
+  @@map("user_cosmetics")
+}
+
+// ----------------------------------------------------------------------------
+// Réglages modifiables depuis l'administration (filtre de mots du chat, mode lent…)
+// ----------------------------------------------------------------------------
+
+model AppSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedById String? @map("updated_by_id") @db.Uuid
+
+  @@map("app_settings")
+}

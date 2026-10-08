@@ -1,0 +1,118 @@
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { GAME_PLATFORMS, type GameSlug, type MyClipDto, type SubmissionStatus, type SubmitClipInput, type UploadUrlInput } from "@ranksight/shared";
+import type { ClipStatus } from "../../generated/prisma/client.js";
+import { PrismaService } from "../../prisma/prisma.service.js";
+import { StorageService } from "../storage/storage.service.js";
+import { ModerationService } from "../moderation/moderation.service.js";
+import { ClipProcessingService } from "./clip-processing.service.js";
+import { ClipRemovalService } from "./clip-removal.service.js";
+
+/** Nombre maximum de clips en attente de validation par joueur. */
+const MAX_PENDING_PER_USER = 5;
+
+export function submissionStatus(status: ClipStatus): SubmissionStatus {
+  if (status === "APPROVED") return "ACCEPTED";
+  if (status === "REJECTED" || status === "ARCHIVED") return "REJECTED";
+  return "PENDING";
+}
+
+/** Clips proposés par les joueurs : envoi, suivi ("Mes clips") et retrait d'un clip en attente. */
+@Injectable()
+export class SubmissionsService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly storage: StorageService,
+    private readonly removal: ClipRemovalService,
+    private readonly processing: ClipProcessingService,
+    private readonly moderation: ModerationService,
+  ) {}
+
+  async uploadUrl(userId: string, input: UploadUrlInput) {
+    await this.moderation.assertVerified(userId);
+    await this.assertQuota(userId);
+    return this.storage.createUploadUrl(input.contentType, input.sizeBytes);
+  }
+
+  async submit(userId: string, input: SubmitClipInput): Promise<MyClipDto> {
+    await this.moderation.assertVerified(userId);
+    await this.assertQuota(userId);
+    const rank = await this.prisma.rank.findUnique({ where: { id: input.rankId }, include: { game: true } });
+    if (!rank || rank.gameId !== input.gameId || !rank.game.isActive) throw new BadRequestException("Ce rang n'appartient pas à ce jeu.");
+    if (input.platform && !(GAME_PLATFORMS[rank.game.slug as GameSlug] ?? []).includes(input.platform)) {
+      throw new BadRequestException(`Cette plateforme n'existe pas pour ${rank.game.name}.`);
+    }
+    if (!(await this.storage.exists(input.storageKey))) {
+      throw new BadRequestException("La vidéo n'a pas été reçue. Réessaie l'envoi.");
+    }
+    if (await this.prisma.clip.findUnique({ where: { storageKey: input.storageKey } })) throw new ConflictException("Cette vidéo a déjà été proposée.");
+
+    const clip = await this.prisma.clip.create({
+      data: {
+        gameId: input.gameId,
+        rankId: input.rankId,
+        uploaderId: userId,
+        source: "COMMUNITY",
+        status: "PENDING_REVIEW",
+        storageKey: input.storageKey,
+        durationSec: input.durationSec,
+        inGamePseudo: input.inGamePseudo,
+        platform: input.platform ?? null,
+        region: input.region ?? null,
+        proofUrl: input.proofUrl,
+        submitterNote: input.note,
+        creatorConsent: true,
+      },
+      include: { game: true, rank: true },
+    });
+    // Compression en arrière-plan (720p) ; le joueur n'attend pas
+    void this.processing.enqueue(clip.id);
+    return this.toDto(clip);
+  }
+
+  async mine(userId: string): Promise<MyClipDto[]> {
+    const clips = await this.prisma.clip.findMany({
+      where: { uploaderId: userId, deletedAt: null },
+      include: { game: true, rank: true },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    });
+    return Promise.all(clips.map((c) => this.toDto(c)));
+  }
+
+  /** Le joueur peut supprimer n'importe lequel de ses clips : en attente, accepté ou refusé. */
+  async withdraw(userId: string, clipId: string) {
+    const clip = await this.prisma.clip.findUnique({ where: { id: clipId }, select: { uploaderId: true, deletedAt: true } });
+    if (!clip || clip.uploaderId !== userId || clip.deletedAt) throw new NotFoundException("Clip introuvable.");
+    await this.removal.remove(clipId);
+  }
+
+  private async assertQuota(userId: string) {
+    const pending = await this.prisma.clip.count({ where: { uploaderId: userId, status: { in: ["PENDING_REVIEW", "PROCESSING"] }, deletedAt: null } });
+    if (pending >= MAX_PENDING_PER_USER) {
+      throw new ConflictException({ code: "TOO_MANY_PENDING", message: `Tu as déjà ${MAX_PENDING_PER_USER} clips en attente de validation.` });
+    }
+  }
+
+  private async toDto(c: {
+    id: string; status: ClipStatus; rejectionReason: string | null;
+    inGamePseudo: string | null; platform: string | null; region: string | null; timesPlayed: number; createdAt: Date; reviewedAt: Date | null; storageKey: string; fileDeletedAt: Date | null;
+    game: { slug: string; name: string }; rank: { name: string; color: string };
+  }): Promise<MyClipDto> {
+    const status = submissionStatus(c.status);
+    return {
+      id: c.id,
+      game: { slug: c.game.slug, name: c.game.name },
+      rank: { name: c.rank.name, color: c.rank.color },
+      inGamePseudo: c.inGamePseudo,
+      platform: c.platform,
+      region: c.region,
+      status,
+      rejectionReason: status === "REJECTED" ? c.rejectionReason ?? "Ce clip ne respecte pas les règles de publication." : null,
+      timesPlayed: c.timesPlayed,
+      createdAt: c.createdAt.toISOString(),
+      reviewedAt: c.reviewedAt?.toISOString() ?? null,
+      // Vidéo d'un clip refusé depuis plus de 14 jours : supprimée du stockage
+      previewUrl: c.fileDeletedAt ? null : await this.storage.signedReadUrl(c.storageKey),
+    };
+  }
+}

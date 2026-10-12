@@ -8,6 +8,8 @@ loadEnvConfig(path.resolve(process.cwd(), "../.."));
 const apiOrigin = process.env.API_PUBLIC_URL ?? "http://localhost:4000";
 const api = process.env.NEXT_PUBLIC_API_URL ?? `${apiOrigin}/v1`;
 const apiHost = new URL(api).origin;
+// Stockage S3/R2 en production : les vidéos sont envoyées directement depuis le navigateur (URL signées)
+const storageOrigin = process.env.S3_ENDPOINT ? new URL(process.env.S3_ENDPOINT).origin : "";
 const dev = process.env.NODE_ENV !== "production";
 
 /** Administration : politique de sécurité stricte (aucune ressource externe, pas d'intégration dans un cadre) */
@@ -18,7 +20,7 @@ const csp = [
   "font-src 'self'",
   `img-src 'self' data: blob: https: ${apiHost}${dev ? " http:" : ""}`,
   `media-src 'self' blob: https: ${apiHost}${dev ? " http:" : ""}`,
-  `connect-src 'self' ${apiHost} ${apiHost.replace(/^http/, "ws")}`,
+  `connect-src 'self' ${apiHost} ${apiHost.replace(/^http/, "ws")}${storageOrigin ? ` ${storageOrigin}` : ""}`,
   `form-action 'self' ${apiHost}`,
   "frame-ancestors 'none'",
   "base-uri 'self'",

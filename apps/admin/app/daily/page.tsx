@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { DAILY_PER_GAME } from "@ranksight/shared";
 import { adminFetch, API } from "@/lib/api";
 import { useConfirm } from "@/lib/confirm";
 
 type Day = {
-  id: string; date: string;
+  id: string; date: string; slot: number;
   game: { slug: string; name: string };
   clip: { id: string; inGamePseudo: string | null; rank: { name: string } };
   _count: { guesses: number };
@@ -15,7 +16,7 @@ type Approved = { id: string; createdAt: string; inGamePseudo: string | null; ra
 
 const todayUtc = () => new Date().toISOString().slice(0, 10);
 
-/** Défis du jour : un clip par jeu et par jour. Objectif : au moins 7 jours d'avance pour chaque jeu. */
+/** Défis du jour : 3 clips par jeu et par jour. Objectif : au moins 7 jours d'avance pour chaque jeu. */
 export default function DailyPlanning() {
   const confirm = useConfirm();
   const [days, setDays] = useState<Day[]>([]);
@@ -24,6 +25,8 @@ export default function DailyPlanning() {
   const [approved, setApproved] = useState<Approved[]>([]);
   const [date, setDate] = useState(todayUtc());
   const [clipId, setClipId] = useState("");
+  /** Numéro du défi (0 = première place libre du jour) */
+  const [slot, setSlot] = useState(0);
   const [status, setStatus] = useState<string | null>(null);
 
   const loadDays = useCallback(() => {
@@ -38,17 +41,20 @@ export default function DailyPlanning() {
     });
   }, [loadDays]);
 
-  useEffect(() => {
+  // Clips acceptés jamais passés en défi : un clip planifié pour une journée disparaît de la liste
+  const loadApproved = useCallback(() => {
     if (!game) return;
-    void adminFetch<{ items: Approved[] }>(`/clips?status=APPROVED&game=${game}`).then((r) => setApproved(r.items));
+    void adminFetch<{ items: Approved[] }>(`/clips?status=AVAILABLE&game=${game}`).then((r) => setApproved(r.items));
   }, [game]);
+  useEffect(loadApproved, [loadApproved]);
 
   const schedule = async () => {
     try {
-      await adminFetch("/daily", { method: "PUT", body: JSON.stringify({ date, clipId }) });
-      setStatus(`Clip ${games.find((g) => g.slug === game)?.name} planifié pour le ${date}.`);
+      const r = await adminFetch<{ slot: number }>("/daily", { method: "PUT", body: JSON.stringify({ date, clipId, ...(slot ? { slot } : {}) }) });
+      setStatus(`Clip ${games.find((g) => g.slug === game)?.name} planifié pour le ${date} (défi n° ${r.slot}).`);
       setClipId("");
       loadDays();
+      loadApproved();
     } catch (e) {
       setStatus((e as Error).message);
     }
@@ -64,11 +70,12 @@ export default function DailyPlanning() {
     if (ok === false) return;
     try {
       await adminFetch(`/daily/${c.id}`, { method: "DELETE" });
-      setStatus("Clip retiré du planning.");
+      setStatus("Clip retiré du planning : il est de nouveau proposé dans la liste.");
     } catch (e) {
       setStatus((e as Error).message);
     }
     loadDays();
+    loadApproved();
   };
 
   /** Supprime le clip : il disparaît du jeu, le défi est remplacé immédiatement */
@@ -90,18 +97,25 @@ export default function DailyPlanning() {
   };
 
   const dates = [...new Set(days.map((d) => d.date.slice(0, 10)))].sort();
-  const cell = (d: string, slug: string) => days.find((x) => x.date.slice(0, 10) === d && x.game.slug === slug);
+  const cell = (d: string, slug: string) => days.filter((x) => x.date.slice(0, 10) === d && x.game.slug === slug).sort((a, b) => a.slot - b.slot);
 
   return (
     <div className="space-y-6">
       <h1 className="font-display text-2xl font-bold">Défis du jour</h1>
-      <p className="text-sm text-muted">Un clip par jeu et par jour. Un jour sans planification reçoit automatiquement un clip accepté du jeu, tiré au sort.</p>
+      <p className="text-sm text-muted">
+        {DAILY_PER_GAME} clips par jeu et par jour. Un défi sans planification reçoit automatiquement un clip accepté du jeu, tiré
+        au sort (jamais deux fois le même clip le même jour).
+      </p>
       <ul className="flex flex-wrap gap-3">
         {games.map((g) => {
-          const ahead = days.filter((d) => d.game.slug === g.slug && d.date.slice(0, 10) > todayUtc()).length;
+          // Jours à venir dont les 3 défis sont prévus
+          const future = days.filter((d) => d.game.slug === g.slug && d.date.slice(0, 10) > todayUtc());
+          const perDay = new Map<string, number>();
+          for (const d of future) perDay.set(d.date.slice(0, 10), (perDay.get(d.date.slice(0, 10)) ?? 0) + 1);
+          const ahead = [...perDay.values()].filter((n) => n >= DAILY_PER_GAME).length;
           return (
             <li key={g.slug} className={`glass px-4 py-2 text-sm ${ahead < 7 ? "text-warn" : "text-success"}`}>
-              {g.name} : {ahead} jour(s) d&apos;avance
+              {g.name} : {ahead} jour(s) complet(s) d&apos;avance · {future.length} clip(s) prévu(s)
             </li>
           );
         })}
@@ -112,6 +126,10 @@ export default function DailyPlanning() {
           {games.map((g) => <option key={g.slug} value={g.slug}>{g.name}</option>)}
         </select>
         <input type="date" value={date} min={todayUtc()} onChange={(e) => setDate(e.target.value)} className="rounded-lg border border-line bg-surface p-2" />
+        <select value={slot} onChange={(e) => setSlot(Number(e.target.value))} aria-label="Numéro du défi" className="rounded-lg border border-line bg-surface p-2 text-sm">
+          <option value={0}>Première place libre</option>
+          {Array.from({ length: DAILY_PER_GAME }, (_, i) => <option key={i + 1} value={i + 1}>Défi n° {i + 1}</option>)}
+        </select>
         <select value={clipId} onChange={(e) => setClipId(e.target.value)} className="flex-1 rounded-lg border border-line bg-surface p-2 text-sm">
           <option value="">Choisir un clip accepté</option>
           {approved.map((c) => (
@@ -120,7 +138,7 @@ export default function DailyPlanning() {
         </select>
         <button onClick={schedule} disabled={!date || !clipId} className="btn-primary !py-2">Planifier</button>
       </div>
-      {game && approved.length === 0 && <p className="text-sm text-muted">Aucun clip accepté pour ce jeu pour le moment.</p>}
+      {game && approved.length === 0 && <p className="text-sm text-muted">Aucun clip accepté et pas encore passé en défi pour ce jeu.</p>}
       {status && <p className="text-sm">{status}</p>}
       <p className="text-xs text-muted">
         Les défis changent à minuit UTC (2 h du matin à Paris en été). Un défi auquel des joueurs ont déjà répondu ne peut plus être
@@ -141,25 +159,35 @@ export default function DailyPlanning() {
               <tr key={d} className="border-t border-line/60">
                 <td className="p-3 whitespace-nowrap">{new Date(`${d}T00:00:00Z`).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" })}</td>
                 {games.map((g) => {
-                  const c = cell(d, g.slug);
+                  const list = cell(d, g.slug);
                   return (
-                    <td key={g.slug} className="p-3">
-                      {c ? (
-                        <>
-                          <p className="font-medium">{c.clip.rank.name}</p>
-                          <p className="text-xs text-muted">{c.clip.inGamePseudo ?? "—"} · {c._count.guesses} réponse(s)</p>
-                          {d >= todayUtc() && (
-                            <p className="mt-1 flex gap-2 text-xs">
-                              {c._count.guesses === 0 && (
-                                <button onClick={() => unschedule(c)} className="text-muted hover:text-ink">Retirer</button>
+                    <td key={g.slug} className="p-3 align-top">
+                      <ol className="space-y-2">
+                        {Array.from({ length: DAILY_PER_GAME }, (_, i) => {
+                          const c = list.find((x) => x.slot === i + 1);
+                          return (
+                            <li key={i} className="text-xs">
+                              <span className="text-muted">{i + 1}. </span>
+                              {c ? (
+                                <>
+                                  <span className="font-medium text-ink">{c.clip.rank.name}</span>
+                                  <span className="text-muted"> · {c.clip.inGamePseudo ?? "—"} · {c._count.guesses} rép.</span>
+                                  {d >= todayUtc() && (
+                                    <span className="ml-2 inline-flex gap-2">
+                                      {c._count.guesses === 0 && (
+                                        <button onClick={() => unschedule(c)} className="text-muted hover:text-ink">Retirer</button>
+                                      )}
+                                      <button onClick={() => removeClip(c)} className="text-muted hover:text-danger">Supprimer</button>
+                                    </span>
+                                  )}
+                                </>
+                              ) : (
+                                <span className="text-muted">Tirage au sort</span>
                               )}
-                              <button onClick={() => removeClip(c)} className="text-muted hover:text-danger">Supprimer le clip</button>
-                            </p>
-                          )}
-                        </>
-                      ) : (
-                        <span className="text-muted">Tirage au sort</span>
-                      )}
+                            </li>
+                          );
+                        })}
+                      </ol>
                     </td>
                   );
                 })}

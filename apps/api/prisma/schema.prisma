@@ -128,6 +128,8 @@ model User {
   moderatedGlobal  GlobalMessage[]    @relation("moderator")
   cosmetics        UserCosmetic[]     @relation("owner")
   cosmeticsGranted UserCosmetic[]     @relation("granter")
+  suggestions      Suggestion[]       @relation("suggestionAuthor")
+  suggestionsReplied Suggestion[]     @relation("suggestionReplier")
   title            Cosmetic?          @relation("equippedTitle", fields: [titleId], references: [id], onDelete: SetNull)
   badge            Cosmetic?          @relation("equippedBadge", fields: [badgeId], references: [id], onDelete: SetNull)
   frame            Cosmetic?          @relation("equippedFrame", fields: [frameId], references: [id], onDelete: SetNull)
@@ -390,6 +392,8 @@ model DailyChallenge {
   id        String   @id @default(uuid(7)) @db.Uuid
   date      DateTime @db.Date
   gameId    String   @map("game_id") @db.Uuid
+  /// Numéro du défi du jour pour ce jeu (1 à DAILY_PER_GAME)
+  slot      Int      @default(1)
   clipId    String   @map("clip_id") @db.Uuid
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -397,7 +401,7 @@ model DailyChallenge {
   clip    Clip    @relation(fields: [clipId, gameId], references: [id, gameId])
   guesses Guess[]
 
-  @@unique([date, gameId])
+  @@unique([date, gameId, slot])
   @@index([clipId])
   @@map("daily_challenges")
 }
@@ -996,4 +1000,44 @@ model AppSetting {
   updatedById String? @map("updated_by_id") @db.Uuid
 
   @@map("app_settings")
+}
+
+// ----------------------------------------------------------------------------
+// Suggestions des joueurs (idées d'amélioration, réponses de l'équipe)
+// ----------------------------------------------------------------------------
+
+enum SuggestionCategory {
+  FEATURE // nouvelle fonctionnalité
+  GAMEPLAY // modes de jeu, scores, défis
+  CONTENT // jeux, rangs, clips
+  INTERFACE // site et application
+  OTHER
+}
+
+enum SuggestionStatus {
+  NEW // pas encore traitée
+  PLANNED // retenue, prévue
+  DONE // réalisée
+  DECLINED // non retenue
+}
+
+model Suggestion {
+  id          String             @id @default(uuid(7)) @db.Uuid
+  userId      String             @map("user_id") @db.Uuid
+  category    SuggestionCategory @default(FEATURE)
+  text        String             @db.VarChar(1000)
+  status      SuggestionStatus   @default(NEW)
+  /// Réponse de l'équipe, visible par l'auteur de la suggestion
+  reply       String?            @db.VarChar(500)
+  repliedById String?            @map("replied_by_id") @db.Uuid
+  repliedAt   DateTime?          @map("replied_at")
+  createdAt   DateTime           @default(now()) @map("created_at")
+  updatedAt   DateTime           @updatedAt @map("updated_at")
+
+  user      User  @relation("suggestionAuthor", fields: [userId], references: [id], onDelete: Cascade)
+  repliedBy User? @relation("suggestionReplier", fields: [repliedById], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([userId, createdAt])
+  @@map("suggestions")
 }

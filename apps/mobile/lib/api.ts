@@ -24,6 +24,9 @@ import {
   type VipProductId,
   type VipStatusDto,
   type SeasonDto,
+  type ContributorsBoardDto,
+  type SuggestionDto,
+  type SuggestionInput,
   type SubmitClipInput,
   type SubmitGuessInput,
   type UserSearchResultDto,
@@ -89,6 +92,8 @@ export interface Me {
   flair: FlairDto;
   /** Récompenses obtenues depuis la dernière visite de l'écran des récompenses */
   newRewards: number;
+  /** Réglages réservés au fondateur (boutique, VIP offert, annonce, stockage…) ; les administrateurs les ont s'il n'y a pas de fondateur */
+  siteOwner: boolean;
 }
 
 let refreshing: Promise<boolean> | null = null;
@@ -183,7 +188,9 @@ export const api = {
   // Jeu
   games: () => request<GameDto[]>("/games"),
   dailyOverview: () => request<DailyOverviewDto>("/play/daily"),
-  daily: (game: string) => request<PlayableClipDto>(`/play/daily/${encodeURIComponent(game)}`),
+  /** Défi du jour n° `slot` d'un jeu (sans numéro : le premier pas encore joué) */
+  daily: (game: string, slot?: number) =>
+    request<PlayableClipDto & { slot: number }>(`/play/daily/${encodeURIComponent(game)}${slot ? `?slot=${slot}` : ""}`),
   startRun: () => post<{ id: string; lives: number }>("/play/infinite/runs"),
   nextInfinite: (runId: string) => request<PlayableClipDto>(`/play/infinite/runs/${runId}/next`),
   guess: (b: SubmitGuessInput) => post<GuessResultDto & { run?: { lives: number; score: number; endedAt: string | null } }>("/guesses", b),
@@ -193,6 +200,8 @@ export const api = {
       `/leaderboards?period=${period}&scope=${scope}&game=${game}${season ? `&season=${season}` : ""}`,
     ),
   seasons: () => request<SeasonDto[]>("/leaderboards/seasons"),
+  contributors: (scope: string, season?: string) =>
+    request<ContributorsBoardDto>(`/leaderboards/contributors?scope=${scope}&limit=50${season ? `&season=${season}` : ""}`),
   achievements: () => request<AchievementsOverviewDto>("/achievements/me"),
   leaderboardKeys: (game: LeaderboardGame = "all") => request<Record<string, string>>(`/leaderboards/keys?game=${game}`),
 
@@ -201,6 +210,10 @@ export const api = {
   submitClip: (body: SubmitClipInput) => post<MyClipDto>("/clips", body),
   myClips: () => request<MyClipDto[]>("/clips/mine"),
   withdrawClip: (id: string) => del(`/clips/mine/${id}`),
+  // Suggestions
+  suggest: (body: SuggestionInput) => post<SuggestionDto>("/suggestions", body),
+  mySuggestions: () => request<SuggestionDto[]>("/suggestions/me"),
+  withdrawSuggestion: (id: string) => del(`/suggestions/${id}`),
 
   // Profils publics
   profile: (userId: string) => request<PublicProfileDto>(`/users/${userId}/profile`),

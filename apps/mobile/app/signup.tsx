@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Text } from "react-native";
 import { Link, router } from "expo-router";
-import { MIN_AGE, SignupInput } from "@ranksight/shared";
+import { MIN_AGE, SignupInput, PSEUDO_RULE } from "@ranksight/shared";
 import { api, ApiError } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { colors } from "@/lib/theme";
@@ -59,7 +59,7 @@ export default function Signup() {
 
         <OAuthButtons onSuccess={finish} onError={setError} disabled={pending} />
         <Divider />
-        <Field label="Pseudo" value={form.pseudo} onChangeText={set("pseudo")} autoCapitalize="none" maxLength={20} error={errors.pseudo} hint="3 à 20 caractères : lettres, chiffres ou _" textContentType="username" />
+        <Field label="Pseudo" value={form.pseudo} onChangeText={set("pseudo")} autoCapitalize="none" maxLength={20} error={errors.pseudo} hint={PSEUDO_RULE} textContentType="username" />
         <Field label="Email" value={form.email} onChangeText={set("email")} keyboardType="email-address" autoCapitalize="none" error={errors.email} textContentType="emailAddress" />
         <Field label="Mot de passe" value={form.password} onChangeText={set("password")} secureTextEntry autoCapitalize="none" error={errors.password} hint="8 caractères minimum, avec au moins une lettre et un chiffre" textContentType="newPassword" />
         <Field label="Confirmation du mot de passe" value={form.passwordConfirm} onChangeText={set("passwordConfirm")} secureTextEntry autoCapitalize="none" error={errors.passwordConfirm} textContentType="newPassword" />

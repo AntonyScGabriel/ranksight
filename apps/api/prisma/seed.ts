@@ -52,9 +52,9 @@ const ACHIEVEMENTS = [
   { code: "STREAK_7", name: "Semaine parfaite", description: "Série de 7 jours", category: "STREAK", criteria: { type: "daily_streak", threshold: 7 }, xpReward: 300 },
   { code: "STREAK_30", name: "Mois d'acier", description: "Série de 30 jours", category: "STREAK", criteria: { type: "daily_streak", threshold: 30 }, xpReward: 1500 },
   { code: "STREAK_100", name: "Centenaire", description: "Série de 100 jours", category: "STREAK", criteria: { type: "daily_streak", threshold: 100 }, xpReward: 5000 },
-  { code: "DAILY_FULL_1", name: "Grand chelem", description: "Jouer les 4 défis du jour le même jour", category: "STREAK", criteria: { type: "daily_full_days", threshold: 1 }, xpReward: 150 },
-  { code: "DAILY_FULL_30", name: "Fidèle", description: "Jouer les 4 défis du jour pendant 30 jours", category: "STREAK", criteria: { type: "daily_full_days", threshold: 30 }, xpReward: 2000 },
-  { code: "DAILY_PERFECT", name: "Sans faute", description: "Trouver le rang exact aux 4 défis d'une même journée", category: "STREAK", criteria: { type: "daily_perfect_days", threshold: 1 }, xpReward: 1000 },
+  { code: "DAILY_FULL_1", name: "Grand chelem", description: "Jouer tous les défis du jour (tous les jeux) le même jour", category: "STREAK", criteria: { type: "daily_full_days", threshold: 1 }, xpReward: 150 },
+  { code: "DAILY_FULL_30", name: "Fidèle", description: "Jouer tous les défis du jour pendant 30 jours", category: "STREAK", criteria: { type: "daily_full_days", threshold: 30 }, xpReward: 2000 },
+  { code: "DAILY_PERFECT", name: "Sans faute", description: "Trouver le rang exact à tous les défis d'une même journée", category: "STREAK", criteria: { type: "daily_perfect_days", threshold: 1 }, xpReward: 1000 },
   // Experts par jeu
   { code: "EXPERT_LOL", name: "Expert LoL", description: "50 rangs exacts sur League of Legends", category: "GAME_EXPERT", criteria: { type: "game_exact", game: "lol", threshold: 50 }, xpReward: 800 },
   { code: "EXPERT_VALORANT", name: "Expert Valorant", description: "50 rangs exacts sur Valorant", category: "GAME_EXPERT", criteria: { type: "game_exact", game: "valorant", threshold: 50 }, xpReward: 800 },
@@ -159,6 +159,14 @@ async function main() {
   }
   // Le succès secret du niveau 50 portait le nom « ??? » : il prend son vrai nom (affiché une fois obtenu)
   await prisma.achievement.updateMany({ where: { code: "SECRET_LEVEL_50", name: "???" }, data: { name: "Vétéran" } });
+  // Passage à 3 défis par jeu et par jour : descriptions mises à jour (sauf si l'équipe les a déjà modifiées)
+  for (const [code, before, after] of [
+    ["DAILY_FULL_1", "Jouer les 4 défis du jour le même jour", "Jouer tous les défis du jour (tous les jeux) le même jour"],
+    ["DAILY_FULL_30", "Jouer les 4 défis du jour pendant 30 jours", "Jouer tous les défis du jour pendant 30 jours"],
+    ["DAILY_PERFECT", "Trouver le rang exact aux 4 défis d'une même journée", "Trouver le rang exact à tous les défis d'une même journée"],
+  ] as const) {
+    await prisma.achievement.updateMany({ where: { code, description: before }, data: { description: after } });
+  }
   for (const { achievement, ...c } of COSMETICS) {
     const unlockAchievementId = achievement ? (await prisma.achievement.findUnique({ where: { code: achievement }, select: { id: true } }))?.id : undefined;
     // Création seulement : les modifications faites depuis l'administration sont conservées

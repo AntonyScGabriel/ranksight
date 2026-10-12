@@ -76,7 +76,8 @@ export class AchievementEngine {
         select: { totalGuesses: true, exactGuesses: true, bestDailyStreak: true, bestWinStreak: true, level: true, infiniteBest: true, statsResetAt: true },
       }),
       this.prisma.userGameStats.findMany({ where: { userId }, include: { game: { select: { slug: true } } } }),
-      // Jours où le joueur a joué les défis de tous les jeux actifs (et combien de ces jours sans aucune erreur)
+      // Jours où le joueur a joué tous les défis du jour (tous les jeux actifs, chacun de leurs défis), et combien de ces
+      // jours sans aucune erreur
       this.prisma.$queryRaw<{ full_days: bigint; perfect_days: bigint }[]>`
         WITH per_day AS (
           SELECT d.date, COUNT(*) AS played, COUNT(*) FILTER (WHERE gu.distance = 0) AS exact
@@ -86,10 +87,15 @@ export class AchievementEngine {
           JOIN users u ON u.id = gu.user_id
           WHERE gu.user_id = ${userId}::uuid AND (u.stats_reset_at IS NULL OR gu.created_at > u.stats_reset_at)
           GROUP BY d.date
-        ), active AS (SELECT COUNT(*) AS n FROM games WHERE is_active)
-        SELECT COUNT(*) FILTER (WHERE played >= active.n) AS full_days,
-               COUNT(*) FILTER (WHERE played >= active.n AND exact >= active.n) AS perfect_days
-        FROM per_day, active`,
+        ), offered AS (
+          SELECT d.date, COUNT(*) AS n
+          FROM daily_challenges d JOIN games g ON g.id = d.game_id AND g.is_active
+          WHERE d.date IN (SELECT date FROM per_day)
+          GROUP BY d.date
+        )
+        SELECT COUNT(*) FILTER (WHERE p.played >= o.n) AS full_days,
+               COUNT(*) FILTER (WHERE p.played >= o.n AND p.exact >= o.n) AS perfect_days
+        FROM per_day p JOIN offered o ON o.date = p.date`,
       this.prisma.friendship.count({ where: { status: "ACCEPTED", OR: [{ requesterId: userId }, { addresseeId: userId }] } }),
       this.prisma.clip.count({ where: { uploaderId: userId, source: "COMMUNITY", status: "APPROVED" } }),
       this.prisma.versusMatch.findMany({ where: { status: "FINISHED", winnerId: userId }, select: { finishedAt: true } }),
@@ -157,6 +163,11 @@ export class AchievementEngine {
     await this.cosmetics.awardSeason(seasonNumber, ranking);
     // Les succès de saison peuvent débloquer des récompenses
     for (const { userId } of ranking.filter((r) => r.position <= 10)) await this.cosmetics.sync(userId);
+  }
+
+  /** Titre du meilleur contributeur de la saison (le plus de clips acceptés) */
+  awardSeasonContributor(seasonNumber: number, userId: string) {
+    return this.cosmetics.awardSeasonContributor(seasonNumber, userId);
   }
 
   private async grant(userId: string, achievements: { id: string; code: string; name: string; iconUrl: string | null; xpReward: number }[]) {

@@ -18,6 +18,7 @@ export default function PrivacyPage() {
             <tr><td>Réponses, scores, séries, succès, duels, titres et badges</td><td>Faire fonctionner le jeu et les classements</td><td>Contrat</td></tr>
             <tr><td>Messages du chat et messages privés</td><td>Discuter entre joueurs, modérer</td><td>Contrat, intérêt légitime (sécurité)</td></tr>
             <tr><td>Clips proposés (vidéo, pseudo en jeu, plateforme, région)</td><td>Publier tes clips après vérification</td><td>Contrat</td></tr>
+            <tr><td>Suggestions envoyées et réponses de l&apos;équipe</td><td>Améliorer RankGuess, te répondre</td><td>Intérêt légitime</td></tr>
             <tr><td>Adresse IP, appareil, journaux de connexion</td><td>Sécurité, lutte contre la triche et les abus</td><td>Intérêt légitime, obligation légale</td></tr>
             <tr><td>Achats VIP (montant, date ; jamais les données de carte)</td><td>Vente et comptabilité</td><td>Contrat, obligation légale</td></tr>
             <tr><td>Jeton de notification du téléphone</td><td>T&apos;envoyer les notifications que tu as acceptées</td><td>Consentement</td></tr>
@@ -29,6 +30,7 @@ export default function PrivacyPage() {
         <ul>
           <li>Compte : tant qu&apos;il est actif. À la suppression, il est anonymisé immédiatement (pseudo, email, connexions effacés) ; les réponses restent dans les statistiques des clips, sans lien avec toi.</li>
           <li>Clips refusés : vidéo supprimée 14 jours après le refus. Clips retirés : vidéo supprimée immédiatement.</li>
+          <li>Suggestions : tant que le compte est actif (tu peux retirer une suggestion pas encore traitée) ; supprimées avec le compte.</li>
           <li>Photo de profil : supprimée dès que tu la changes ou la retires, ou à la suppression du compte.</li>
           <li>Journaux de connexion et de modération : 1 an.</li>
           <li>Données de facturation : 10 ans (obligation comptable).</li>

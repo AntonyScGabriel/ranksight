@@ -73,7 +73,7 @@ export default function VersusScreen() {
   return (
     <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 40 }}>
       <Muted>
-        Duel en direct : 5 clips, les mêmes pour les deux joueurs, au même moment. 30 secondes par manche, puis les deux réponses
+        Duel en direct : 5 clips, les mêmes pour les deux joueurs, au même moment. 30 secondes par manche (plus pour un clip long), puis les deux réponses
         sont dévoilées. Le meilleur total l&apos;emporte.
       </Muted>
 

@@ -1,6 +1,6 @@
 import type {
-  AdminGiftCodeDto, AnnouncementDto, AnnouncementInput, ChatReportReason, CreateGiftCodesInput, ReportReason, ShopSettingsDto,
-  ShopSettingsInput, TriageClipDto, TriageInput, TriageStatsDto, UserRole,
+  AdminGiftCodeDto, AdminSuggestionsDto, AnnouncementDto, AnnouncementInput, ChatReportReason, CreateGiftCodesInput, ReportReason, ShopSettingsDto,
+  ShopSettingsInput, SuggestionReviewInput, SuggestionStatus, TriageClipDto, TriageInput, TriageStatsDto, UserRole,
 } from "@ranksight/shared";
 import { request } from "./api";
 
@@ -14,6 +14,8 @@ export interface AdminOverview {
   premium: number;
   clips: Partial<Record<"PENDING_REVIEW" | "APPROVED" | "REJECTED" | "ARCHIVED", number>>;
   triaged: number;
+  /** Suggestions de joueurs pas encore traitées */
+  newSuggestions: number;
 }
 
 export interface AdminClipRow {
@@ -119,6 +121,11 @@ export const adminApi = {
     request<unknown>(`/admin/clips/${id}/review`, json("POST", body)),
   confirmTriage: (ids: string[]) => request<{ approved: number; rejected: number }>("/admin/clips/confirm-triage", json("POST", { ids })),
 
+  // Suggestions des joueurs
+  suggestions: (status: SuggestionStatus, offset = 0) => request<AdminSuggestionsDto>(`/admin/suggestions?status=${status}&limit=30&offset=${offset}`),
+  reviewSuggestion: (id: string, body: SuggestionReviewInput) => request<unknown>(`/admin/suggestions/${id}`, json("PATCH", body)),
+  deleteSuggestion: (id: string) => request<void>(`/admin/suggestions/${id}`, json("DELETE")),
+
   // Signalements
   clipReports: (page = 1) => request<Page<ClipReport>>(`/admin/reports?status=OPEN&page=${page}`),
   resolveClipReport: (id: string, body: { status: "RESOLVED" | "DISMISSED"; resolution: string; archiveClip: boolean }) =>
@@ -152,4 +159,5 @@ export const adminApi = {
   mfaStatus: () => request<{ enabled: boolean; enabledAt: string | null; recoveryCodesLeft: number; required: boolean; unlocked: boolean }>("/auth/mfa"),
   mfaSetup: () => request<{ secret: string; uri: string }>("/auth/mfa/setup", json("POST", {})),
   mfaEnable: (code: string) => request<{ recoveryCodes: string[] }>("/auth/mfa/enable", json("POST", { code })),
+  mfaDisable: (code: string) => request<void>("/auth/mfa/disable", json("POST", { code })),
 };

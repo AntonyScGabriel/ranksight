@@ -18,6 +18,7 @@ import type { ClipStatus, Prisma, ReportStatus } from "../../generated/prisma/cl
 import type {
   AchievementBody, CreateClipBody, ResolveReportBody, ReviewClipBody, ScheduleDailyBody, UpdateUserBody,
 } from "./admin.dto.js";
+import { DAILY_PER_GAME, pseudoKey } from "@ranksight/shared";
 
 const PAGE = 25;
 const paginate = (page: number) => ({ take: PAGE, skip: (Math.max(page, 1) - 1) * PAGE });
@@ -41,7 +42,7 @@ export class AdminService {
 
   async overview() {
     const dayAgo = new Date(Date.now() - 86_400_000);
-    const [users, dau, guesses24h, clipsByStatus, openReports, premium, games, triaged] = await Promise.all([
+    const [users, dau, guesses24h, clipsByStatus, openReports, premium, games, triaged, newSuggestions] = await Promise.all([
       this.prisma.user.count({ where: { status: "ACTIVE" } }),
       this.prisma.guess.groupBy({ by: ["userId"], where: { createdAt: { gte: dayAgo } } }).then((r) => r.length),
       this.prisma.guess.count({ where: { createdAt: { gte: dayAgo } } }),
@@ -54,6 +55,7 @@ export class AdminService {
         WHERE g.is_active
         GROUP BY g.slug, g.sort_order ORDER BY g.sort_order`,
       this.prisma.clip.count({ where: { status: "PENDING_REVIEW", deletedAt: null, triageDecision: { not: null } } }),
+      this.prisma.suggestion.count({ where: { status: "NEW" } }),
     ]);
     return {
       users, dau, guesses24h, openReports, premium,
@@ -61,6 +63,8 @@ export class AdminService {
       clips: Object.fromEntries(clipsByStatus.map((c) => [c.status, c._count])),
       /** Clips en attente déjà pré-triés par un trieur : décision rapide */
       triaged,
+      /** Suggestions de joueurs pas encore traitées */
+      newSuggestions,
       games: games.map((g) => ({ ...g, guesses: Number(g.guesses) })),
     };
   }
@@ -220,25 +224,40 @@ export class AdminService {
     return { approved, rejected, skipped: ids.length - clips.length };
   }
 
+  /**
+   * Planifie un clip sur un des défis d'une journée : au numéro demandé (remplace le clip prévu), sinon à la première
+   * place libre. Un même clip ne peut pas servir deux fois le même jour.
+   */
   async scheduleDaily(actorId: string, b: z.infer<typeof ScheduleDailyBody>) {
     const date = new Date(`${b.date}T00:00:00Z`);
     if (date.getTime() <= Date.now() - 86_400_000) throw new BadRequestException("Impossible de modifier un jour passé");
     const clip = await this.prisma.clip.findUnique({ where: { id: b.clipId }, include: { game: { select: { isActive: true } } } });
     if (clip?.status !== "APPROVED" || clip.deletedAt || !clip.game.isActive) throw new BadRequestException("Le clip doit être accepté");
-    const existing = await this.prisma.dailyChallenge.findUnique({
-      where: { date_gameId: { date, gameId: clip.gameId } },
+    const sameDay = await this.prisma.dailyChallenge.findMany({
+      where: { date, gameId: clip.gameId },
       include: { _count: { select: { guesses: true } } },
+      orderBy: { slot: "asc" },
     });
+    const already = sameDay.find((d) => d.clipId === clip.id);
+    if (already && already.slot !== b.slot) throw new BadRequestException(`Ce clip est déjà le défi n° ${already.slot} de ce jour.`);
+
+    let slot = b.slot;
+    if (!slot) {
+      slot = Array.from({ length: DAILY_PER_GAME }, (_, i) => i + 1).find((n) => !sameDay.some((d) => d.slot === n));
+      if (!slot) {
+        throw new BadRequestException(`Les ${DAILY_PER_GAME} défis de ce jour sont déjà prévus pour ce jeu : choisis le numéro du défi à remplacer.`);
+      }
+    }
+    const existing = sameDay.find((d) => d.slot === slot);
     if (existing && existing._count.guesses > 0 && existing.clipId !== clip.id) {
       throw new BadRequestException("Des joueurs ont déjà répondu à ce défi : il ne peut plus être changé.");
     }
-    // Un défi par jeu et par jour : planifier remplace le clip prévu pour ce jeu à cette date
     const daily = await this.prisma.dailyChallenge.upsert({
-      where: { date_gameId: { date, gameId: clip.gameId } },
-      create: { date, gameId: clip.gameId, clipId: clip.id },
+      where: { date_gameId_slot: { date, gameId: clip.gameId, slot } },
+      create: { date, gameId: clip.gameId, slot, clipId: clip.id },
       update: { clipId: clip.id },
     });
-    await this.audit.log(actorId, "daily.schedule", "daily", daily.id, b);
+    await this.audit.log(actorId, "daily.schedule", "daily", daily.id, { ...b, slot });
     return daily;
   }
 
@@ -285,14 +304,14 @@ export class AdminService {
         clip: { select: { id: true, inGamePseudo: true, rank: { select: { name: true } } } },
         _count: { select: { guesses: true } },
       },
-      orderBy: [{ date: "asc" }, { game: { sortOrder: "asc" } }],
+      orderBy: [{ date: "asc" }, { game: { sortOrder: "asc" } }, { slot: "asc" }],
     });
   }
 
   async listUsers(q: string, page: number) {
     const where: Prisma.UserWhereInput = {
       status: { not: "DELETED" },
-      ...(q ? { OR: [{ username: { contains: q.toLowerCase() } }, { email: { contains: q.toLowerCase() } }] } : {}),
+      ...(q ? { OR: [{ username: { contains: pseudoKey(q) } }, { displayName: { contains: q, mode: "insensitive" } }, { email: { contains: q.toLowerCase() } }] } : {}),
     };
     const [rows, total] = await Promise.all([
       this.prisma.user.findMany({

@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Inject, Inj
 import { Interval } from "@nestjs/schedule";
 import type { Redis } from "ioredis";
 import {
-  VERSUS_COUNTDOWN_SEC, VERSUS_EVENT, VERSUS_REVEAL_SEC, VERSUS_ROUND_SEC, VERSUS_ROUNDS, VERSUS_WAIT_SEC,
+  VERSUS_COUNTDOWN_SEC, VERSUS_EVENT, VERSUS_REVEAL_SEC, VERSUS_ROUNDS, VERSUS_WAIT_SEC, versusRoundSec,
   type PlayableClipDto, type VersusMatchDto, type VersusRoundDto, type VersusStatsDto,
 } from "@ranksight/shared";
 import type { Prisma } from "../../generated/prisma/client.js";
@@ -141,7 +141,7 @@ export class VersusService {
     for (const c of candidates) {
       const { count } = await this.prisma.versusMatch.updateMany({
         where: { id: c.id, status: "OPEN" },
-        data: { opponentId: userId, ...this.startData() },
+        data: { opponentId: userId, ...(await this.startData(c.id)) },
       });
       if (count === 1) {
         await this.notifyMatch(c.id);
@@ -152,15 +152,24 @@ export class VersusService {
   }
 
   /** Lancement du duel : compte à rebours, puis manche 1. */
-  private startData() {
+  private async startData(matchId: string) {
     const startsAt = later(VERSUS_COUNTDOWN_SEC * SEC);
     return {
       status: "ACTIVE" as const,
       acceptedAt: new Date(),
       currentRound: 1,
       roundStartsAt: startsAt,
-      roundEndsAt: new Date(startsAt.getTime() + VERSUS_ROUND_SEC * SEC),
+      roundEndsAt: new Date(startsAt.getTime() + (await this.roundSec(matchId, 1)) * SEC),
     };
+  }
+
+  /** Durée d'une manche : 30 s au moins, et toujours de quoi regarder le clip en entier (sa durée + 10 s pour répondre) */
+  private async roundSec(matchId: string, round: number) {
+    const entry = await this.prisma.versusClip.findUnique({
+      where: { matchId_position: { matchId, position: round - 1 } },
+      select: { clip: { select: { durationSec: true } } },
+    });
+    return versusRoundSec(entry?.clip.durationSec ?? 0);
   }
 
   /** 5 clips acceptés au hasard (jeu imposé ou tous les jeux), jamais proposés par un des joueurs. */
@@ -196,7 +205,7 @@ export class VersusService {
     if (busy) throw new ConflictException({ code: "DUEL_IN_PROGRESS", message: "Termine d'abord ton duel en cours.", id: busy.id });
     const { count } = await this.prisma.versusMatch.updateMany({
       where: { id, opponentId: userId, status: "PENDING", expiresAt: { gt: new Date() } },
-      data: this.startData(),
+      data: await this.startData(id),
     });
     if (!count) throw new NotFoundException("Invitation introuvable ou expirée : ton ami n'attend plus.");
     // L'invité ne garde pas de recherche « au hasard » en parallèle
@@ -312,7 +321,7 @@ export class VersusService {
       const startsAt = later(VERSUS_REVEAL_SEC * SEC);
       const { count } = await this.prisma.versusMatch.updateMany({
         where: { id, status: "ACTIVE", currentRound: round },
-        data: { currentRound: round + 1, roundStartsAt: startsAt, roundEndsAt: new Date(startsAt.getTime() + VERSUS_ROUND_SEC * SEC) },
+        data: { currentRound: round + 1, roundStartsAt: startsAt, roundEndsAt: new Date(startsAt.getTime() + (await this.roundSec(id, round + 1)) * SEC) },
       });
       if (count) await this.notifyMatch(id);
       return;

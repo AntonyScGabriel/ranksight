@@ -18,6 +18,8 @@ const NAV = [
   { href: "/chat", label: "Chat", short: "Chat" },
   { href: "/friends", label: "Amis", short: "Amis" },
 ];
+/** Onglet affiché dans la barre du haut sur grand écran (et toujours dans le menu du compte) */
+const NAV_WIDE = { href: "/suggestions", label: "Suggestions" };
 
 export function Header() {
   const pathname = usePathname();
@@ -54,6 +56,14 @@ export function Header() {
                 </Link>
               </li>
             ))}
+            <li className="hidden xl:block">
+              <Link
+                href={NAV_WIDE.href}
+                className={`rounded-lg px-3 py-2 text-sm transition hover:bg-surface hover:text-ink ${isActive(NAV_WIDE.href) ? "text-ink" : "text-muted"}`}
+              >
+                {NAV_WIDE.label}
+              </Link>
+            </li>
           </ul>
 
           <div className="ml-auto flex items-center gap-3">
@@ -90,6 +100,7 @@ export function Header() {
                     <MenuLink href="/shop" onClick={() => setOpen(false)}>Boutique VIP</MenuLink>
                     <MenuLink href="/my-clips" onClick={() => setOpen(false)}>Mes clips</MenuLink>
                     <MenuLink href="/submit" onClick={() => setOpen(false)}>Proposer un clip</MenuLink>
+                    <MenuLink href="/suggestions" onClick={() => setOpen(false)}>Suggestions</MenuLink>
                     {me.role !== "USER" && (
                       <a
                         href={`${process.env.NEXT_PUBLIC_ADMIN_URL ?? "http://localhost:3001"}${me.role === "REVIEWER" ? "/triage" : ""}`}

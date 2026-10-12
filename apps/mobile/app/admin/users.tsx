@@ -25,7 +25,7 @@ const VIP_DAYS = [
 
 type Act = <T>(action: () => Promise<T>, success: string, reload?: boolean) => Promise<void>;
 
-function UserActions({ user, me, ownerExists, act }: { user: AdminUser; me: { id: string; role: UserRole }; ownerExists: boolean; act: Act }) {
+function UserActions({ user, me, ownerExists, act }: { user: AdminUser; me: { id: string; role: UserRole; siteOwner: boolean }; ownerExists: boolean; act: Act }) {
   const confirm = useConfirm();
   const admin = isAdminRole(me.role);
   const self = user.id === me.id;
@@ -85,7 +85,7 @@ function UserActions({ user, me, ownerExists, act }: { user: AdminUser; me: { id
         </View>
       )}
 
-      {admin && (
+      {me.siteOwner && (
         <View style={{ gap: 6 }}>
           <Text style={{ color: colors.muted, fontSize: 13 }}>VIP {user.vip.active && user.vip.until ? `(jusqu'au ${formatDate(user.vip.until)})` : ""}</Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
@@ -128,7 +128,7 @@ function UserActions({ user, me, ownerExists, act }: { user: AdminUser; me: { id
               }}
             />
           )}
-          {canEdit && user.mfaEnabled && (
+          {canEdit && me.siteOwner && user.mfaEnabled && (
             <SmallButton
               label="Retirer la 2FA"
               onPress={async () => {
@@ -163,7 +163,7 @@ function UserActions({ user, me, ownerExists, act }: { user: AdminUser; me: { id
             ) : (
               <SmallButton label="Réactiver" tone="success" onPress={() => void act(() => adminApi.updateUser(user.id, { status: "ACTIVE" }), "Compte réactivé.")} />
             ))}
-          {canEdit && !isAdminRole(user.role) && (
+          {canEdit && me.siteOwner && !isAdminRole(user.role) && (
             <SmallButton
               label="Supprimer le compte"
               tone="danger"

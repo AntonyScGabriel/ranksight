@@ -18,6 +18,7 @@ export default function AdminSecurity() {
   const [setup, setSetup] = useState<{ secret: string; uri: string } | null>(null);
   const [code, setCode] = useState("");
   const [recovery, setRecovery] = useState<string[] | null>(null);
+  const [disabling, setDisabling] = useState(false);
   const { run, notice, setNotice, busy } = useAdminAction();
 
   const load = useCallback(() => {
@@ -44,6 +45,18 @@ export default function AdminSecurity() {
     if (r) {
       setRecovery(r.recoveryCodes);
       setSetup(null);
+      setCode("");
+      load();
+    }
+  };
+
+  const disable = async () => {
+    const done = await run(async () => {
+      await adminApi.mfaDisable(code.trim());
+      return true;
+    }, "Double authentification désactivée.");
+    if (done) {
+      setDisabling(false);
       setCode("");
       load();
     }
@@ -79,6 +92,27 @@ export default function AdminSecurity() {
             <Text style={{ color: colors.muted, fontSize: 13, lineHeight: 19 }}>
               Le code est demandé une fois par session (puis toutes les 12 heures) avant une action d&apos;administration.
             </Text>
+            {!status.required &&
+              (disabling ? (
+                <>
+                  <Field
+                    label="Code de l'application (ou code de secours) pour confirmer"
+                    value={code}
+                    onChangeText={(t) => setCode(t.trim())}
+                    autoCapitalize="characters"
+                    maxLength={9}
+                    textContentType="oneTimeCode"
+                  />
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    <SmallButton label="Annuler" onPress={() => { setDisabling(false); setCode(""); }} disabled={busy} />
+                    <SmallButton label="Désactiver" tone="danger" onPress={() => void disable()} disabled={busy || code.length < 6} />
+                  </View>
+                </>
+              ) : (
+                <View style={{ flexDirection: "row" }}>
+                  <SmallButton label="Désactiver la double authentification" tone="danger" onPress={() => setDisabling(true)} />
+                </View>
+              ))}
           </>
         ) : setup ? (
           <>

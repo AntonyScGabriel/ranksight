@@ -1,9 +1,9 @@
 import { z } from "zod";
-import { InGamePseudo, Platform, Region } from "@ranksight/shared";
+import { CLIP_MAX_BYTES, CLIP_MAX_SEC, CLIP_MIN_SEC, DAILY_PER_GAME, InGamePseudo, Platform, Region } from "@ranksight/shared";
 
 export const UploadUrlBody = z.object({
   contentType: z.enum(["video/mp4", "video/webm"]),
-  sizeBytes: z.number().int().positive(),
+  sizeBytes: z.number().int().positive().max(CLIP_MAX_BYTES),
 });
 
 export const CreateClipBody = z.object({
@@ -11,7 +11,7 @@ export const CreateClipBody = z.object({
   rankId: z.string().uuid(),
   storageKey: z.string().startsWith("raw/"),
   posterKey: z.string().optional(),
-  durationSec: z.number().min(10).max(35),
+  durationSec: z.number().min(CLIP_MIN_SEC - 0.3).max(CLIP_MAX_SEC + 0.5),
   difficulty: z.number().int().min(1).max(5).default(3),
   proofUrl: z.string().url().optional(),
   /** Pseudo en jeu du joueur filmé (facultatif pour un clip ajouté par l'équipe) */
@@ -32,6 +32,8 @@ export const ConfirmTriageBody = z.object({ ids: z.array(z.string().uuid()).min(
 export const ScheduleDailyBody = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   clipId: z.string().uuid(),
+  /** Numéro du défi (1 à DAILY_PER_GAME) ; absent = première place libre de la journée */
+  slot: z.number().int().min(1).max(DAILY_PER_GAME).optional(),
 });
 
 export const UpdateUserBody = z

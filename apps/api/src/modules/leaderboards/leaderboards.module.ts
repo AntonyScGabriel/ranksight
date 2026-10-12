@@ -1,5 +1,5 @@
 import { BadRequestException, Controller, DefaultValuePipe, Get, HttpCode, Module, Param, ParseIntPipe, Post, Query } from "@nestjs/common";
-import { LeaderboardGame, LeaderboardPeriod, LeaderboardScope, SeasonKey } from "@ranksight/shared";
+import { ContributorsPeriod, LeaderboardGame, LeaderboardPeriod, LeaderboardScope, SeasonKey } from "@ranksight/shared";
 import { AuditService } from "../../common/audit/audit.module.js";
 import { CurrentUser, type AuthUser } from "../../common/decorators/current-user.decorator.js";
 import { Roles } from "../../common/decorators/roles.decorator.js";
@@ -8,6 +8,7 @@ import { ZodPipe } from "../../common/pipes/zod.pipe.js";
 import { FriendsModule } from "../friends/friends.module.js";
 import { LeaderboardsGateway } from "./leaderboards.gateway.js";
 import { LeaderboardsService } from "./leaderboards.service.js";
+import { seasonKeyOf } from "./seasons.js";
 
 @Controller("leaderboards")
 export class LeaderboardsController {
@@ -29,6 +30,27 @@ export class LeaderboardsController {
     @Query("season", new ZodPipe(SeasonKey.optional())) season?: string,
   ) {
     return this.lb.get({ period, scope, game, season, userId: user.sub, limit: Math.min(Math.max(limit, 1), 100), offset: Math.max(offset, 0) });
+  }
+
+  /**
+   * GET /v1/leaderboards/contributors?season=AAAA-MM|all&scope=global|friends — joueurs qui ont fait accepter
+   * le plus de clips (par défaut : saison en cours). Le premier de chaque saison reçoit un titre à la clôture.
+   */
+  @Get("contributors")
+  contributors(
+    @CurrentUser() user: AuthUser,
+    @Query("season", new ZodPipe(ContributorsPeriod.optional())) season: string | undefined,
+    @Query("scope", new ZodPipe(LeaderboardScope.default("global"))) scope: LeaderboardScope,
+    @Query("limit", new DefaultValuePipe(50), ParseIntPipe) limit: number,
+    @Query("offset", new DefaultValuePipe(0), ParseIntPipe) offset: number,
+  ) {
+    return this.lb.contributors({
+      period: season ?? seasonKeyOf(new Date()),
+      scope,
+      userId: user.sub,
+      limit: Math.min(Math.max(limit, 1), 100),
+      offset: Math.max(offset, 0),
+    });
   }
 
   /** GET /v1/leaderboards/seasons — saisons de la plus récente (en cours) à la saison 1 */

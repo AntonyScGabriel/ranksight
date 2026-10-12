@@ -16,6 +16,7 @@ const PRODUCT_NAMES: Record<string, string> = {
   vip_1m: "VIP 1 mois", vip_3m: "VIP 3 mois", vip_12m: "VIP 12 mois", manual: "VIP offert par l'équipe", gift_code: "Code cadeau",
 };
 const formatDate = (iso: string) => new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+const formatDateTime = (iso: string) => new Date(iso).toLocaleString("fr-FR", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
 
 type Product = ShopDto["products"][number];
 type Notice = { text: string; ok: boolean; code?: string };
@@ -112,10 +113,13 @@ function Shop() {
         </p>
       </header>
 
-      {shop.launchOffer && (
+      {shop.promo && (
         <div className="glass flex flex-wrap items-center gap-3 border-warn/50 p-4">
-          <span className="rounded-full bg-warn/15 px-3 py-1 text-xs font-bold uppercase tracking-wider text-warn">Offre de lancement</span>
-          <p className="text-sm">Pour fêter l&apos;ouverture de RankGuess, tous les passes VIP sont à <strong>moitié prix</strong>, pour une durée limitée.</p>
+          <span className="rounded-full bg-warn/15 px-3 py-1 text-xs font-bold uppercase tracking-wider text-warn">{shop.promo.label}</span>
+          <p className="text-sm">
+            Les passes VIP sont <strong>en promo</strong>
+            {shop.promo.endsAt ? <> jusqu&apos;au {formatDateTime(shop.promo.endsAt)}</> : ", pour une durée limitée"}.
+          </p>
         </div>
       )}
 
@@ -152,10 +156,12 @@ function Shop() {
               <p className="text-sm text-muted">{p.days} jours de VIP</p>
             </div>
             <div>
-              {shop.launchOffer && <p className="text-xs font-semibold uppercase tracking-wider text-warn">Prix de lancement</p>}
+              {shop.promo && p.regularPriceCents !== p.priceCents && (
+                <p className="text-xs font-semibold uppercase tracking-wider text-warn">Prix promo · {shop.promo.label}</p>
+              )}
               <p className="font-display text-4xl font-bold">{formatPrice(p.priceCents)}</p>
-              {shop.launchOffer && p.regularPriceCents !== p.priceCents && (
-                <p className="text-xs text-muted">Puis {formatPrice(p.regularPriceCents)} à la fin de l&apos;offre</p>
+              {shop.promo && p.regularPriceCents !== p.priceCents && (
+                <p className="text-xs text-muted">Puis {formatPrice(p.regularPriceCents)} à la fin de la promo</p>
               )}
             </div>
             <ul className="flex-1 space-y-1.5 text-sm text-muted">

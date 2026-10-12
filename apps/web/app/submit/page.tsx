@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
+  CLIP_DURATION_LABEL, CLIP_MAX_BYTES, CLIP_MAX_MB, clipDurationOk,
   GAME_PLATFORMS, InGamePseudo, PLATFORM_LABEL, REGION_LABEL, REGIONS, firstIssue,
   type GameDto, type GameSlug, type Platform, type Region,
 } from "@ranksight/shared";
@@ -10,7 +11,6 @@ import { api, ApiError, uploadToSignedUrl, videoDuration } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { LoginRequired, Skeleton } from "@/components/States";
 
-const MAX_BYTES = 80 * 1024 * 1024;
 
 export default function SubmitPage() {
   const { me, loading } = useSession();
@@ -54,14 +54,14 @@ export default function SubmitPage() {
     if (!file || !game || !rankId || !rights) return;
     setError(null);
     if (!["video/mp4", "video/webm"].includes(file.type)) return setError("Formats acceptés : MP4 ou WebM.");
-    if (file.size > MAX_BYTES) return setError("La vidéo dépasse 80 Mo.");
+    if (file.size > CLIP_MAX_BYTES) return setError(`La vidéo dépasse ${CLIP_MAX_MB} Mo.`);
     let durationSec: number;
     try {
       durationSec = await videoDuration(file);
     } catch {
       return setError("Cette vidéo ne peut pas être lue.");
     }
-    if (durationSec < 15 || durationSec > 30.5) return setError("Le clip doit durer entre 15 et 30 secondes.");
+    if (!clipDurationOk(durationSec)) return setError(`Le clip doit durer de ${CLIP_DURATION_LABEL}.`);
 
     setSending(true);
     try {
@@ -117,7 +117,7 @@ export default function SubmitPage() {
             {games.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
           </select>
         </Field>
-        <Field label="Clip vidéo (MP4 ou WebM, 15 à 30 s, 80 Mo max)">
+        <Field label={`Clip vidéo (MP4 ou WebM, ${CLIP_DURATION_LABEL}, ${CLIP_MAX_MB} Mo max)`}>
           <input type="file" accept="video/mp4,video/webm" required onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="block w-full text-sm text-muted file:mr-4 file:rounded-lg file:border-0 file:bg-violet file:px-4 file:py-2 file:text-white" />
         </Field>
         <Field label="Pseudo en jeu *">

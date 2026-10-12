@@ -1,13 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CreateGiftCodesInput, ShopSettingsInput, formatPrice, isAdminRole, type AdminGiftCodeDto, type ShopProduct, type ShopSettingsDto } from "@ranksight/shared";
+import { CreateGiftCodesInput, ShopSettingsInput, formatPrice, type AdminGiftCodeDto, type ShopProduct, type ShopSettingsDto } from "@ranksight/shared";
 import { adminFetch, session, type Me } from "@/lib/api";
 import { useConfirm } from "@/lib/confirm";
 
 type Notice = { text: string; ok: boolean } | null;
 
-/** Boutique : passes VIP (prix, prix de lancement, durées, mise en vente) et codes cadeaux (concours, créateurs de contenu…). */
+/** Boutique (fondateur) : promo du moment, passes VIP (prix, prix promo, durées, mise en vente) et codes cadeaux. */
 export default function ShopAdminPage() {
   const [me, setMe] = useState<Me | null | undefined>(undefined);
   useEffect(() => {
@@ -15,7 +15,7 @@ export default function ShopAdminPage() {
   }, []);
 
   if (me === undefined) return <div className="glass h-40 animate-pulse" />;
-  if (!isAdminRole(me?.role)) return <p className="text-muted">La boutique est gérée par les administrateurs.</p>;
+  if (!me?.siteOwner) return <p className="text-muted">La boutique est gérée par le fondateur du site.</p>;
   return (
     <div className="space-y-8">
       <div>
@@ -28,7 +28,8 @@ export default function ShopAdminPage() {
   );
 }
 
-type ProductForm = { id: ShopProduct["id"]; name: string; days: string; price: string; launchPrice: string; highlight: string; active: boolean };
+type ProductForm = { id: ShopProduct["id"]; name: string; days: string; price: string; promoPrice: string; highlight: string; active: boolean };
+type PromoForm = { active: boolean; label: string; endsAt: string };
 
 const euros = (cents: number) => (cents / 100).toFixed(2).replace(".", ",");
 /** « 4,99 » ou « 4.99 » → 499 centimes (NaN si la saisie n'est pas un prix) */
@@ -37,13 +38,21 @@ const toCents = (value: string) => {
   return /^\d+(\.\d{1,2})?$/.test(v) ? Math.round(Number(v) * 100) : Number.NaN;
 };
 const toForm = (p: ShopProduct): ProductForm => ({
-  id: p.id, name: p.name, days: String(p.days), price: euros(p.priceCents), launchPrice: euros(p.launchPriceCents), highlight: p.highlight ?? "", active: p.active,
+  id: p.id, name: p.name, days: String(p.days), price: euros(p.priceCents), promoPrice: euros(p.promoPriceCents), highlight: p.highlight ?? "", active: p.active,
 });
+/** Date ISO ↔ champ datetime-local (heure du navigateur) */
+const toLocalInput = (iso: string | null) => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+};
+const toPromoForm = (p: ShopSettingsDto["promo"]): PromoForm => ({ active: p.active, label: p.label, endsAt: toLocalInput(p.endsAt) });
+const promoRunning = (p: PromoForm) => p.active && (!p.endsAt || new Date(p.endsAt) > new Date());
 
-/** Offre de lancement et passes VIP : nom, durée, prix normal, prix de lancement, étiquette, mise en vente. */
+/** Promo du moment et passes VIP : nom, durée, prix normal, prix promo, étiquette, mise en vente. */
 function ShopSettingsEditor() {
   const [saved, setSaved] = useState<ShopSettingsDto | null>(null);
-  const [launchOffer, setLaunchOffer] = useState(true);
+  const [promo, setPromo] = useState<PromoForm>({ active: false, label: "", endsAt: "" });
   const [products, setProducts] = useState<ProductForm[]>([]);
   const [notice, setNotice] = useState<Notice>(null);
   const [busy, setBusy] = useState(false);
@@ -51,7 +60,7 @@ function ShopSettingsEditor() {
 
   const apply = useCallback((r: ShopSettingsDto) => {
     setSaved(r);
-    setLaunchOffer(r.launchOffer);
+    setPromo(toPromoForm(r.promo));
     setProducts(r.products.map(toForm));
   }, []);
 
@@ -61,36 +70,44 @@ function ShopSettingsEditor() {
 
   const update = (id: string, patch: Partial<ProductForm>) => setProducts((list) => list.map((p) => (p.id === id ? { ...p, ...patch } : p)));
 
-  const dirty = saved !== null && (launchOffer !== saved.launchOffer || JSON.stringify(products) !== JSON.stringify(saved.products.map(toForm)));
+  const dirty =
+    saved !== null &&
+    (JSON.stringify(promo) !== JSON.stringify(toPromoForm(saved.promo)) || JSON.stringify(products) !== JSON.stringify(saved.products.map(toForm)));
 
   const save = async () => {
     const parsed = ShopSettingsInput.safeParse({
-      launchOffer,
+      promo: { active: promo.active, label: promo.label, endsAt: promo.endsAt ? new Date(promo.endsAt).toISOString() : null },
       products: products.map((p) => ({
-        id: p.id, name: p.name, days: Number(p.days), priceCents: toCents(p.price), launchPriceCents: toCents(p.launchPrice),
+        id: p.id, name: p.name, days: Number(p.days), priceCents: toCents(p.price), promoPriceCents: toCents(p.promoPrice),
         highlight: p.highlight.trim() || null, active: p.active,
       })),
     });
     if (!parsed.success) {
       const issue = parsed.error.issues[0];
-      const index = typeof issue?.path[1] === "number" ? issue.path[1] : -1;
-      const where = index >= 0 ? `${products[index]?.name || "Pass"} : ` : "";
-      const message = issue?.path.at(-1) === "priceCents" || issue?.path.at(-1) === "launchPriceCents"
+      const index = issue?.path[0] === "products" && typeof issue.path[1] === "number" ? issue.path[1] : -1;
+      const where = index >= 0 ? `${products[index]?.name || "Pass"} : ` : issue?.path[0] === "promo" ? "Promo : " : "";
+      const message = issue?.path.at(-1) === "priceCents" || issue?.path.at(-1) === "promoPriceCents"
         ? issue.code === "invalid_type" ? "prix invalide (ex. 4,99)." : issue.message
         : issue?.message;
       setNotice({ text: `${where}${message ?? "vérifie les champs."}`, ok: false });
       return;
     }
+    if (promo.active && promo.endsAt && new Date(promo.endsAt) <= new Date()) {
+      setNotice({ text: "Promo : la date de fin est déjà passée.", ok: false });
+      return;
+    }
     const priceChanged = saved && parsed.data.products?.some((p) => {
       const before = saved.products.find((b) => b.id === p.id)!;
-      return p.priceCents !== before.priceCents || p.launchPriceCents !== before.launchPriceCents;
+      return p.priceCents !== before.priceCents || p.promoPriceCents !== before.promoPriceCents;
     });
     const ok = await confirm({
       title: "Enregistrer la boutique ?",
       message: (
         <>
           Les nouveaux réglages s&apos;appliquent tout de suite au site (et aux conditions générales de vente).
-          {priceChanged && " Pense à reporter les prix dans la Play Console pour l'application Android."} Les achats déjà payés ne changent pas.
+          {(priceChanged || JSON.stringify(promo) !== JSON.stringify(toPromoForm(saved!.promo))) &&
+            " Pense à reporter les prix (et la promo) dans la Play Console pour l'application Android."}{" "}
+          Les achats déjà payés ne changent pas.
         </>
       ),
       confirmLabel: "Enregistrer",
@@ -109,25 +126,36 @@ function ShopSettingsEditor() {
   };
 
   if (!saved) return notice ? <p className="text-danger">{notice.text}</p> : <div className="glass h-40 animate-pulse" />;
+  const running = promoRunning(promo);
 
   return (
     <section className="glass space-y-5 p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="font-display text-lg font-semibold">Passes VIP</h2>
-          <p className="text-sm text-muted">
-            Prix TTC en euros. Pendant l&apos;offre de lancement, le site affiche « Prix de lancement » et le prix normal appliqué
-            ensuite. Les prix de l&apos;application Android se règlent dans la Play Console.
-          </p>
-        </div>
-        <label className="flex items-center gap-3 rounded-xl border border-line px-3 py-2 text-sm">
-          <input type="checkbox" checked={launchOffer} onChange={(e) => setLaunchOffer(e.target.checked)} className="h-4 w-4 accent-violet" />
-          <span>
-            <span className="block font-medium">Offre de lancement</span>
-            <span className="block text-xs text-muted">{launchOffer ? "Prix de lancement appliqués" : "Prix normaux appliqués"}</span>
-          </span>
-        </label>
+      <div>
+        <h2 className="font-display text-lg font-semibold">Passes VIP</h2>
+        <p className="text-sm text-muted">
+          Prix TTC en euros. Pendant une promo, le site affiche son nom, le prix promo et le prix normal appliqué ensuite. Les
+          prix de l&apos;application Android se règlent dans la Play Console.
+        </p>
       </div>
+
+      <fieldset className={`space-y-3 rounded-xl border p-4 ${running ? "border-warn/60" : "border-line"}`}>
+        <legend className="px-1 text-sm font-semibold">Promo du moment</legend>
+        <label className="flex items-center gap-3 text-sm">
+          <input type="checkbox" checked={promo.active} onChange={(e) => setPromo({ ...promo, active: e.target.checked })} className="h-4 w-4 accent-violet" aria-label="Promo active" />
+          <span>{promo.active ? (running ? "Active : prix promo appliqués" : "Active, mais la date de fin est passée") : "Désactivée : prix normaux appliqués"}</span>
+        </label>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="block space-y-1 text-sm">
+            <span className="text-muted">Nom affiché aux joueurs</span>
+            <input value={promo.label} onChange={(e) => setPromo({ ...promo, label: e.target.value })} maxLength={40} placeholder="Promo de Noël" className="input" aria-label="Nom de la promo" />
+          </label>
+          <label className="block space-y-1 text-sm">
+            <span className="text-muted">Fin automatique (facultatif)</span>
+            <input type="datetime-local" value={promo.endsAt} onChange={(e) => setPromo({ ...promo, endsAt: e.target.value })} className="input" aria-label="Fin de la promo" />
+          </label>
+        </div>
+        <p className="text-xs text-muted">Réutilisable à chaque événement : change le nom, les prix promo et la date de fin, puis réactive-la.</p>
+      </fieldset>
 
       <div className="grid gap-4 lg:grid-cols-3">
         {products.map((p) => (
@@ -155,12 +183,12 @@ function ShopSettingsEditor() {
                 <input inputMode="decimal" value={p.price} onChange={(e) => update(p.id, { price: e.target.value })} className="input" aria-label={`Prix normal de ${p.name}`} />
               </label>
               <label className="block space-y-1 text-sm">
-                <span className="text-muted">Prix de lancement (€)</span>
-                <input inputMode="decimal" value={p.launchPrice} onChange={(e) => update(p.id, { launchPrice: e.target.value })} className="input" aria-label={`Prix de lancement de ${p.name}`} />
+                <span className="text-muted">Prix promo (€)</span>
+                <input inputMode="decimal" value={p.promoPrice} onChange={(e) => update(p.id, { promoPrice: e.target.value })} className="input" aria-label={`Prix promo de ${p.name}`} />
               </label>
             </div>
             <p className="text-xs text-muted">
-              Affiché maintenant : {Number.isNaN(toCents(launchOffer ? p.launchPrice : p.price)) ? "—" : formatPrice(toCents(launchOffer ? p.launchPrice : p.price))}
+              Affiché maintenant : {Number.isNaN(toCents(running ? p.promoPrice : p.price)) ? "—" : formatPrice(toCents(running ? p.promoPrice : p.price))}
             </p>
           </fieldset>
         ))}

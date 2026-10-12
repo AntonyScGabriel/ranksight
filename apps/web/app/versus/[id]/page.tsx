@@ -87,7 +87,7 @@ export default function VersusMatchPage({ params }: { params: Promise<{ id: stri
       {phase === "invited" && (
         <div className="glass space-y-4 p-8 text-center">
           <p className="font-display text-xl font-semibold">{opp?.displayName} te défie{match.game ? ` sur ${match.game.name}` : ""} !</p>
-          <p className="text-sm text-muted">5 clips, 30 secondes par manche, en même temps que ton adversaire.</p>
+          <p className="text-sm text-muted">5 clips, 30 secondes par manche (plus pour un clip long), en même temps que ton adversaire.</p>
           <div className="flex justify-center gap-3">
             <button onClick={() => act(() => api.acceptVersus(id))} className="btn-primary">Accepter et jouer</button>
             <button onClick={() => act(async () => { await api.declineVersus(id); router.push("/versus"); })} className="btn-ghost">Refuser</button>

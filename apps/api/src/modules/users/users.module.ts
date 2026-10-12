@@ -3,7 +3,7 @@ import {
 } from "@nestjs/common";
 import type { Response } from "express";
 import { z } from "zod";
-import { levelFromXp, Pseudo, TERMS_VERSION, type FriendRelation, type PublicProfileDto } from "@ranksight/shared";
+import { levelFromXp, Pseudo, TERMS_VERSION, type FriendRelation, type PublicProfileDto, pseudoKey } from "@ranksight/shared";
 import { CurrentUser, type AuthUser } from "../../common/decorators/current-user.decorator.js";
 import { Premium } from "../../common/decorators/roles.decorator.js";
 import { Public } from "../../common/decorators/public.decorator.js";
@@ -86,6 +86,9 @@ export class UsersService {
       termsAccepted: !!termsAcceptedAt && termsVersion === TERMS_VERSION,
       chatMutedUntil: chatMutedUntil && chatMutedUntil > new Date() ? chatMutedUntil.toISOString() : null,
       mfaEnabled: !!totpEnabledAt,
+      // Accès réservé au fondateur (boutique, VIP offert, annonce, stockage, journal) ; les administrateurs l'ont tant
+      // qu'aucun fondateur n'est nommé
+      siteOwner: user.role === "OWNER" || (user.role === "ADMIN" && (await this.prisma.user.count({ where: { role: "OWNER" } })) === 0),
       hasPassword: !!passwordHash,
       vip: vipStatus(subscription),
       linkedProviders: oauthAccounts.map((a) => a.provider),
@@ -101,7 +104,7 @@ export class UsersService {
   async update(userId: string, input: z.infer<typeof UpdateMe>) {
     const { pseudo, ...rest } = input;
     if (pseudo) await assertPseudoAllowed(this.prisma, pseudo);
-    const data = { ...rest, ...(pseudo ? { username: pseudo.toLowerCase(), displayName: pseudo } : {}) };
+    const data = { ...rest, ...(pseudo ? { username: pseudoKey(pseudo), displayName: pseudo } : {}) };
     try {
       return await this.prisma.user.update({ where: { id: userId }, data, select: publicSelect });
     } catch (e) {
@@ -112,7 +115,7 @@ export class UsersService {
 
   async publicProfile(username: string) {
     const user = await this.prisma.user.findFirst({
-      where: { username: username.toLowerCase(), status: "ACTIVE" },
+      where: { username: pseudoKey(username), status: "ACTIVE" },
       select: { ...publicSelect, gameStats: { where: { game: { isActive: true } }, include: { game: { select: { slug: true, name: true } } } } },
     });
     if (!user) throw new NotFoundException();
@@ -235,7 +238,7 @@ export class UsersService {
   /**
    * Suppression d'un compte (par le joueur ou par un administrateur).
    * Le compte est anonymisé : pseudo et email libérés, connexions Google/Discord, mot de passe, double authentification,
-   * sessions, amis, blocages, messages privés, messages du chat global et clips proposés supprimés. Les réponses déjà données restent dans les statistiques
+   * sessions, amis, blocages, messages privés, messages du chat global, suggestions et clips proposés supprimés. Les réponses déjà données restent dans les statistiques
    * des clips, sans lien avec une personne identifiable ; les achats restent pour la comptabilité.
    */
   async deleteAccount(userId: string) {
@@ -256,6 +259,7 @@ export class UsersService {
       this.prisma.userBlock.deleteMany({ where: { OR: [{ blockerId: userId }, { blockedId: userId }] } }),
       this.prisma.pushToken.deleteMany({ where: { userId } }),
       this.prisma.userCosmetic.deleteMany({ where: { userId } }),
+      this.prisma.suggestion.deleteMany({ where: { userId } }),
       this.prisma.friendship.deleteMany({ where: { OR: [{ requesterId: userId }, { addresseeId: userId }] } }),
       this.prisma.globalMessage.updateMany({ where: { userId, deletedAt: null }, data: { deletedAt: new Date() } }),
       this.prisma.subscription.deleteMany({ where: { userId } }),

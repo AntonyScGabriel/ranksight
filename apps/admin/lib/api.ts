@@ -39,6 +39,8 @@ export interface Me {
   email: string | null;
   role: UserRole;
   mfaEnabled: boolean;
+  /** Accès réservé au fondateur : boutique, VIP offert, annonce, stockage (les administrateurs l'ont s'il n'y a pas de fondateur) */
+  siteOwner: boolean;
 }
 
 export interface MfaStatus { enabled: boolean; enabledAt: string | null; recoveryCodesLeft: number; required: boolean; unlocked: boolean }

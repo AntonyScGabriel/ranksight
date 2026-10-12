@@ -158,6 +158,7 @@ export default function ProfileScreen() {
         onPress={() => router.push("/shop")}
       />
       <GhostButton label="Proposer un clip" onPress={() => router.push("/submit")} />
+      <GhostButton label="Suggestions" onPress={() => router.push("/suggestions")} />
       {me.role !== "USER" && (
         <GhostButton label={me.role === "REVIEWER" ? "Tri des clips" : "Administration"} onPress={() => router.push(me.role === "REVIEWER" ? "/admin/triage" : "/admin")} />
       )}

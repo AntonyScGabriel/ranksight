@@ -55,7 +55,7 @@ export class PushService {
 
 /**
  * Rappels quotidiens :
- * - 10:00 UTC : les 4 défis du jour sont disponibles
+ * - 10:00 UTC : les défis du jour sont disponibles (3 par jeu)
  * - 19:00 UTC : rappel aux joueurs dont la série est en jeu et qui n'ont pas encore joué
  */
 @Injectable()
@@ -70,7 +70,7 @@ export class DailyReminders {
     });
     await this.push.send(tokens.map((t) => t.token), {
       title: "Les défis du jour sont en ligne",
-      body: "League of Legends, Valorant, Rocket League et Counter-Strike 2 : devine les 4 rangs avant tes amis.",
+      body: "3 clips par jeu (League of Legends, Valorant, Rocket League, Counter-Strike 2) : devine les rangs avant tes amis.",
       data: { url: `${env().APP_SCHEME}://` },
     });
   }

@@ -105,7 +105,10 @@ export const GuessResultDto = z.object({
 });
 export type GuessResultDto = z.infer<typeof GuessResultDto>;
 
-// ---------- Défis du jour (un par jeu) ----------
+// ---------- Défis du jour (3 par jeu) ----------
+
+/** Nombre de défis par jeu et par jour (chacun avec son propre clip) */
+export const DAILY_PER_GAME = 3;
 
 export const DailyStatus = z.enum(["AVAILABLE", "PLAYED", "UNAVAILABLE"]);
 export type DailyStatus = z.infer<typeof DailyStatus>;
@@ -116,27 +119,44 @@ export const DAILY_STATUS_LABEL: Record<DailyStatus, string> = {
   UNAVAILABLE: "Bientôt disponible",
 };
 
-export const DailyGameDto = z.object({
-  game: z.object({ id: z.string().uuid(), slug: GameSlug, name: z.string(), iconUrl: z.string().nullable(), accent: z.string() }),
+export const DailyResultDto = z.object({
+  score: z.number().int(),
+  distance: z.number().int(),
+  guessedRank: z.object({ name: z.string(), color: z.string() }),
+  correctRank: z.object({ name: z.string(), color: z.string() }),
+});
+export type DailyResultDto = z.infer<typeof DailyResultDto>;
+
+/** Un des défis du jour d'un jeu (n° 1 à DAILY_PER_GAME) */
+export const DailyChallengeDto = z.object({
+  slot: z.number().int(),
   status: DailyStatus,
   /** Renseigné quand le défi est terminé */
-  result: z
-    .object({
-      score: z.number().int(),
-      distance: z.number().int(),
-      guessedRank: z.object({ name: z.string(), color: z.string() }),
-      correctRank: z.object({ name: z.string(), color: z.string() }),
-    })
-    .nullable(),
+  result: DailyResultDto.nullable(),
+});
+export type DailyChallengeDto = z.infer<typeof DailyChallengeDto>;
+
+export const DailyGameDto = z.object({
+  game: z.object({ id: z.string().uuid(), slug: GameSlug, name: z.string(), iconUrl: z.string().nullable(), accent: z.string() }),
+  /** État d'ensemble : disponible tant qu'il reste un défi à jouer, terminé quand tous sont joués */
+  status: DailyStatus,
+  /** Dernier résultat du jeu (compatibilité avec les anciennes versions de l'application) */
+  result: DailyResultDto.nullable(),
+  /** Les défis du jour de ce jeu */
+  challenges: z.array(DailyChallengeDto),
+  /** Score cumulé sur les défis du jour de ce jeu */
+  score: z.number().int(),
 });
 export type DailyGameDto = z.infer<typeof DailyGameDto>;
 
 export const DailyOverviewDto = z.object({
   date: z.string(),
   games: z.array(DailyGameDto),
-  /** Somme des scores du jour (4 défis, 400 points au maximum) */
+  /** Somme des scores du jour (100 points au maximum par défi) */
   totalScore: z.number().int(),
   played: z.number().int(),
+  /** Nombre de défis proposés aujourd'hui (tous jeux confondus) */
+  total: z.number().int(),
   dailyStreak: z.number().int(),
 });
 export type DailyOverviewDto = z.infer<typeof DailyOverviewDto>;
@@ -177,6 +197,23 @@ export const SeasonDto = z.object({
   current: z.boolean(),
 });
 export type SeasonDto = z.infer<typeof SeasonDto>;
+
+/** Classement des contributeurs : saison (AAAA-MM) ou "all" (depuis le lancement) */
+export const ContributorsPeriod = z.union([z.literal("all"), SeasonKey]);
+export type ContributorsPeriod = z.infer<typeof ContributorsPeriod>;
+
+/**
+ * Classement des contributeurs : nombre de clips proposés par chaque joueur et acceptés par l'équipe
+ * (pendant la saison, d'après la date d'acceptation). À égalité, le premier à atteindre ce nombre passe devant.
+ * Le premier de chaque saison reçoit le titre « Contributeur saison N » à la clôture.
+ */
+export const ContributorsBoardDto = z.object({
+  entries: z.array(LeaderboardEntryDto),
+  me: z.object({ rank: z.number().int(), score: z.number() }).nullable(),
+  /** Titre promis au premier de la saison (null pour le classement depuis le lancement) */
+  reward: z.string().nullable(),
+});
+export type ContributorsBoardDto = z.infer<typeof ContributorsBoardDto>;
 
 // ---------- Succès ----------
 
@@ -242,10 +279,19 @@ export type CreateReportInput = z.infer<typeof CreateReportInput>;
 
 // ---------- Clips proposés par les joueurs ----------
 
+/** Durée d'un clip : de 5 secondes à 1 minute (petite tolérance sur la durée lue dans le fichier) */
+export const CLIP_MIN_SEC = 5;
+export const CLIP_MAX_SEC = 60;
+export const CLIP_DURATION_LABEL = "5 secondes à 1 minute";
+export const clipDurationOk = (sec: number) => sec >= CLIP_MIN_SEC - 0.3 && sec <= CLIP_MAX_SEC + 0.5;
+/** Taille maximale d'une vidéo envoyée (1 minute en 1080p) ; elle est ensuite compressée en 720p */
+export const CLIP_MAX_MB = 150;
+export const CLIP_MAX_BYTES = CLIP_MAX_MB * 1024 * 1024;
+
 export const UploadContentType = z.enum(["video/mp4", "video/webm"]);
 export const UploadUrlInput = z.object({
   contentType: UploadContentType,
-  sizeBytes: z.number().int().positive().max(80 * 1024 * 1024),
+  sizeBytes: z.number().int().positive().max(CLIP_MAX_BYTES, `La vidéo dépasse ${CLIP_MAX_MB} Mo.`),
 });
 export type UploadUrlInput = z.infer<typeof UploadUrlInput>;
 
@@ -297,7 +343,7 @@ export const SubmitClipInput = z.object({
   platform: Platform.optional(),
   region: Region.optional(),
   storageKey: z.string().regex(/^raw\/[0-9a-f-]{36}\.(mp4|webm)$/),
-  durationSec: z.number().min(10).max(35),
+  durationSec: z.number().min(CLIP_MIN_SEC - 0.3, `Le clip doit durer de ${CLIP_DURATION_LABEL}.`).max(CLIP_MAX_SEC + 0.5, `Le clip doit durer de ${CLIP_DURATION_LABEL}.`),
   proofUrl: z.string().url().max(500).optional(),
   note: z.string().max(300).optional(),
   ownsRights: z.literal(true, { message: "Tu dois être l'auteur du clip ou avoir l'accord de son auteur." }),
@@ -422,10 +468,25 @@ export const GLOBAL_CHAT_EVENTS = {
 // ---------- Authentification ----------
 
 /** Pseudo RankGuess : unique (sans tenir compte des majuscules), visible dans les classements et le chat. */
+/** Lettres de toutes les langues (accents compris), chiffres, _ - et . (pas d'espace : le pseudo reste un seul mot) */
+const PSEUDO_PATTERN = /^[\p{L}\p{M}\p{N}_.-]{3,20}$/u;
+export const PSEUDO_RULE = "3 à 20 caractères : lettres (accents compris), chiffres, _ - ou .";
 export const Pseudo = z
   .string()
   .trim()
-  .regex(/^[a-zA-Z0-9_]{3,20}$/, "Le pseudo doit contenir 3 à 20 caractères : lettres, chiffres ou _.");
+  .transform((s) => s.normalize("NFC"))
+  .pipe(
+    z
+      .string()
+      .regex(PSEUDO_PATTERN, `Le pseudo doit contenir ${PSEUDO_RULE}`)
+      .regex(/[\p{L}\p{N}]/u, "Le pseudo doit contenir au moins une lettre ou un chiffre."),
+  );
+
+/**
+ * Clé d'unicité d'un pseudo : sans accents ni majuscules. « Éric » et « eric » désignent donc le même compte : impossible
+ * d'imiter un joueur en ajoutant un accent.
+ */
+export const pseudoKey = (pseudo: string) => pseudo.trim().normalize("NFD").replace(/\p{M}+/gu, "").normalize("NFC").toLowerCase();
 
 export const Email = z.string().trim().toLowerCase().max(254).email("Adresse email invalide.");
 
@@ -510,20 +571,39 @@ export function resolveMediaUrl(url: string, apiBaseUrl: string): string {
 export const VIP_XP_MULTIPLIER = 1.5;
 
 /**
- * Passes VIP. `priceCents` est le prix normal ; `launchPriceCents` le prix de lancement (−50 %), appliqué tant que
- * l'offre de lancement est active (interrupteur dans l'administration, page « Boutique »).
+ * Passes VIP. `priceCents` est le prix normal ; `promoPriceCents` le prix pendant la promo du moment (soldes, lancement,
+ * événement…), appliqué tant que la promo est active (page « Boutique » de l'administration).
  */
 export const VIP_PRODUCTS = [
-  { id: "vip_1m", name: "VIP 1 mois", days: 30, priceCents: 499, launchPriceCents: 249, highlight: null },
-  { id: "vip_3m", name: "VIP 3 mois", days: 90, priceCents: 1299, launchPriceCents: 649, highlight: "−13 %" },
-  { id: "vip_12m", name: "VIP 12 mois", days: 365, priceCents: 3999, launchPriceCents: 1999, highlight: "−33 %" },
+  { id: "vip_1m", name: "VIP 1 mois", days: 30, priceCents: 499, promoPriceCents: 249, highlight: null },
+  { id: "vip_3m", name: "VIP 3 mois", days: 90, priceCents: 1299, promoPriceCents: 649, highlight: "−13 %" },
+  { id: "vip_12m", name: "VIP 12 mois", days: 365, priceCents: 3999, promoPriceCents: 1999, highlight: "−33 %" },
 ] as const;
 
-/** Prix payé pour un pass, selon que l'offre de lancement est active ou non */
-export const vipPriceCents = (p: { priceCents: number; launchPriceCents: number }, launchOffer: boolean) =>
-  launchOffer ? p.launchPriceCents : p.priceCents;
+/** Prix payé pour un pass, selon qu'une promo est en cours ou non */
+export const vipPriceCents = (p: { priceCents: number; promoPriceCents: number }, promoRunning: boolean) =>
+  promoRunning ? p.promoPriceCents : p.priceCents;
 export type VipProductId = (typeof VIP_PRODUCTS)[number]["id"];
 export const VipProductId = z.enum(["vip_1m", "vip_3m", "vip_12m"]);
+
+/**
+ * Promo du moment : réutilisable à chaque événement (lancement, Noël, anniversaire du site…). Nom affiché aux joueurs,
+ * date de fin facultative (la promo s'arrête toute seule).
+ */
+export const ShopPromo = z.object({
+  active: z.boolean(),
+  label: z.string().trim().min(3, "Nom de la promo trop court.").max(40, "Nom de la promo trop long (40 caractères)."),
+  endsAt: z.string().datetime({ offset: true }).nullable(),
+});
+export type ShopPromo = z.infer<typeof ShopPromo>;
+export const DEFAULT_SHOP_PROMO: ShopPromo = { active: true, label: "Offre de lancement", endsAt: null };
+
+/** Promo active et pas encore terminée */
+export const isPromoRunning = (promo: ShopPromo, now = new Date()) => promo.active && (!promo.endsAt || new Date(promo.endsAt) > now);
+
+/** Promo telle que montrée aux joueurs (null : pas de promo en cours) */
+export const PromoInfoDto = z.object({ label: z.string(), endsAt: z.string().nullable() }).nullable();
+export type PromoInfoDto = z.infer<typeof PromoInfoDto>;
 
 /**
  * Pass VIP tel que réglé dans l'administration (page « Boutique »). Les identifiants restent fixes : ce sont aussi ceux
@@ -536,21 +616,21 @@ export const ShopProduct = z
     days: z.number().int().min(1, "Au moins 1 jour.").max(3650, "10 ans maximum."),
     /** Prix normal, en centimes TTC */
     priceCents: z.number().int().min(50, "Prix minimum : 0,50 €.").max(100_000, "Prix maximum : 1 000 €."),
-    /** Prix pendant l'offre de lancement, en centimes TTC */
-    launchPriceCents: z.number().int().min(50, "Prix minimum : 0,50 €.").max(100_000, "Prix maximum : 1 000 €."),
+    /** Prix pendant la promo du moment, en centimes TTC */
+    promoPriceCents: z.number().int().min(50, "Prix minimum : 0,50 €.").max(100_000, "Prix maximum : 1 000 €."),
     /** Étiquette affichée sur l'offre (ex. « −13 % », « Le plus choisi ») */
     highlight: z.string().trim().max(20, "Étiquette trop longue (20 caractères).").nullable(),
     /** Pass proposé à l'achat */
     active: z.boolean(),
   })
-  .refine((p) => p.launchPriceCents <= p.priceCents, { message: "Le prix de lancement ne peut pas dépasser le prix normal.", path: ["launchPriceCents"] });
+  .refine((p) => p.promoPriceCents <= p.priceCents, { message: "Le prix promo ne peut pas dépasser le prix normal.", path: ["promoPriceCents"] });
 export type ShopProduct = z.infer<typeof ShopProduct>;
 
 /** Catalogue par défaut (avant tout réglage dans l'administration) */
 export const DEFAULT_SHOP_PRODUCTS: ShopProduct[] = VIP_PRODUCTS.map((p) => ({ ...p, active: true }));
 
 export const ShopSettingsInput = z.object({
-  launchOffer: z.boolean(),
+  promo: ShopPromo,
   products: z
     .array(ShopProduct)
     .length(VIP_PRODUCTS.length)
@@ -560,13 +640,13 @@ export const ShopSettingsInput = z.object({
 });
 export type ShopSettingsInput = z.infer<typeof ShopSettingsInput>;
 
-export const ShopSettingsDto = z.object({ launchOffer: z.boolean(), products: z.array(ShopProduct) });
+export const ShopSettingsDto = z.object({ promo: ShopPromo, products: z.array(ShopProduct) });
 export type ShopSettingsDto = z.infer<typeof ShopSettingsDto>;
 
 /** Prix publics (conditions générales de vente) */
 export const ShopCatalogDto = z.object({
-  launchOffer: z.boolean(),
-  products: z.array(z.object({ id: VipProductId, name: z.string(), days: z.number(), priceCents: z.number(), launchPriceCents: z.number() })),
+  promo: PromoInfoDto,
+  products: z.array(z.object({ id: VipProductId, name: z.string(), days: z.number(), priceCents: z.number(), promoPriceCents: z.number() })),
 });
 export type ShopCatalogDto = z.infer<typeof ShopCatalogDto>;
 
@@ -584,12 +664,12 @@ export const ShopDto = z.object({
     id: VipProductId, name: z.string(), days: z.number(),
     /** Prix à payer maintenant */
     priceCents: z.number(),
-    /** Prix normal (après l'offre de lancement) */
+    /** Prix normal (après la promo) */
     regularPriceCents: z.number(),
     highlight: z.string().nullable(),
   })),
-  /** Offre de lancement en cours : prix réduits de moitié */
-  launchOffer: z.boolean(),
+  /** Promo en cours (nom, date de fin), ou null */
+  promo: PromoInfoDto,
   /** Paiement par carte activé sur le serveur (clés Stripe renseignées) */
   paymentsEnabled: z.boolean(),
   /** Achat dans l'application Android activé sur le serveur (compte de service Google Play renseigné) */
@@ -678,6 +758,8 @@ export function formatPrice(cents: number) {
 export const VERSUS_ROUNDS = 5;
 /** Duel en direct : temps de réponse par manche, compte à rebours avant la 1re manche et pause d'affichage entre deux manches */
 export const VERSUS_ROUND_SEC = 30;
+/** Durée d'une manche de duel : au moins VERSUS_ROUND_SEC, et toujours la durée du clip + 10 s pour répondre */
+export const versusRoundSec = (clipDurationSec: number) => Math.max(VERSUS_ROUND_SEC, Math.ceil(clipDurationSec) + 10);
 export const VERSUS_COUNTDOWN_SEC = 5;
 export const VERSUS_REVEAL_SEC = 6;
 /** Une recherche ou une invitation reste ouverte tant que son auteur est sur la page (signal toutes les 15 s) */
@@ -899,3 +981,78 @@ export const ReviewerStatsDto = TriageStatsDto.omit({ queue: true }).extend({
   lastTriageAt: z.string().nullable(),
 });
 export type ReviewerStatsDto = z.infer<typeof ReviewerStatsDto>;
+
+// ---------- Suggestions des joueurs ----------
+
+export const SuggestionCategory = z.enum(["FEATURE", "GAMEPLAY", "CONTENT", "INTERFACE", "OTHER"]);
+export type SuggestionCategory = z.infer<typeof SuggestionCategory>;
+export const SUGGESTION_CATEGORY_LABEL: Record<SuggestionCategory, string> = {
+  FEATURE: "Nouvelle fonctionnalité",
+  GAMEPLAY: "Modes de jeu et scores",
+  CONTENT: "Jeux, rangs et clips",
+  INTERFACE: "Site et application",
+  OTHER: "Autre",
+};
+
+export const SuggestionStatus = z.enum(["NEW", "PLANNED", "DONE", "DECLINED"]);
+export type SuggestionStatus = z.infer<typeof SuggestionStatus>;
+export const SUGGESTION_STATUS_LABEL: Record<SuggestionStatus, string> = {
+  NEW: "En attente",
+  PLANNED: "Retenue",
+  DONE: "Réalisée",
+  DECLINED: "Non retenue",
+};
+
+/** Nombre maximal de suggestions par joueur sur 24 heures */
+export const SUGGESTIONS_PER_DAY = 5;
+export const SUGGESTION_MAX_LENGTH = 1000;
+export const SUGGESTION_REPLY_MAX_LENGTH = 500;
+
+export const SuggestionInput = z.object({
+  category: SuggestionCategory,
+  text: z
+    .string()
+    .trim()
+    .min(10, "Décris ton idée en quelques mots (10 caractères minimum).")
+    .max(SUGGESTION_MAX_LENGTH, `${SUGGESTION_MAX_LENGTH} caractères maximum.`),
+});
+export type SuggestionInput = z.input<typeof SuggestionInput>;
+
+export const SuggestionDto = z.object({
+  id: z.string().uuid(),
+  category: SuggestionCategory,
+  text: z.string(),
+  status: SuggestionStatus,
+  /** Réponse de l'équipe */
+  reply: z.string().nullable(),
+  repliedAt: z.string().nullable(),
+  createdAt: z.string(),
+});
+export type SuggestionDto = z.infer<typeof SuggestionDto>;
+
+export const AdminSuggestionDto = SuggestionDto.extend({
+  author: z.object({ id: z.string().uuid(), displayName: z.string(), status: z.string() }),
+  repliedBy: z.string().nullable(),
+});
+export type AdminSuggestionDto = z.infer<typeof AdminSuggestionDto>;
+
+export const AdminSuggestionsDto = z.object({
+  items: z.array(AdminSuggestionDto),
+  total: z.number().int(),
+  /** Nombre de suggestions par statut (toutes catégories) */
+  counts: z.record(SuggestionStatus, z.number().int()),
+});
+export type AdminSuggestionsDto = z.infer<typeof AdminSuggestionsDto>;
+
+/** Traitement d'une suggestion par l'équipe : statut et réponse facultative (vide = pas de réponse) */
+export const SuggestionReviewInput = z.object({
+  status: SuggestionStatus,
+  reply: z
+    .string()
+    .trim()
+    .max(SUGGESTION_REPLY_MAX_LENGTH, `${SUGGESTION_REPLY_MAX_LENGTH} caractères maximum.`)
+    .nullable()
+    .optional()
+    .transform((v) => (v ? v : null)),
+});
+export type SuggestionReviewInput = z.input<typeof SuggestionReviewInput>;

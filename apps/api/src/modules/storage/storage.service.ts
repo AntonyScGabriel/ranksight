@@ -10,10 +10,11 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { env } from "../../config/env.js";
+import { CLIP_MAX_BYTES, CLIP_MAX_MB } from "@ranksight/shared";
 
 const ALLOWED_TYPES = { "video/mp4": "mp4", "video/webm": "webm", "image/webp": "webp", "image/jpeg": "jpg" } as const;
 export type UploadContentType = keyof typeof ALLOWED_TYPES;
-export const MAX_UPLOAD_BYTES = 80 * 1024 * 1024; // 80 Mo pour 30 s en 1080p
+export const MAX_UPLOAD_BYTES = CLIP_MAX_BYTES; // 1 minute en 1080p
 
 /** Clé de stockage valide : dossier connu + UUID + extension autorisée (bloque toute traversée de chemin). */
 export const KEY_PATTERN = /^(raw|clips|hls|posters|avatars)\/[0-9a-f-]{36}\.(mp4|webm|webp|jpg)$/;
@@ -48,7 +49,7 @@ export class StorageService {
   /** URL d'upload direct depuis le navigateur, valable 10 min. */
   async createUploadUrl(contentType: UploadContentType, sizeBytes: number) {
     if (!(contentType in ALLOWED_TYPES)) throw new Error("Type de fichier refusé");
-    if (sizeBytes > MAX_UPLOAD_BYTES) throw new Error("Fichier trop volumineux (80 Mo max)");
+    if (sizeBytes > MAX_UPLOAD_BYTES) throw new Error(`Fichier trop volumineux (${CLIP_MAX_MB} Mo max)`);
     const key = `raw/${randomUUID()}.${ALLOWED_TYPES[contentType]}`;
     if (this.s3) {
       const url = await getSignedUrl(

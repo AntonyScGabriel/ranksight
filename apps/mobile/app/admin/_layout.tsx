@@ -30,6 +30,7 @@ export default function AdminLayout() {
       <Stack.Screen name="clips" options={{ title: "Clips à valider" }} />
       <Stack.Screen name="clip/[id]" options={{ title: "Clip" }} />
       <Stack.Screen name="reports" options={{ title: "Signalements" }} />
+      <Stack.Screen name="suggestions" options={{ title: "Suggestions" }} />
       <Stack.Screen name="users" options={{ title: "Joueurs" }} />
       <Stack.Screen name="shop" options={{ title: "Boutique" }} />
       <Stack.Screen name="security" options={{ title: "Sécurité du compte" }} />

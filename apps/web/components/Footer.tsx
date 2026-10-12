@@ -3,6 +3,7 @@ import Link from "next/link";
 const LINKS: [string, string][] = [
   ["/how-to-play", "Comment jouer"],
   ["/faq", "FAQ"],
+  ["/suggestions", "Suggestions"],
   ["/contact", "Contact"],
   ["/legal/mentions", "Mentions légales"],
   ["/legal/cgu", "CGU"],

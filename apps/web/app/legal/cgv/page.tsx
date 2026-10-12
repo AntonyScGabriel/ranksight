@@ -20,7 +20,7 @@ export default function CgvPage() {
         <VipPriceTable />
         <p>
           Le prix appliqué est toujours celui affiché dans la boutique au moment de la commande. Une modification des prix
-          (dont la fin d&apos;une offre) ne change pas les commandes déjà payées.
+          (dont le début ou la fin d&apos;une promo) ne change pas les commandes déjà payées.
         </p>
         <p>Avantages : {VIP_PERKS.join(" ; ")}. Un pass acheté pendant un VIP en cours prolonge sa date de fin.</p>
         <p>

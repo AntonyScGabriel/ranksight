@@ -3,12 +3,13 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ANNOUNCEMENT_TONE_LABEL, AnnouncementInput, type AnnouncementDto, type AnnouncementTone } from "@ranksight/shared";
-import { API, adminFetch } from "@/lib/api";
+import { API, adminFetch, session } from "@/lib/api";
 
 type Overview = {
   users: number; dau: number; guesses24h: number; openReports: number; premium: number; conversionRate: number;
   clips: Record<string, number>;
   triaged: number;
+  newSuggestions: number;
   games: { slug: string; guesses: number; avg_distance: number }[];
 };
 
@@ -29,6 +30,7 @@ export default function Dashboard() {
     ["Joueurs VIP", `${o.premium} · ${(o.conversionRate * 100).toFixed(1)} %`],
     ["Clips à valider", `${o.clips.PENDING_REVIEW ?? 0}${o.triaged ? ` · ${o.triaged} pré-triés` : ""}`, "/clips"],
     ["Signalements ouverts", o.openReports, "/reports"],
+    ["Suggestions en attente", o.newSuggestions, "/suggestions"],
   ];
   const max = Math.max(1, ...o.games.map((g) => g.guesses));
 
@@ -81,8 +83,10 @@ function AnnouncementEditor() {
   const [link, setLink] = useState("");
   const [until, setUntil] = useState("");
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
+  const [canEdit, setCanEdit] = useState(false);
 
   useEffect(() => {
+    session.me().then((m) => setCanEdit(m.siteOwner), () => setCanEdit(false));
     fetch(`${API}/announcement`, { credentials: "include" })
       .then((r) => r.json())
       .then(({ announcement }: { announcement: AnnouncementDto | null }) => {
@@ -124,6 +128,16 @@ function AnnouncementEditor() {
   };
 
   if (current === undefined) return null;
+  // Annonces réservées au fondateur : l'équipe voit seulement celle en cours
+  if (!canEdit) {
+    return (
+      <div className="glass space-y-2 p-6">
+        <p className="hud-label">Annonce sur le site et l&apos;application</p>
+        <p className="text-sm">{current ? current.text : <span className="text-muted">Aucune annonce en cours.</span>}</p>
+        <p className="text-xs text-muted">Les annonces sont publiées par le fondateur du site.</p>
+      </div>
+    );
+  }
   return (
     <form onSubmit={publish} className="glass space-y-3 p-6">
       <div className="flex flex-wrap items-center justify-between gap-2">

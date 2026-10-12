@@ -27,7 +27,11 @@ export class RolesGuard implements CanActivate {
     const current = await this.prisma.user.findUnique({ where: { id: user.sub }, select: { role: true, status: true, totpEnabledAt: true } });
     if (!current || current.status !== "ACTIVE") throw new ForbiddenException();
     const min = Math.min(...required.map((r) => LEVEL[r]));
-    if (LEVEL[current.role] < min) throw new ForbiddenException("Permissions insuffisantes");
+    // Réservé au fondateur : sans fondateur nommé, les administrateurs gardent l'accès (le site n'est jamais bloqué)
+    const ownerFallback = min === LEVEL.OWNER && current.role === "ADMIN" && (await this.prisma.user.count({ where: { role: "OWNER" } })) === 0;
+    if (LEVEL[current.role] < min && !ownerFallback) {
+      throw new ForbiddenException(min === LEVEL.OWNER ? { code: "OWNER_ONLY", message: "Réservé au fondateur du site." } : "Permissions insuffisantes");
+    }
 
     // Administration : double authentification (obligatoire en production, ou dès qu'elle est activée sur le compte).
     // Le tri des clips (avis à confirmer par la modération) n'est pas concerné.

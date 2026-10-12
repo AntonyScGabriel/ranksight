@@ -117,7 +117,11 @@ export default function ShopScreen() {
               <Text style={{ color: colors.ink, fontSize: 18, fontWeight: "700" }}>{p.name}</Text>
               {p.highlight && <Text style={{ color: colors.warn, fontWeight: "700" }}>{p.highlight}</Text>}
             </View>
-            {shop.launchOffer && <Text style={{ color: colors.warn, fontSize: 12, fontWeight: "700", letterSpacing: 0.8 }}>PRIX DE LANCEMENT · DURÉE LIMITÉE</Text>}
+            {shop.promo && p.priceCents !== p.regularPriceCents && (
+              <Text style={{ color: colors.warn, fontSize: 12, fontWeight: "700", letterSpacing: 0.8 }}>
+                {`PRIX PROMO · ${shop.promo.label.toUpperCase()}`}
+              </Text>
+            )}
             <Text style={{ color: colors.ink, fontSize: 30, fontWeight: "800" }}>{price}</Text>
             <Hud>{p.days} jours de VIP</Hud>
             {VIP_PERKS.map((perk) => <Text key={perk} style={{ color: colors.muted }}>✓ {perk}</Text>)}

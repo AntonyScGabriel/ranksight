@@ -12,7 +12,10 @@ import { Card, Hud, Loading, PrimaryButton } from "@/components/ui";
 import { KeyboardScroll } from "@/components/Keyboard";
 import { Chips, Field, NoticeText, SmallButton, Tag, formatDate, useAdminAction } from "@/components/admin/AdminUi";
 
-type ProductForm = { id: ShopProduct["id"]; name: string; days: string; price: string; launchPrice: string; highlight: string; active: boolean };
+type ProductForm = { id: ShopProduct["id"]; name: string; days: string; price: string; promoPrice: string; highlight: string; active: boolean };
+/** Fin de la promo : date déjà enregistrée, sans fin (0) ou dans N jours à partir de maintenant */
+type PromoEnd = "keep" | number;
+type PromoForm = { active: boolean; label: string; end: PromoEnd };
 
 const euros = (cents: number) => (cents / 100).toFixed(2).replace(".", ",");
 /** « 4,99 » ou « 4.99 » → 499 centimes (NaN si la saisie n'est pas un prix) */
@@ -21,7 +24,7 @@ const toCents = (value: string) => {
   return /^\d+(\.\d{1,2})?$/.test(v) ? Math.round(Number(v) * 100) : Number.NaN;
 };
 const toForm = (p: ShopProduct): ProductForm => ({
-  id: p.id, name: p.name, days: String(p.days), price: euros(p.priceCents), launchPrice: euros(p.launchPriceCents), highlight: p.highlight ?? "", active: p.active,
+  id: p.id, name: p.name, days: String(p.days), price: euros(p.priceCents), promoPrice: euros(p.promoPriceCents), highlight: p.highlight ?? "", active: p.active,
 });
 
 const EXPIRIES = [
@@ -133,17 +136,20 @@ function GiftCodes() {
   );
 }
 
-/** Boutique : offre de lancement, passes VIP (nom, durée, prix, étiquette, mise en vente) et codes cadeaux. */
+const toPromoForm = (p: ShopSettingsDto["promo"]): PromoForm => ({ active: p.active, label: p.label, end: p.endsAt ? "keep" : 0 });
+const PROMO_DAYS = [3, 7, 14, 30] as const;
+
+/** Boutique (fondateur) : promo du moment, passes VIP (nom, durée, prix, prix promo, étiquette, mise en vente) et codes cadeaux. */
 export default function AdminShop() {
   const [saved, setSaved] = useState<ShopSettingsDto | null>(null);
-  const [launchOffer, setLaunchOffer] = useState(true);
+  const [promo, setPromo] = useState<PromoForm>({ active: false, label: "", end: 0 });
   const [products, setProducts] = useState<ProductForm[]>([]);
   const confirm = useConfirm();
   const { run, notice, setNotice, busy } = useAdminAction();
 
   const apply = (r: ShopSettingsDto) => {
     setSaved(r);
-    setLaunchOffer(r.launchOffer);
+    setPromo(toPromoForm(r.promo));
     setProducts(r.products.map(toForm));
   };
 
@@ -154,26 +160,37 @@ export default function AdminShop() {
   );
 
   const update = (id: string, patch: Partial<ProductForm>) => setProducts((list) => list.map((p) => (p.id === id ? { ...p, ...patch } : p)));
-  const dirty = saved !== null && (launchOffer !== saved.launchOffer || JSON.stringify(products) !== JSON.stringify(saved.products.map(toForm)));
+  const dirty =
+    saved !== null &&
+    (JSON.stringify(promo) !== JSON.stringify(toPromoForm(saved.promo)) || JSON.stringify(products) !== JSON.stringify(saved.products.map(toForm)));
+
+  const endsAt = (form: PromoForm) =>
+    form.end === "keep" ? saved?.promo.endsAt ?? null : form.end ? new Date(Date.now() + form.end * 86_400_000).toISOString() : null;
+  const keptEnd = promo.end === "keep" && saved?.promo.endsAt ? new Date(saved.promo.endsAt) : null;
+  const running = promo.active && (!keptEnd || keptEnd > new Date());
 
   const save = async () => {
     const parsed = ShopSettingsInput.safeParse({
-      launchOffer,
+      promo: { active: promo.active, label: promo.label, endsAt: endsAt(promo) },
       products: products.map((p) => ({
-        id: p.id, name: p.name, days: Number(p.days), priceCents: toCents(p.price), launchPriceCents: toCents(p.launchPrice),
+        id: p.id, name: p.name, days: Number(p.days), priceCents: toCents(p.price), promoPriceCents: toCents(p.promoPrice),
         highlight: p.highlight.trim() || null, active: p.active,
       })),
     });
     if (!parsed.success) {
       const issue = parsed.error.issues[0];
       const index = typeof issue?.path[1] === "number" ? issue.path[1] : -1;
-      const where = index >= 0 ? `${products[index]?.name || "Pass"} : ` : "";
+      const where = index >= 0 ? `${products[index]?.name || "Pass"} : ` : issue?.path[0] === "promo" ? "Promo : " : "";
       const message = issue?.code === "invalid_type" ? "prix invalide (ex. 4,99)." : issue?.message;
       return setNotice({ text: `${where}${message ?? "vérifie les champs."}`, ok: false });
     }
+    if (promo.active && keptEnd && keptEnd <= new Date()) {
+      return setNotice({ text: "Promo : la date de fin est passée, choisis une nouvelle durée.", ok: false });
+    }
     const ok = await confirm({
       title: "Enregistrer la boutique ?",
-      message: "Les réglages s'appliquent tout de suite au site. Les prix de l'application Android se changent dans la Play Console. Les achats déjà payés ne changent pas.",
+      message:
+        "Les réglages s'appliquent tout de suite au site. Les prix (et la promo) de l'application Android se changent dans la Play Console. Les achats déjà payés ne changent pas.",
       confirmLabel: "Enregistrer",
     });
     if (ok === false) return;
@@ -183,19 +200,36 @@ export default function AdminShop() {
 
   if (!saved) return notice ? <View style={{ padding: 16 }}><NoticeText notice={notice} /></View> : <Loading />;
 
+  const endOptions: { value: PromoEnd; label: string }[] = [
+    ...(saved.promo.endsAt ? [{ value: "keep" as const, label: `Jusqu'au ${formatDate(saved.promo.endsAt)}` }] : []),
+    { value: 0, label: "Sans fin" },
+    ...PROMO_DAYS.map((d) => ({ value: d, label: `${d} jours` })),
+  ];
+
   return (
     <KeyboardScroll contentContainerStyle={{ padding: 16, gap: 16, paddingBottom: 40 }}>
-      <Card style={{ gap: 14 }}>
+      <Card style={{ gap: 12 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
           <View style={{ flex: 1 }}>
-            <Text style={{ color: colors.ink, fontSize: 17, fontWeight: "700" }}>Offre de lancement</Text>
-            <Text style={{ color: colors.muted, fontSize: 13 }}>{launchOffer ? "Prix de lancement appliqués" : "Prix normaux appliqués"}</Text>
+            <Text style={{ color: colors.ink, fontSize: 17, fontWeight: "700" }}>Promo du moment</Text>
+            <Text style={{ color: colors.muted, fontSize: 13 }}>
+              {promo.active ? (running ? "Active : prix promo appliqués" : "Active, mais la date de fin est passée") : "Désactivée : prix normaux appliqués"}
+            </Text>
           </View>
-          <Switch value={launchOffer} onValueChange={setLaunchOffer} trackColor={{ true: colors.violet, false: colors.line }} />
+          <Switch value={promo.active} onValueChange={(active) => setPromo({ ...promo, active })} trackColor={{ true: colors.violet, false: colors.line }} />
         </View>
+        <Field label="Nom affiché aux joueurs" value={promo.label} onChangeText={(label) => setPromo({ ...promo, label })} maxLength={40} placeholder="Promo de Noël" />
+        <Text style={{ color: colors.muted, fontSize: 13 }}>Fin de la promo (elle s&apos;arrête toute seule)</Text>
+        <Chips options={endOptions} value={promo.end} onChange={(end) => setPromo({ ...promo, end })} />
+        <Text style={{ color: colors.muted, fontSize: 12 }}>
+          Réutilisable à chaque événement : change le nom, les prix promo et la fin, puis réactive-la.
+        </Text>
+      </Card>
 
+      <Card style={{ gap: 14 }}>
+        <Text style={{ color: colors.ink, fontSize: 17, fontWeight: "700" }}>Passes VIP</Text>
         {products.map((p) => {
-          const shown = toCents(launchOffer ? p.launchPrice : p.price);
+          const shown = toCents(running ? p.promoPrice : p.price);
           return (
             <View key={p.id} style={{ gap: 10, borderTopWidth: 1, borderColor: colors.line, paddingTop: 12, opacity: p.active ? 1 : 0.6 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
@@ -210,7 +244,7 @@ export default function AdminShop() {
               </View>
               <View style={{ flexDirection: "row", gap: 8 }}>
                 <View style={{ flex: 1 }}><Field label="Prix normal (€)" value={p.price} onChangeText={(price) => update(p.id, { price })} keyboardType="decimal-pad" /></View>
-                <View style={{ flex: 1 }}><Field label="Prix lancement (€)" value={p.launchPrice} onChangeText={(launchPrice) => update(p.id, { launchPrice })} keyboardType="decimal-pad" /></View>
+                <View style={{ flex: 1 }}><Field label="Prix promo (€)" value={p.promoPrice} onChangeText={(promoPrice) => update(p.id, { promoPrice })} keyboardType="decimal-pad" /></View>
               </View>
               <Text style={{ color: colors.muted, fontSize: 12 }}>Affiché maintenant : {Number.isNaN(shown) ? "—" : formatPrice(shown)}</Text>
             </View>

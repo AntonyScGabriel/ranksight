@@ -1,7 +1,7 @@
 import {
   BadRequestException, ConflictException, ForbiddenException, HttpException, HttpStatus, Inject, Injectable, Logger, UnauthorizedException,
 } from "@nestjs/common";
-import { TERMS_VERSION } from "@ranksight/shared";
+import { TERMS_VERSION, pseudoKey } from "@ranksight/shared";
 import type { Redis } from "ioredis";
 import { createHash, randomBytes, randomInt } from "node:crypto";
 import { env } from "../../config/env.js";
@@ -73,7 +73,7 @@ export class AuthService {
       data: {
         email: p.emailVerified ? email : null,
         emailVerifiedAt: p.emailVerified && email ? new Date() : null,
-        username: pseudo.toLowerCase(),
+        username: pseudoKey(pseudo),
         displayName: pseudo,
         avatarUrl: p.avatarUrl,
         oauthAccounts: {
@@ -87,7 +87,7 @@ export class AuthService {
   // ---------- Compte classique ----------
 
   async signup(input: { pseudo: string; email: string; password: string; acceptTerms: true }): Promise<string> {
-    const username = input.pseudo.toLowerCase();
+    const username = pseudoKey(input.pseudo);
     await assertPseudoAllowed(this.prisma, input.pseudo);
     const [pseudoTaken, emailTaken] = await Promise.all([
       this.prisma.user.findUnique({ where: { username }, select: { id: true } }),
@@ -255,14 +255,15 @@ export class AuthService {
     return new ConflictException({ code, message });
   }
 
-  /** Pseudo RankGuess libre, dérivé du nom affiché chez Google ou Discord (casse conservée). */
+  /** Pseudo RankGuess libre, dérivé du nom affiché chez Google ou Discord (casse et accents conservés). */
   private async uniquePseudo(name: string): Promise<string> {
-    const cleaned = name.normalize("NFKD").replace(/[^a-zA-Z0-9_]/g, "").slice(0, 16);
+    // Accents et lettres de toutes les langues conservés ; espaces et autres signes retirés
+    const cleaned = name.normalize("NFC").replace(/[^\p{L}\p{M}\p{N}_.-]/gu, "").slice(0, 16);
     // Nom Google ou Discord réservé ou interdit : pseudo générique (modifiable ensuite par le joueur)
     const base = cleaned && !(await pseudoProblem(this.prisma, cleaned)) ? cleaned : "Joueur";
     for (let i = 0; i < 10; i++) {
       const pseudo = i === 0 && base.length >= 3 ? base : `${base}${randomInt(1000, 9999)}`;
-      if (!(await this.prisma.user.findUnique({ where: { username: pseudo.toLowerCase() } }))) return pseudo;
+      if (!(await this.prisma.user.findUnique({ where: { username: pseudoKey(pseudo) } }))) return pseudo;
     }
     return `Joueur${Date.now().toString(36)}`;
   }

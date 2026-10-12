@@ -1,14 +1,14 @@
 import { Inject, Injectable, Logger, OnApplicationBootstrap } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
 import type { Redis } from "ioredis";
-import { GAME_SLUGS, type LeaderboardEntryDto, type LeaderboardGame, type LeaderboardPeriod, type LeaderboardScope } from "@ranksight/shared";
+import { GAME_SLUGS, type ContributorsBoardDto, type ContributorsPeriod, type LeaderboardEntryDto, type LeaderboardGame, type LeaderboardPeriod, type LeaderboardScope } from "@ranksight/shared";
 import { REDIS } from "../../redis/redis.module.js";
 import { PrismaService } from "../../prisma/prisma.service.js";
 import { FriendsService } from "../friends/friends.service.js";
 import { AchievementEngine } from "../achievements/achievement-engine.service.js";
 import { isVip, vipSelect } from "../shop/vip.js";
 import { flairSelect, toFlair } from "../cosmetics/flair.js";
-import { allSeasons, previousSeasonKey, seasonKeyOf, seasonNumber } from "./seasons.js";
+import { allSeasons, previousSeasonKey, seasonInfo, seasonKeyOf, seasonNumber } from "./seasons.js";
 import { LeaderboardsGateway } from "./leaderboards.gateway.js";
 
 /** Semaine ISO : 2026-W41 */
@@ -148,6 +148,48 @@ export class LeaderboardsService implements OnApplicationBootstrap {
     return allSeasons();
   }
 
+  /**
+   * Classement des contributeurs, calculé depuis la base : clips proposés par les joueurs et acceptés
+   * (toujours en ligne), comptés à la date d'acceptation. À égalité, le premier à atteindre ce nombre passe devant.
+   */
+  private async contributorRanking(period: ContributorsPeriod): Promise<{ userId: string; count: number }[]> {
+    const info = period === "all" ? null : seasonInfo(period);
+    const rows = await this.prisma.clip.groupBy({
+      by: ["uploaderId"],
+      where: {
+        source: "COMMUNITY",
+        status: "APPROVED",
+        deletedAt: null,
+        reviewedAt: info ? { gte: new Date(info.startsAt), lte: new Date(info.endsAt) } : { not: null },
+      },
+      _count: { _all: true },
+      _max: { reviewedAt: true },
+    });
+    const active = new Set(
+      (await this.prisma.user.findMany({ where: { id: { in: rows.map((r) => r.uploaderId) }, status: "ACTIVE" }, select: { id: true } })).map((u) => u.id),
+    );
+    return rows
+      .filter((r) => active.has(r.uploaderId))
+      .sort((a, b) => b._count._all - a._count._all || (a._max.reviewedAt?.getTime() ?? 0) - (b._max.reviewedAt?.getTime() ?? 0))
+      .map((r) => ({ userId: r.uploaderId, count: r._count._all }));
+  }
+
+  async contributors(opts: { period: ContributorsPeriod; scope: LeaderboardScope; userId: string; limit: number; offset: number }): Promise<ContributorsBoardDto> {
+    let ranking = await this.contributorRanking(opts.period);
+    const reward = opts.period === "all" ? null : `Contributeur saison ${seasonNumber(opts.period)}`;
+    if (opts.scope === "friends") {
+      const ids = new Set([opts.userId, ...(await this.friends.friendIds(opts.userId))]);
+      ranking = ranking.filter((r) => ids.has(r.userId));
+      const entries = await this.hydrate(ranking.map((r) => [r.userId, r.count] as [string, number]), 0);
+      const me = entries.find((e) => e.userId === opts.userId);
+      return { entries, me: me ? { rank: me.rank, score: me.score } : null, reward };
+    }
+    const page = ranking.slice(opts.offset, opts.offset + opts.limit);
+    const entries = await this.hydrate(page.map((r) => [r.userId, r.count] as [string, number]), opts.offset);
+    const mine = ranking.findIndex((r) => r.userId === opts.userId);
+    return { entries, me: mine < 0 ? null : { rank: mine + 1, score: ranking[mine].count }, reward };
+  }
+
   private async archivedSeason(
     season: string,
     opts: { scope: LeaderboardScope; game: LeaderboardGame; userId: string; limit: number; offset: number },
@@ -221,7 +263,7 @@ export class LeaderboardsService implements OnApplicationBootstrap {
 
   /**
    * Clôture d'une saison : archive le classement complet (général et par jeu)
-   * puis attribue les succès de saison d'après le classement général. Sans effet si la saison est déjà archivée.
+   * puis attribue les succès de saison d'après le classement général, et le titre du meilleur contributeur. Sans effet si la saison est déjà archivée.
    */
   async closeSeason(season: string): Promise<{ season: string; players: number; alreadyClosed: boolean }> {
     if (season >= seasonKeyOf(new Date())) throw new Error("Une saison en cours ne peut pas être clôturée.");
@@ -245,6 +287,8 @@ export class LeaderboardsService implements OnApplicationBootstrap {
           await this.achievements.awardSeason(seasonNumber(season), data.map((d) => ({ userId: d.userId, position: d.position })));
         }
       }
+      const [contributor] = await this.contributorRanking(season);
+      if (contributor) await this.achievements.awardSeasonContributor(seasonNumber(season), contributor.userId);
       this.logger.log(`Saison ${season} clôturée : ${players} joueur(s) classé(s)`);
       return { season, players, alreadyClosed: false };
     } finally {

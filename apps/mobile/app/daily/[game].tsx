@@ -1,30 +1,34 @@
 import { useCallback, useEffect, useState } from "react";
 import { View } from "react-native";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
-import type { PlayableClipDto } from "@ranksight/shared";
+import { DAILY_PER_GAME, type PlayableClipDto } from "@ranksight/shared";
 import { api, type ApiError } from "@/lib/api";
 import { Round } from "@/components/Round";
 import { GhostButton, Loading, Message, NoClip, PrimaryButton } from "@/components/ui";
 
-type State = { kind: "loading" } | { kind: "ready"; clip: PlayableClipDto } | { kind: "none" } | { kind: "played"; message: string } | { kind: "error" };
+type State = { kind: "loading" } | { kind: "ready"; clip: PlayableClipDto & { slot: number }; next: number | null } | { kind: "none" } | { kind: "played"; message: string } | { kind: "error" };
 
-/** Défi du jour d'un jeu : une seule tentative par jour. */
+/** Un des défis du jour d'un jeu (slot 1 à 3, sinon le premier pas encore joué) : une seule tentative par défi. */
 export default function DailyGameScreen() {
-  const { game } = useLocalSearchParams<{ game: string }>();
+  const params = useLocalSearchParams<{ game: string; slot?: string }>();
+  const { game } = params;
+  const requested = Number(params.slot);
+  const [slot, setSlot] = useState<number | undefined>(Number.isInteger(requested) && requested >= 1 && requested <= DAILY_PER_GAME ? requested : undefined);
   const navigation = useNavigation();
   const [state, setState] = useState<State>({ kind: "loading" });
 
   const load = useCallback(() => {
-    api
-      .daily(game)
-      .then((clip) => {
-        navigation.setOptions({ title: clip.game.name });
-        setState({ kind: "ready", clip });
+    Promise.all([api.daily(game, slot), api.dailyOverview().catch(() => null)])
+      .then(([clip, overview]) => {
+        navigation.setOptions({ title: `${clip.game.name} · défi ${clip.slot}/${DAILY_PER_GAME}` });
+        // Prochain défi de ce jeu encore à jouer
+        const next = overview?.games.find((g) => g.game.slug === game)?.challenges.find((c) => c.status === "AVAILABLE" && c.slot !== clip.slot);
+        setState({ kind: "ready", clip, next: next?.slot ?? null });
       })
       .catch((e: ApiError) =>
         setState(e.status === 409 ? { kind: "played", message: e.message } : e.status === 404 ? { kind: "none" } : { kind: "error" }),
       );
-  }, [game, navigation]);
+  }, [game, slot, navigation]);
 
   useEffect(load, [load]);
 
@@ -49,7 +53,21 @@ export default function DailyGameScreen() {
         />
       </Message>
     );
-  else content = <Round clip={state.clip} onNext={() => router.back()} nextLabel="Défis du jour" />;
+  else {
+    const { next } = state;
+    content = (
+      <Round
+        key={state.clip.id}
+        clip={state.clip}
+        onNext={() => {
+          if (next === null) return router.back();
+          setState({ kind: "loading" });
+          setSlot(next);
+        }}
+        nextLabel={next === null ? "Défis du jour" : "Défi suivant"}
+      />
+    );
+  }
 
   return <View style={{ flex: 1, padding: 16 }}>{content}</View>;
 }

@@ -6,15 +6,15 @@ export default function Home() {
     <div className="space-y-16">
       <section className="grid items-center gap-10 pt-6 md:grid-cols-[1.1fr_0.9fr] md:pt-16">
         <div className="animate-rise space-y-6">
-          <p className="hud-label">4 défis chaque jour · un par jeu</p>
+          <p className="hud-label">3 défis par jeu chaque jour</p>
           <h1 className="font-display text-5xl font-bold leading-[0.95] tracking-tight md:text-7xl">
             Tu crois savoir
             <br />
             <span className="bg-gradient-to-r from-violet-soft via-violet to-neon bg-clip-text text-transparent">jauger un joueur&nbsp;?</span>
           </h1>
           <p className="max-w-md text-lg text-muted">
-            30 secondes de gameplay. Un rang à deviner. Chaque jour, un clip League of Legends, Valorant, Rocket League et
-            Counter-Strike 2, le même pour tout le monde.
+            Quelques secondes de gameplay. Un rang à deviner. Chaque jour, 3 clips League of Legends, Valorant, Rocket League
+            et Counter-Strike 2, les mêmes pour tout le monde.
           </p>
           <div className="flex flex-wrap gap-3">
             <Link href="/play/daily" className="btn-primary">Défis du jour</Link>
@@ -35,7 +35,7 @@ export default function Home() {
 
       <section className="grid gap-4 md:grid-cols-3">
         {[
-          ["Regarde", "Un clip de 15 à 30 secondes, sans pseudo ni rang affiché."],
+          ["Regarde", "Un clip de quelques secondes à 1 minute, sans pseudo ni rang affiché."],
           ["Devine", "Choisis le rang du joueur sur l'échelle du jeu."],
           ["Marque", `${SCORE_STEPS[0]} points pour le rang exact, ${SCORE_STEPS[1]} à un rang près, ${SCORE_STEPS[2]} à deux rangs. Au-delà, c'est zéro.`],
         ].map(([t, d], i) => (

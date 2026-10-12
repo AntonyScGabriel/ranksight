@@ -8,7 +8,8 @@
   ],
   "scripts": {
     "dev": "node scripts/prepare.mjs && turbo run dev --filter=!@ranksight/mobile",
-    "mobile": "node scripts/prepare-mobile.mjs && npm run dev -w @ranksight/mobile",
+    "mobile": "node scripts/prepare-mobile.mjs",
+    "reinstall": "node scripts/clean-install.mjs",
     "build": "turbo run build --filter=!@ranksight/mobile",
     "typecheck": "turbo run typecheck",
     "lint": "eslint .",

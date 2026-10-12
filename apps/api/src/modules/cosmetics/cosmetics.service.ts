@@ -8,6 +8,7 @@ import { AuditService } from "../../common/audit/audit.module.js";
 import { PrismaService } from "../../prisma/prisma.service.js";
 import { cosmeticRefSelect, flairSelect, toCosmeticRef, toFlair, unlockHint } from "./flair.js";
 import { assertCanManage } from "../../common/staff-policy.js";
+import { pseudoKey } from "@ranksight/shared";
 
 type CosmeticData = z.output<typeof CosmeticInput>;
 
@@ -23,11 +24,20 @@ const SEASON_REWARDS = [
   { suffix: "top10", type: "BADGE", maxRank: 10, name: (n: number) => `Top 10 saison ${n}`, color: "#A78BFA", description: (n: number) => `Top 10 du classement de la saison ${n}`, icon: "trophy" },
 ] as const;
 
+/** Récompense du meilleur contributeur de la saison (le plus de clips acceptés) */
+const CONTRIBUTOR_REWARD = {
+  suffix: "contributor",
+  name: (n: number) => `Contributeur saison ${n}`,
+  color: "#34D399",
+  description: (n: number) => `Le plus de clips acceptés pendant la saison ${n}`,
+} as const;
+
 /**
  * Récompenses des joueurs : titres, badges et cadres d'avatar.
  * - Paliers de niveau et succès : attribuées automatiquement après chaque partie (et à tous les joueurs déjà éligibles
  *   quand l'équipe crée ou modifie une récompense automatique).
- * - Classement de fin de saison : titres « Champion », « Podium » et badge « Top 10 » de la saison.
+ * - Classement de fin de saison : titres « Champion », « Podium » et badge « Top 10 » de la saison,
+ *   titre « Contributeur » pour le joueur qui a fait accepter le plus de clips pendant la saison.
  * - Attribution manuelle par l'équipe (Youtubeur, Streamer…), journalisée.
  */
 @Injectable()
@@ -93,6 +103,19 @@ export class CosmeticsService {
       granted += count;
     }
     if (granted) this.logger.log(`Saison ${seasonNumber} : ${granted} récompense(s) de classement attribuée(s)`);
+  }
+
+  /** Clôture d'une saison : titre « Contributeur » pour le joueur qui a fait accepter le plus de clips. */
+  async awardSeasonContributor(seasonNumber: number, userId: string) {
+    const key = `season-${seasonNumber}-${CONTRIBUTOR_REWARD.suffix}`;
+    const cosmetic = await this.prisma.cosmetic.upsert({
+      where: { key },
+      create: { key, type: "TITLE", name: CONTRIBUTOR_REWARD.name(seasonNumber), color: CONTRIBUTOR_REWARD.color, description: CONTRIBUTOR_REWARD.description(seasonNumber) },
+      update: {},
+    });
+    const { count } = await this.prisma.userCosmetic.createMany({ data: [{ userId, cosmeticId: cosmetic.id, source: "SEASON" }], skipDuplicates: true });
+    if (count) this.logger.log(`Saison ${seasonNumber} : titre de meilleur contributeur attribué`);
+    return count > 0;
   }
 
   /**
@@ -281,7 +304,7 @@ export class CosmeticsService {
   /** Attribution manuelle (par identifiant ou par pseudo), journalisée */
   async grant(actorId: string, target: { userId?: string; pseudo?: string }, cosmeticId: string, note?: string | null) {
     const user = await this.prisma.user.findFirst({
-      where: { status: { not: "DELETED" }, ...(target.userId ? { id: target.userId } : { username: (target.pseudo ?? "").toLowerCase() }) },
+      where: { status: { not: "DELETED" }, ...(target.userId ? { id: target.userId } : { username: pseudoKey(target.pseudo ?? "") }) },
       select: { id: true, displayName: true },
     });
     if (!user) throw new NotFoundException("Joueur introuvable.");

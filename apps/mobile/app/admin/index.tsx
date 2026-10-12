@@ -2,8 +2,15 @@ import { useCallback, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { router, useFocusEffect, type Href } from "expo-router";
 import {
-  ANNOUNCEMENT_TONE_LABEL, AnnouncementInput, ROLE_LABEL, firstIssue, isAdminRole, isStaffRole,
-  type AnnouncementDto, type AnnouncementTone, type TriageStatsDto,
+  ANNOUNCEMENT_TONE_LABEL,
+  AnnouncementInput,
+  ROLE_LABEL,
+  firstIssue,
+  isAdminRole,
+  isStaffRole,
+  type AnnouncementDto,
+  type AnnouncementTone,
+  type TriageStatsDto,
 } from "@ranksight/shared";
 import * as WebBrowser from "expo-web-browser";
 import { ADMIN_URL } from "@/lib/api";
@@ -27,8 +34,15 @@ function MenuItem({ href, label, detail, count }: { href: Href; label: string; d
       onPress={() => router.push(href)}
       accessibilityRole="button"
       style={({ pressed }) => ({
-        flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: colors.surface, borderColor: colors.line, borderWidth: 1,
-        borderRadius: radius.chip, padding: 14, opacity: pressed ? 0.75 : 1,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 12,
+        backgroundColor: colors.surface,
+        borderColor: colors.line,
+        borderWidth: 1,
+        borderRadius: radius.chip,
+        padding: 14,
+        opacity: pressed ? 0.75 : 1,
       })}
     >
       <View style={{ flex: 1, gap: 2 }}>
@@ -36,7 +50,17 @@ function MenuItem({ href, label, detail, count }: { href: Href; label: string; d
         <Text style={{ color: colors.muted, fontSize: 13 }}>{detail}</Text>
       </View>
       {count ? (
-        <Text style={{ color: colors.void, backgroundColor: colors.neon, borderRadius: 999, overflow: "hidden", paddingHorizontal: 9, paddingVertical: 2, fontWeight: "800" }}>
+        <Text
+          style={{
+            color: colors.void,
+            backgroundColor: colors.neon,
+            borderRadius: 999,
+            overflow: "hidden",
+            paddingHorizontal: 9,
+            paddingVertical: 2,
+            fontWeight: "800",
+          }}
+        >
           {count}
         </Text>
       ) : null}
@@ -50,6 +74,8 @@ export default function AdminHome() {
   const { me } = useSession();
   const staff = isStaffRole(me?.role);
   const admin = isAdminRole(me?.role);
+  /** Boutique et annonce : fondateur (ou administrateurs tant qu'aucun fondateur n'est nommé) */
+  const owner = !!me?.siteOwner;
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [playerReports, setPlayerReports] = useState(0);
   const [triage, setTriage] = useState<TriageStatsDto | null>(null);
@@ -131,17 +157,34 @@ export default function AdminHome() {
         <MenuItem href="/admin/triage" label="Tri des clips" detail="Donner un avis sur les clips proposés" count={triage?.queue} />
         {staff && (
           <>
-            <MenuItem href="/admin/clips" label="Clips à valider" detail={`Décision finale${overview?.triaged ? ` · ${overview.triaged} pré-trié(s)` : ""}`} count={pending} />
-            <MenuItem href="/admin/reports" label="Signalements" detail="Clips et joueurs signalés" count={(overview?.openReports ?? 0) + playerReports} />
+            <MenuItem
+              href="/admin/clips"
+              label="Clips à valider"
+              detail={`Décision finale${overview?.triaged ? ` · ${overview.triaged} pré-trié(s)` : ""}`}
+              count={pending}
+            />
+            <MenuItem
+              href="/admin/reports"
+              label="Signalements"
+              detail="Clips et joueurs signalés"
+              count={(overview?.openReports ?? 0) + playerReports}
+            />
+            <MenuItem href="/admin/suggestions" label="Suggestions" detail="Idées des joueurs, réponses de l'équipe" count={overview?.newSuggestions} />
             <MenuItem href="/admin/users" label="Joueurs" detail={admin ? "Rôles, sanctions, VIP, comptes" : "Chat, photos, profils"} />
           </>
         )}
-        {admin && <MenuItem href="/admin/shop" label="Boutique" detail="Prix des passes, offre de lancement, codes cadeaux" />}
+        {owner && <MenuItem href="/admin/shop" label="Boutique" detail="Prix des passes, promo du moment, codes cadeaux" />}
         <MenuItem href="/admin/security" label="Sécurité du compte" detail="Double authentification" />
         {staff && (
           <Text style={{ color: colors.muted, fontSize: 12, lineHeight: 18 }}>
             Planning des défis du jour, saisons, rangs, récompenses et stockage :{" "}
-            <Text onPress={() => void WebBrowser.openBrowserAsync(ADMIN_URL)} style={{ color: colors.violetSoft, textDecorationLine: "underline" }}>
+            <Text
+              onPress={() => void WebBrowser.openBrowserAsync(ADMIN_URL)}
+              style={{
+                color: colors.violetSoft,
+                textDecorationLine: "underline",
+              }}
+            >
               administration complète
             </Text>{" "}
             (plus confortable sur ordinateur).
@@ -159,25 +202,36 @@ export default function AdminHome() {
                 {ANNOUNCEMENT_TONE_LABEL[current.tone]}
                 {current.until ? ` · jusqu'au ${formatDateTime(current.until)}` : " · sans date de fin"}
               </Text>
-              <View style={{ flexDirection: "row" }}>
-                <SmallButton label="Retirer l'annonce" tone="danger" onPress={() => void clear()} disabled={busy} />
-              </View>
+              {owner && (
+                <View style={{ flexDirection: "row" }}>
+                  <SmallButton label="Retirer l'annonce" tone="danger" onPress={() => void clear()} disabled={busy} />
+                </View>
+              )}
             </View>
           ) : (
             <Text style={{ color: colors.muted }}>Aucune annonce en cours.</Text>
           )}
-          <Field
-            label={current ? "Remplacer par" : "Nouvelle annonce"}
-            value={text}
-            onChangeText={setText}
-            maxLength={200}
-            multiline
-            placeholder="Ex. Maintenance ce soir de 23 h à 23 h 30."
-            hint={`${text.length}/200 · affichée en haut du site et de l'application`}
-          />
-          <Chips options={(Object.keys(ANNOUNCEMENT_TONE_LABEL) as AnnouncementTone[]).map((t) => ({ value: t, label: ANNOUNCEMENT_TONE_LABEL[t] }))} value={tone} onChange={setTone} />
-          <Chips options={DURATIONS} value={hours} onChange={setHours} />
-          <PrimaryButton label={busy ? "…" : "Publier l'annonce"} onPress={() => void publish()} disabled={busy || text.trim().length < 3} />
+          {!owner && <Text style={{ color: colors.muted, fontSize: 12 }}>Les annonces sont publiées par le fondateur du site.</Text>}
+          {owner && (
+            <>
+              <Field
+                label={current ? "Remplacer par" : "Nouvelle annonce"}
+                value={text}
+                onChangeText={setText}
+                maxLength={200}
+                multiline
+                placeholder="Ex. Maintenance ce soir de 23 h à 23 h 30."
+                hint={`${text.length}/200 · affichée en haut du site et de l'application`}
+              />
+              <Chips
+                options={(Object.keys(ANNOUNCEMENT_TONE_LABEL) as AnnouncementTone[]).map((t) => ({ value: t, label: ANNOUNCEMENT_TONE_LABEL[t] }))}
+                value={tone}
+                onChange={setTone}
+              />
+              <Chips options={DURATIONS} value={hours} onChange={setHours} />
+              <PrimaryButton label={busy ? "…" : "Publier l'annonce"} onPress={() => void publish()} disabled={busy || text.trim().length < 3} />
+            </>
+          )}
         </Card>
       )}
     </KeyboardScroll>

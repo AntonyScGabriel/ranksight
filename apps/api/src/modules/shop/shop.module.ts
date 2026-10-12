@@ -89,9 +89,9 @@ export class ShopController {
   }
 }
 
-/** VIP offert ou retiré par un administrateur (journalisé) */
+/** VIP offert ou retiré par le fondateur (journalisé) */
 @Controller("admin/users/:id/vip")
-@Roles("ADMIN")
+@Roles("OWNER")
 export class ShopAdminController {
   constructor(private readonly shop: ShopService) {}
 
@@ -107,19 +107,19 @@ export class ShopAdminController {
   }
 }
 
-/** Réglages de la boutique et codes cadeaux créés par l'équipe (concours, créateurs de contenu) */
+/** Réglages de la boutique et codes cadeaux (concours, créateurs de contenu) : réservés au fondateur */
 @Controller("admin")
-@Roles("ADMIN")
+@Roles("OWNER")
 export class ShopSettingsAdminController {
   constructor(private readonly shop: ShopService, private readonly gifts: GiftsService) {}
 
-  /** GET /v1/admin/shop/settings — offre de lancement et passes (nom, durée, prix, étiquette, en vente) */
+  /** GET /v1/admin/shop/settings — promo du moment et passes (nom, durée, prix, prix promo, étiquette, en vente) */
   @Get("shop/settings")
   settings() {
     return this.shop.settings();
   }
 
-  /** PUT /v1/admin/shop/settings — { launchOffer, products? } */
+  /** PUT /v1/admin/shop/settings — { promo: { active, label, endsAt }, products? } */
   @Put("shop/settings")
   updateSettings(@CurrentUser() u: AuthUser, @Body(new ZodPipe(ShopSettingsInput)) body: ShopSettingsInput) {
     return this.shop.updateSettings(u.sub, body);

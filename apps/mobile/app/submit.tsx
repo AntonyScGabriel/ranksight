@@ -3,6 +3,7 @@ import { Pressable, Switch, Text, TextInput, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import {
+  CLIP_DURATION_LABEL, CLIP_MAX_BYTES, CLIP_MAX_MB, clipDurationOk,
   GAME_PLATFORMS, InGamePseudo, PLATFORM_LABEL, REGION_LABEL, REGIONS, firstIssue,
   type GameDto, type GameSlug, type Platform, type Region,
 } from "@ranksight/shared";
@@ -61,8 +62,8 @@ export default function SubmitScreen() {
     const a = result.assets[0];
     const durationSec = (a.duration ?? 0) / 1000;
     const mimeType = a.mimeType === "video/webm" ? "video/webm" : "video/mp4";
-    if (durationSec < 15 || durationSec > 30.5) return setError("Le clip doit durer entre 15 et 30 secondes.");
-    if ((a.fileSize ?? 0) > 80 * 1024 * 1024) return setError("La vidéo dépasse 80 Mo.");
+    if (!clipDurationOk(durationSec)) return setError(`Le clip doit durer de ${CLIP_DURATION_LABEL}.`);
+    if ((a.fileSize ?? 0) > CLIP_MAX_BYTES) return setError(`La vidéo dépasse ${CLIP_MAX_MB} Mo.`);
     setVideo({ uri: a.uri, durationSec, size: a.fileSize ?? 0, mimeType });
   };
 
@@ -74,8 +75,8 @@ export default function SubmitScreen() {
     setError(null);
     try {
       const size = await fileSize(video.uri);
-      if (size > 80 * 1024 * 1024) {
-        setError("La vidéo dépasse 80 Mo.");
+      if (size > CLIP_MAX_BYTES) {
+        setError(`La vidéo dépasse ${CLIP_MAX_MB} Mo.`);
         return;
       }
       const { key, url } = await api.uploadUrl(video.mimeType, size);
@@ -118,7 +119,7 @@ export default function SubmitScreen() {
         <Hud>Jeu</Hud>
         <Chips items={games.map((g) => [g.id, g.name])} value={gameId} onChange={chooseGame} />
         <Hud>Clip vidéo</Hud>
-        <GhostButton label={video ? `Vidéo choisie · ${Math.round(video.durationSec)} s` : "Choisir une vidéo (15 à 30 s)"} onPress={pick} />
+        <GhostButton label={video ? `Vidéo choisie · ${Math.round(video.durationSec)} s` : "Choisir une vidéo (5 s à 1 min)"} onPress={pick} />
       </Card>
 
       <Card style={{ gap: 10 }}>

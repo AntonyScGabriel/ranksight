@@ -14,7 +14,7 @@ import { FlairBadge, TitleText } from "@/components/Flair";
 import { LoginRequired, Skeleton } from "@/components/States";
 
 const SCOPES = [["global", "Global"], ["friends", "Amis"]] as const;
-const PERIODS = [["daily", "Jour"], ["weekly", "Semaine"], ["season", "Saison"], ["all_time", "Total"], ["infinite", "Infini"]] as const;
+const PERIODS = [["daily", "Jour"], ["weekly", "Semaine"], ["season", "Saison"], ["all_time", "Total"], ["infinite", "Infini"], ["contributors", "Contributeurs"]] as const;
 const GAMES = [["all", "Tous les jeux"], ...GAME_SLUGS.map((s) => [s, GAME_NAMES[s]] as const)] as const;
 
 type Board = { entries: LeaderboardEntryDto[]; me: { rank: number; score: number } | null };
@@ -40,18 +40,36 @@ function Leaderboard() {
   const [seasonKey, setSeasonKey] = useState<string>("");
   const season = seasons.find((s) => s.key === seasonKey) ?? seasons[0];
   const pastSeason = period === "season" && season && !season.current ? season.key : undefined;
+  /** Classement des contributeurs : clips acceptés, par saison ou depuis le lancement ("all") */
+  const contributors = period === "contributors";
+  const [contribPeriod, setContribPeriod] = useState<string>("");
+  const contribSeason = contribPeriod === "all" ? null : (seasons.find((s) => s.key === contribPeriod) ?? seasons[0] ?? null);
+  const contribKey = contribPeriod === "all" ? "all" : contribSeason?.key;
+  const [reward, setReward] = useState<string | null>(null);
 
   useEffect(() => {
     if (me) api.seasons().then(setSeasons).catch(() => setSeasons([]));
   }, [me]);
 
   const load = useCallback(() => {
+    if (contributors) {
+      api
+        .contributors(scope, contribKey)
+        .then((b) => {
+          setData(b);
+          setReward(b.reward);
+        })
+        .catch(() => setData({ entries: [], me: null }));
+      return;
+    }
     api.leaderboard(period, scope, effectiveGame, pastSeason).then(setData).catch(() => setData({ entries: [], me: null }));
-  }, [period, scope, effectiveGame, pastSeason]);
+  }, [contributors, contribKey, period, scope, effectiveGame, pastSeason]);
 
   useEffect(() => {
     if (!me) return;
     load();
+    // Contributeurs : mis à jour à chaque acceptation de clip, rechargé à l'ouverture de l'onglet
+    if (contributors) return;
     // Saison terminée : classement définitif, pas de temps réel
     if (pastSeason) return;
     // Temps réel : le serveur signale un changement, on recharge la page affichée
@@ -61,7 +79,7 @@ function Leaderboard() {
     return () => {
       socket.disconnect();
     };
-  }, [me, period, effectiveGame, pastSeason, load]);
+  }, [me, contributors, period, effectiveGame, pastSeason, load]);
 
   if (loading) return <Skeleton />;
   if (!me) return <LoginRequired next="/leaderboard" text="Connecte-toi pour voir les classements." />;
@@ -77,7 +95,13 @@ function Leaderboard() {
             {seasons.map((s) => <option key={s.key} value={s.key}>{s.label}{s.current ? " (en cours)" : ""}</option>)}
           </select>
         )}
-        {period !== "infinite" && (
+        {contributors && seasons.length > 0 && (
+          <select value={contribKey ?? ""} onChange={(e) => setContribPeriod(e.target.value)} aria-label="Période" className="input !w-auto">
+            {seasons.map((s) => <option key={s.key} value={s.key}>{s.label}{s.current ? " (en cours)" : ""}</option>)}
+            <option value="all">Depuis le lancement</option>
+          </select>
+        )}
+        {period !== "infinite" && !contributors && (
           <select value={game} onChange={(e) => setGame(e.target.value as LeaderboardGame)} aria-label="Jeu" className="input !w-auto">
             {GAMES.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
           </select>
@@ -85,11 +109,12 @@ function Leaderboard() {
       </div>
 
       {period === "season" && season && <SeasonBanner season={season} />}
+      {contributors && <ContributorsBanner season={contribSeason} reward={reward} />}
 
       {data?.me && (
         <div className="glass flex items-center justify-between border-violet/50 p-4">
           <span className="hud-label">Ta position</span>
-          <span className="font-mono text-lg">#{data.me.rank} · {data.me.score} pts</span>
+          <span className="font-mono text-lg">#{data.me.rank} · {contributors ? clipsLabel(data.me.score) : `${data.me.score} pts`}</span>
         </div>
       )}
 
@@ -106,13 +131,15 @@ function Leaderboard() {
               </span>
               {e.flair.title && <TitleText title={e.flair.title} className="block" />}
             </span>
-            <span className="font-mono">{e.score}</span>
+            <span className="font-mono">{contributors ? clipsLabel(e.score) : e.score}</span>
           </li>
         ))}
         {data && data.entries.length === 0 && (
           <li className="p-8 text-center text-muted">
             {scope === "friends" ? (
               <>Ajoute des amis pour comparer vos scores. <Link href="/friends" className="text-neon underline">Trouver des joueurs</Link></>
+            ) : contributors ? (
+              <>Aucun clip proposé par un joueur n&apos;a encore été accepté sur cette période. <Link href="/submit" className="text-neon underline">Proposer un clip</Link></>
             ) : (
               "Personne n'a encore marqué de points sur cette période."
             )}
@@ -125,12 +152,26 @@ function Leaderboard() {
 
 function Tabs({ items, value, onChange }: { items: readonly (readonly [string, string])[]; value: string; onChange: (v: string) => void }) {
   return (
-    <div className="inline-flex rounded-xl border border-line bg-surface p-1">
+    <div className="inline-flex max-w-full overflow-x-auto rounded-xl border border-line bg-surface p-1">
       {items.map(([k, label]) => (
-        <button key={k} onClick={() => onChange(k)} className={`rounded-lg px-3 py-1.5 text-sm transition ${value === k ? "bg-violet text-white" : "text-muted hover:text-ink"}`}>
+        <button key={k} onClick={() => onChange(k)} className={`shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm transition ${value === k ? "bg-violet text-white" : "text-muted hover:text-ink"}`}>
           {label}
         </button>
       ))}
+    </div>
+  );
+}
+
+const clipsLabel = (n: number) => `${n} clip${n > 1 ? "s" : ""}`;
+
+function ContributorsBanner({ season, reward }: { season: SeasonDto | null; reward: string | null }) {
+  return (
+    <div className="glass space-y-1 border-violet/40 p-4">
+      <p className="font-display text-lg font-semibold">{season ? `Contributeurs · ${season.label}` : "Contributeurs depuis le lancement"}</p>
+      <p className="text-sm text-muted">
+        Nombre de clips proposés et acceptés par l&apos;équipe{season ? " pendant la saison" : ""}. À égalité, le premier à atteindre ce nombre passe devant.
+        {season && reward && (season.current ? ` À la fin de la saison, le premier reçoit le titre « ${reward} ».` : ` Le premier a reçu le titre « ${reward} ».`)}
+      </p>
     </div>
   );
 }

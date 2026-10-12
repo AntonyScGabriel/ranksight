@@ -77,9 +77,9 @@ export class AdminController {
   @Get("daily") dailyCalendar() { return this.admin.dailyCalendar(); }
 
   // ---------- Stockage ----------
-  @Get("storage") storage() { return this.admin.storageOverview(); }
+  @Roles("OWNER") @Get("storage") storage() { return this.admin.storageOverview(); }
 
-  @Roles("ADMIN") @Post("storage/cleanup") @HttpCode(200)
+  @Roles("OWNER") @Post("storage/cleanup") @HttpCode(200)
   cleanup(@CurrentUser() u: AuthUser) { return this.admin.storageCleanup(u.sub); }
 
   // ---------- Utilisateurs ----------
@@ -102,13 +102,14 @@ export class AdminController {
     await this.admin.verifyEmail(u.sub, id);
   }
 
-  /** Téléphone perdu : retire la double authentification d'un compte (ADMIN) */
-  @Roles("ADMIN") @Post("users/:id/mfa/reset") @HttpCode(204)
+  /** Téléphone perdu : retire la double authentification d'un compte (fondateur) */
+  @Roles("OWNER") @Post("users/:id/mfa/reset") @HttpCode(204)
   async resetMfa(@CurrentUser() u: AuthUser, @Param("id", ParseUUIDPipe) id: string) {
     await this.mfa.reset(u.sub, id);
   }
 
-  @Roles("ADMIN") @Delete("users/:id") @HttpCode(204)
+  /** Suppression définitive d'un compte (fondateur) ; les administrateurs peuvent bannir */
+  @Roles("OWNER") @Delete("users/:id") @HttpCode(204)
   deleteUser(@CurrentUser() u: AuthUser, @Param("id", ParseUUIDPipe) id: string) {
     return this.admin.deleteUser(u.sub, id);
   }
@@ -136,6 +137,6 @@ export class AdminController {
   }
 
   // ---------- Audit ----------
-  @Roles("ADMIN") @Get("audit")
+  @Roles("OWNER") @Get("audit")
   audit(@Query("page", new DefaultValuePipe(1), ParseIntPipe) page: number) { return this.admin.auditTrail(page); }
 }

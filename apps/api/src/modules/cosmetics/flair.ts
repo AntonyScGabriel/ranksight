@@ -18,11 +18,12 @@ type RefRow = {
   description: string | null; unlockLevel: number | null; unlockAchievement: { name: string; isHidden: boolean } | null;
 };
 
-const SEASON_KEY = /^season-(\d+)-(champion|podium|top10)$/;
+const SEASON_KEY = /^season-(\d+)-(champion|podium|top10|contributor)$/;
 const SEASON_HINT: Record<string, (n: string) => string> = {
   champion: (n) => `1re place du classement de la saison ${n}`,
   podium: (n) => `Top 3 du classement de la saison ${n}`,
   top10: (n) => `Top 10 du classement de la saison ${n}`,
+  contributor: (n) => `Le plus de clips acceptés pendant la saison ${n}`,
 };
 
 /** Comment cette récompense s'obtient, en une phrase courte (affichée au survol et dans les collections) */

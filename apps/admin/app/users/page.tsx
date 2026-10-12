@@ -201,7 +201,7 @@ export default function UsersPage() {
                     ) : (
                       <span className="text-muted">—</span>
                     )}
-                    {isAdmin && (
+                    {me?.siteOwner && (
                       <div className="mt-1 flex flex-wrap gap-1">
                         {VIP_DURATIONS.map(([days, label]) => (
                           <button key={days} onClick={() => giveVip(u, days, label)} className="rounded border border-line px-1.5 py-0.5 text-[11px] text-muted hover:border-warn hover:text-warn">
@@ -236,7 +236,7 @@ export default function UsersPage() {
                           </select>
                         )
                     )}
-                    {canEdit && u.mfaEnabled && (
+                    {canEdit && me?.siteOwner && u.mfaEnabled && (
                       <button onClick={() => resetMfa(u)} className="btn-ghost !py-1">Retirer la 2FA</button>
                     )}
                     {(isAdmin && (self || !locked)) && (
@@ -247,7 +247,7 @@ export default function UsersPage() {
                         {u.status === "ACTIVE"
                           ? <button onClick={() => patch(u, { status: "BANNED" }, `Bannir ${u.displayName}`)} className="btn-ghost !py-1 hover:!border-danger hover:!text-danger">Bannir</button>
                           : <button onClick={() => patch(u, { status: "ACTIVE" }, `Réactiver ${u.displayName}`)} className="btn-ghost !py-1">Réactiver</button>}
-                        {!isAdminRole(u.role) && (
+                        {me?.siteOwner && !isAdminRole(u.role) && (
                           <button onClick={() => remove(u)} className="btn-ghost !py-1 hover:!border-danger hover:!text-danger">Supprimer</button>
                         )}
                       </>
@@ -260,7 +260,10 @@ export default function UsersPage() {
           </tbody>
         </table>
       </div>
-      {isAdmin === false && me && <p className="text-xs text-muted">Seul un administrateur peut modifier, bannir ou supprimer un compte.</p>}
+      {isAdmin === false && me && <p className="text-xs text-muted">Seul un administrateur peut modifier ou bannir un compte.</p>}
+      {isAdmin && !me?.siteOwner && (
+        <p className="text-xs text-muted">VIP offert, suppression de compte et retrait de la double authentification : réservés au fondateur du site.</p>
+      )}
       {rewardsOf && <UserRewards user={rewardsOf} canEdit={isAdmin} onClose={() => setRewardsOf(null)} />}
     </div>
   );

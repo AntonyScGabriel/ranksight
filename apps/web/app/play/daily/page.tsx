@@ -2,13 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { DAILY_STATUS_LABEL, type DailyGameDto, type DailyOverviewDto, type SeasonDto } from "@ranksight/shared";
+import { DAILY_PER_GAME, DAILY_STATUS_LABEL, type DailyGameDto, type DailyOverviewDto, type SeasonDto } from "@ranksight/shared";
 import { api, type ApiError } from "@/lib/api";
 import { ErrorPanel, LoginRequired, Skeleton } from "@/components/States";
 
 type State = "loading" | "ready" | "auth" | "error";
 
-/** « Défis du jour » : un clip par jeu, le joueur choisit celui qu'il veut jouer. */
+/** « Défis du jour » : 3 clips par jeu, le joueur choisit celui qu'il veut jouer. */
 export default function DailyPage() {
   const [data, setData] = useState<DailyOverviewDto | null>(null);
   const [state, setState] = useState<State>("loading");
@@ -61,10 +61,12 @@ export default function DailyPage() {
         <div>
           <p className="hud-label">{date}</p>
           <h1 className="font-display text-3xl font-bold">Défis du jour</h1>
-          <p className="text-sm text-muted">Un clip par jeu, une seule tentative par défi. Nouveaux clips chaque jour à minuit (UTC).</p>
+          <p className="text-sm text-muted">
+            {DAILY_PER_GAME} clips par jeu, une seule tentative par défi. Nouveaux clips chaque jour à minuit (UTC).
+          </p>
         </div>
         <div className="glass flex gap-6 px-5 py-3">
-          <Stat label="Joués" value={`${data.played}/${data.games.length}`} />
+          <Stat label="Joués" value={`${data.played}/${data.total}`} />
           <Stat label="Score du jour" value={String(data.totalScore)} />
           <Stat label="Série" value={`🔥 ${data.dailyStreak}`} />
         </div>
@@ -89,7 +91,7 @@ export default function DailyPage() {
         {data.games.map((g) => <DailyCard key={g.game.slug} item={g} />)}
       </ul>
 
-      {data.played === data.games.length && (
+      {data.total > 0 && data.played >= data.total && (
         <div className="glass flex flex-wrap items-center justify-between gap-3 p-5">
           <p className="text-muted">Tous les défis du jour sont terminés. Reviens demain pour de nouveaux clips.</p>
           <div className="flex gap-3">
@@ -113,14 +115,22 @@ function Stat({ label, value }: { label: string; value: string }) {
 }
 
 function DailyCard({ item }: { item: DailyGameDto }) {
-  const { game, status, result } = item;
-  const body = (
-    <div
-      className="glass relative h-full overflow-hidden p-6 transition"
+  const { game, status, challenges, score } = item;
+  const played = challenges.filter((c) => c.status === "PLAYED").length;
+  const next = challenges.find((c) => c.status === "AVAILABLE");
+  return (
+    <li
+      className="glass relative flex h-full flex-col gap-4 overflow-hidden p-6"
       style={{ background: `linear-gradient(135deg, ${game.accent}26, transparent 60%)` }}
     >
       <div className="flex items-start justify-between gap-3">
-        <h2 className="font-display text-2xl font-bold">{game.name}</h2>
+        <div>
+          <h2 className="font-display text-2xl font-bold">{game.name}</h2>
+          <p className="text-sm text-muted">
+            {played}/{challenges.length} joué{played > 1 ? "s" : ""}
+            {played > 0 && <> · <span className="font-semibold text-ink">{score} pts</span></>}
+          </p>
+        </div>
         <span
           className={`rounded-full px-3 py-1 text-xs font-semibold ${
             status === "AVAILABLE" ? "bg-success/15 text-success" : status === "PLAYED" ? "bg-violet/20 text-violet-soft" : "bg-white/5 text-muted"
@@ -129,28 +139,50 @@ function DailyCard({ item }: { item: DailyGameDto }) {
           {DAILY_STATUS_LABEL[status]}
         </span>
       </div>
-      {status === "AVAILABLE" && <p className="mt-6 font-display font-semibold text-neon">Jouer →</p>}
-      {status === "PLAYED" && result && (
-        <div className="mt-4 flex items-end justify-between">
-          <div className="text-sm text-muted">
-            <p>Rang réel : <span className="font-semibold" style={{ color: result.correctRank.color }}>{result.correctRank.name}</span></p>
-            <p>Ta réponse : <span className="font-semibold" style={{ color: result.guessedRank.color }}>{result.guessedRank.name}</span></p>
-          </div>
-          <p className="font-display text-4xl font-bold">+{result.score}</p>
-        </div>
-      )}
-      {status === "UNAVAILABLE" && <p className="mt-6 text-sm text-muted">De nouveaux clips arrivent bientôt.</p>}
-    </div>
-  );
-  return (
-    <li>
-      {status === "AVAILABLE" ? (
-        <Link href={`/play/daily/${game.slug}`} className="block h-full rounded-[var(--radius-card)] hover:brightness-110" aria-label={`${game.name} — Défi disponible`}>
-          {body}
+      <ol className="grid grid-cols-3 gap-2">
+        {challenges.map((c) => {
+          const label = `Défi ${c.slot}`;
+          if (c.status === "AVAILABLE") {
+            return (
+              <li key={c.slot}>
+                <Link
+                  href={`/play/daily/${game.slug}?slot=${c.slot}`}
+                  aria-label={`${game.name} — ${label} disponible`}
+                  className="flex h-full flex-col items-center justify-center rounded-xl border border-success/40 bg-success/10 px-2 py-3 text-center transition hover:brightness-125"
+                >
+                  <span className="text-xs text-muted">{label}</span>
+                  <span className="font-display font-semibold text-neon">Jouer →</span>
+                </Link>
+              </li>
+            );
+          }
+          if (c.status === "PLAYED" && c.result) {
+            return (
+              <li
+                key={c.slot}
+                title={`Rang réel : ${c.result.correctRank.name} · ta réponse : ${c.result.guessedRank.name}`}
+                className="flex flex-col items-center justify-center rounded-xl border border-line bg-white/5 px-2 py-3 text-center"
+              >
+                <span className="text-xs text-muted">{label}</span>
+                <span className="font-display text-xl font-bold">+{c.result.score}</span>
+                <span className="truncate text-[11px] font-semibold" style={{ color: c.result.correctRank.color }}>{c.result.correctRank.name}</span>
+              </li>
+            );
+          }
+          return (
+            <li key={c.slot} className="flex flex-col items-center justify-center rounded-xl border border-line/50 px-2 py-3 text-center text-muted">
+              <span className="text-xs">{label}</span>
+              <span className="text-xs">Bientôt</span>
+            </li>
+          );
+        })}
+      </ol>
+      {next && (
+        <Link href={`/play/daily/${game.slug}?slot=${next.slot}`} className="mt-auto font-display font-semibold text-neon hover:underline">
+          {played ? "Continuer →" : "Jouer →"}
         </Link>
-      ) : (
-        body
       )}
+      {status === "UNAVAILABLE" && <p className="mt-auto text-sm text-muted">De nouveaux clips arrivent bientôt.</p>}
     </li>
   );
 }

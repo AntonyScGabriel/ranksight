@@ -10,6 +10,7 @@
 import { config } from "dotenv";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient, type Role } from "../src/generated/prisma/client.js";
+import { pseudoKey } from "@ranksight/shared";
 
 config({ path: "../../.env", quiet: true });
 config({ quiet: true });
@@ -28,7 +29,7 @@ if (!username || !ROLES.includes(role)) {
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }) });
 
 try {
-  const user = await prisma.user.findUnique({ where: { username: username.toLowerCase() } });
+  const user = await prisma.user.findUnique({ where: { username: pseudoKey(username) } });
   if (!user) {
     console.error(`Aucun compte avec le pseudo « ${username} ». Crée le compte (ou connecte-toi une première fois) sur le site, puis relance la commande.`);
     process.exitCode = 1;

@@ -4,6 +4,9 @@ import { useEffect, useState } from "react";
 import { formatPrice, type ShopCatalogDto } from "@ranksight/shared";
 import { api } from "@/lib/api";
 
+const formatEnd = (iso: string) =>
+  new Date(iso).toLocaleString("fr-FR", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
+
 /** Prix en vigueur des passes VIP (réglés dans l'administration), pour les conditions générales de vente */
 export function VipPriceTable() {
   const [catalog, setCatalog] = useState<ShopCatalogDto | null>(null);
@@ -15,6 +18,7 @@ export function VipPriceTable() {
 
   if (failed) return <p>Les prix en vigueur sont affichés dans la boutique au moment de la commande.</p>;
   if (!catalog) return <p aria-busy="true">Chargement des prix…</p>;
+  const { promo } = catalog;
   return (
     <>
       <table>
@@ -22,8 +26,8 @@ export function VipPriceTable() {
           <tr>
             <th>Pass</th>
             <th>Durée</th>
-            {catalog.launchOffer && <th>Prix de lancement TTC</th>}
-            <th>{catalog.launchOffer ? "Prix normal TTC (après l'offre)" : "Prix TTC"}</th>
+            {promo && <th>Prix promo TTC</th>}
+            <th>{promo ? "Prix normal TTC (après la promo)" : "Prix TTC"}</th>
           </tr>
         </thead>
         <tbody>
@@ -31,16 +35,17 @@ export function VipPriceTable() {
             <tr key={p.id}>
               <td>{p.name}</td>
               <td>{p.days} jours</td>
-              {catalog.launchOffer && <td>{formatPrice(p.launchPriceCents)}</td>}
+              {promo && <td>{formatPrice(p.promoPriceCents)}</td>}
               <td>{formatPrice(p.priceCents)}</td>
             </tr>
           ))}
         </tbody>
       </table>
-      {catalog.launchOffer && (
+      {promo && (
         <p>
-          Offre de lancement en cours : pendant une durée limitée suivant l&apos;ouverture de RankGuess, les passes sont vendus au
-          prix de lancement, puis au prix normal. La fin de l&apos;offre est annoncée sur le site.
+          Promotion en cours (« {promo.label} ») : les passes sont vendus au prix promo
+          {promo.endsAt ? ` jusqu'au ${formatEnd(promo.endsAt)}` : " pendant une durée limitée annoncée sur le site"}, puis au prix
+          normal.
         </p>
       )}
     </>

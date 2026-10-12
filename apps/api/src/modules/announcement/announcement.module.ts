@@ -68,14 +68,14 @@ export class AnnouncementController {
     return { announcement: await this.announcements.current() };
   }
 
-  /** PUT /v1/admin/announcement — { text, tone, link?, until? } */
-  @Roles("MODERATOR")
+  /** PUT /v1/admin/announcement — { text, tone, link?, until? } (fondateur) */
+  @Roles("OWNER")
   @Put("admin/announcement")
   set(@CurrentUser() u: AuthUser, @Body(new ZodPipe(AnnouncementInput)) body: z.output<typeof AnnouncementInput>) {
     return this.announcements.set(u.sub, body);
   }
 
-  @Roles("MODERATOR")
+  @Roles("OWNER")
   @Delete("admin/announcement")
   @HttpCode(204)
   async clear(@CurrentUser() u: AuthUser) {

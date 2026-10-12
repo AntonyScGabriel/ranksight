@@ -13,6 +13,8 @@ const apiHost = new URL(api).origin;
 // Suivi des erreurs (facultatif) : le navigateur envoie les erreurs à l'adresse du DSN Sentry
 const sentryDsn = process.env.NEXT_PUBLIC_SENTRY_DSN ?? "";
 const sentryOrigin = sentryDsn ? new URL(sentryDsn).origin : "";
+// Stockage S3/R2 en production : les vidéos et photos y sont envoyées directement depuis le navigateur (URL signées)
+const storageOrigin = process.env.S3_ENDPOINT ? new URL(process.env.S3_ENDPOINT).origin : "";
 
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
@@ -29,7 +31,7 @@ const securityHeaders = [
       "font-src 'self'",
       `img-src 'self' data: blob: https: ${apiHost}${dev ? " http:" : ""}`,
       `media-src 'self' https: blob: ${apiHost}${dev ? " http:" : ""}`,
-      `connect-src 'self' ${apiHost} ${apiHost.replace(/^http/, "ws")} wss:${sentryOrigin ? ` ${sentryOrigin}` : ""}`,
+      `connect-src 'self' ${apiHost} ${apiHost.replace(/^http/, "ws")} wss:${sentryOrigin ? ` ${sentryOrigin}` : ""}${storageOrigin ? ` ${storageOrigin}` : ""}`,
       `form-action 'self' ${apiHost}`,
       "frame-ancestors 'none'",
       "base-uri 'self'",

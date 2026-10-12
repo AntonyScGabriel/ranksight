@@ -1,6 +1,6 @@
 # RankGuess
 
-Regarde un clip de gameplay de 15 à 30 secondes, devine le rang du joueur, grimpe dans les classements.
+Regarde un clip de gameplay de 5 secondes à 1 minute, devine le rang du joueur, grimpe dans les classements.
 Jeux : League of Legends, Valorant, Rocket League et Counter-Strike 2.
 Site web, application mobile, API et administration, en TypeScript de bout en bout.
 
@@ -34,6 +34,12 @@ npm run mobile
 Scanne le QR code avec **Expo Go** (Android) ou l'appareil photo (iPhone). L'adresse de l'API est détectée automatiquement.
 Dans Expo Go, tout fonctionne sauf les notifications push : depuis le SDK 53, Expo Go ne les prend plus en charge.
 Elles fonctionnent dans une version installable de l'application (`npm run build:preview -w @ranksight/mobile`, compte Expo requis).
+
+`npm run mobile` vérifie d'abord les dépendances natives (une seule version de Reanimated et de Worklets, celle d'Expo Go)
+et vide le cache de Metro quand elles ont changé. Après avoir copié une nouvelle version du projet par-dessus l'ancienne,
+si le lancement signale une installation incohérente (ou l'erreur « Mismatch between JavaScript code version and Worklets
+Babel plugin version ») : `npm run reinstall` (supprime tous les dossiers `node_modules` puis réinstalle), puis
+`npm run mobile`.
 
 ### Accès administrateur
 
@@ -90,13 +96,29 @@ En production, déclare `https://api.ton-domaine.fr/v1/auth/oauth/google/callbac
 fournisseur, et mets `API_PUBLIC_URL`, `WEB_URL`, `ADMIN_URL` et `CORS_ORIGINS` à jour dans `.env`. Tant que les identifiants
 d'un fournisseur ne sont pas renseignés, son bouton affiche « Ce mode de connexion n'est pas disponible pour le moment. ».
 
+**Activer Google en production** (une seule fois, environ 10 minutes) :
+
+1. console.cloud.google.com → crée un projet (ex. « RankGuess »).
+2. « API et services » → « Écran de consentement OAuth » : type **Externe**, nom de l'application, adresse de contact,
+   domaine autorisé `ton-domaine.fr`, liens vers les pages légales du site (`/legal/confidentialite`, `/legal/cgu`).
+   Portées : `openid`, `email`, `profile` (aucune vérification Google n'est demandée pour celles-ci). Puis **Publier
+   l'application** (sinon seuls les comptes « testeurs » peuvent se connecter).
+3. « Identifiants » → « Créer des identifiants » → « ID client OAuth » → type **Application Web** → URI de redirection
+   autorisée : `https://api.ton-domaine.fr/v1/auth/oauth/google/callback`.
+4. Copie l'ID client et le code secret dans `deploy/.env.production` (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`), puis
+   redémarre l'API : `docker compose --env-file .env.production -f docker-compose.prod.yml up -d api`. Le bouton
+   « Continuer avec Google » fonctionne alors sur le site et dans l'application (rien à reconstruire).
+
 Sur téléphone, l'API est jointe par l'adresse IP de l'ordinateur. Discord accepte cette adresse comme retour, Google non :
 pour tester Google sur téléphone, expose l'API avec une adresse publique (tunnel HTTPS) et mets-la dans `API_PUBLIC_URL`.
 
 ## Fonctionnement
 
-- **Défis du jour** : chaque jour, un clip par jeu (4 défis), le même pour tout le monde. Le joueur choisit le jeu ;
-  chaque défi a son score et une seule tentative. Sans planification, un clip accepté du jeu est tiré au sort.
+- **Défis du jour** : chaque jour, **3 clips par jeu** (12 défis pour les 4 jeux), les mêmes pour tout le monde. Le joueur
+  choisit le jeu puis le défi (n° 1 à 3) ; chaque défi a son score et une seule tentative, et « Défi suivant » enchaîne
+  sur le prochain défi non joué. Sans planification, des clips acceptés du jeu sont tirés au sort (jamais deux fois le
+  même clip le même jour). Un jeu qui n'a pas assez de clips propose moins de défis ce jour-là. « Grand chelem » et
+  « Sans faute » se mesurent sur tous les défis proposés dans la journée.
 - **Infini** : clips à la suite, 3 vies, difficulté croissante. Un joueur ne tombe jamais sur ses propres clips.
 - **Duels en direct** (onglet « Duels ») : 5 clips, les mêmes pour les deux joueurs, **au même moment**, contre un joueur
   au hasard ou un ami. Compte à rebours de 5 s, puis 30 s par manche pour répondre ; la manche se termine dès que les deux
@@ -118,8 +140,14 @@ pour tester Google sur téléphone, expose l'API avec une adresse publique (tunn
 - **Clips proposés** : chaque joueur peut envoyer un clip (« Proposer un clip ») : jeu, vidéo, **pseudo en jeu** (obligatoire),
   rang réel, plateforme et région (facultatives). Le pseudo en jeu est distinct du pseudo RankGuess et n'est montré aux joueurs
   qu'après leur réponse. L'équipe accepte le clip, le refuse avec une raison, ou le supprime. Statut dans « Mes clips ».
+  Durée : **de 5 secondes à 1 minute**, 150 Mo au maximum (mêmes limites pour les clips ajoutés par l'équipe). En duel,
+  une manche dure au moins le temps du clip plus 10 secondes.
 - **Classements** : Global et Amis, par jour, semaine, saison, depuis toujours et record Infini, mis à jour en direct ;
   tous jeux confondus ou par jeu.
+- **Classement des contributeurs** (onglet « Contributeurs » des classements, site et application) : nombre de clips
+  proposés par chaque joueur et acceptés par l'équipe, par saison (date d'acceptation) ou depuis le lancement. Les clips
+  de l'équipe, refusés ou supprimés ne comptent pas ; à égalité, le premier à atteindre ce nombre passe devant. À la
+  clôture de chaque saison, le premier reçoit le titre **« Contributeur saison N »**.
 - **Saisons** : une saison = un mois civil (du 1er au dernier jour, minuit UTC). La saison 1 est le mois `SEASON_ONE`
   du `.env` (octobre 2026 par défaut), la saison 2 le mois suivant, etc. Chaque début de mois, la saison précédente est
   clôturée automatiquement : son classement est archivé (consultable dans l'onglet Saison) et les succès de saison sont
@@ -127,21 +155,28 @@ pour tester Google sur téléphone, expose l'API avec une adresse publique (tunn
   l'administration (statut, joueurs classés, top 10, bouton « Clôturer » si le serveur était arrêté en début de mois).
 - **Succès** : page « Mes succès » (menu du compte, profil, application mobile) avec les succès obtenus et leur date,
   l'avancement des autres, leur rareté et le bonus d'XP. Séries de victoires (rangs exacts d'affilée, tous modes) :
-  5, 10, 25, 50 et 100 ; séries de jours ; « Grand chelem » et « Sans faute » sur les 4 défis du jour ; experts par jeu ;
+  5, 10, 25, 50 et 100 ; séries de jours ; « Grand chelem » et « Sans faute » sur tous les défis du jour ; experts par jeu ;
   amis et clips acceptés ; duels gagnés (1, 10, 50) ; « Champion de la saison 1 », « Champion de saison », « Podium » et « Top 10 ».
 - **Chat global** : salon public pour tous les joueurs connectés, en temps réel. Chacun peut supprimer ses messages,
   l'équipe peut supprimer n'importe quel message (page « Chat global » de l'administration). Anti-spam : 3 s minimum entre
   deux messages, 8 messages par minute au maximum, messages identiques, caractères répétés, liens multiples et texte
   tout en majuscules refusés.
 - **Amis** : recherche par pseudo, demandes, acceptation, refus, suppression.
+- **Suggestions** (onglet « Suggestions » du site, menu du compte, profil de l'application) : le joueur propose une idée
+  (catégorie et texte, 5 par 24 heures au maximum), suit son statut (« En attente », « Retenue », « Réalisée »,
+  « Non retenue ») et lit la réponse de l'équipe ; il peut retirer une suggestion pas encore traitée. L'équipe
+  (modération et administration) les traite dans la page « Suggestions » de l'administration (web et application) :
+  statut, réponse facultative, suppression des messages hors sujet. L'auteur reçoit une notification sur son téléphone.
 - **Boutique VIP** (menu du compte, profil, application) : passes VIP 1 mois (4,99 €), 3 mois (12,99 €) et 12 mois (39,99 €),
   paiement unique par carte via Stripe Checkout, sans abonnement. Avantages : +50 % d'XP sur chaque réponse et badge VIP
   (classements, chat, profil). Un pass acheté pendant un VIP en cours s'ajoute à sa date de fin. Sans `STRIPE_SECRET_KEY`,
   la boutique s'affiche mais l'achat est indisponible. L'administration peut offrir ou retirer le VIP (page Utilisateurs).
-- **Offre de lancement** : prix réduits de moitié par défaut (2,49 €, 6,49 €, 19,99 €). Le site affiche « Prix de
-  lancement » et le prix normal appliqué ensuite (pas de faux prix barré).
-- **Boutique modifiable** (administration → « Boutique », site ou application, administrateurs) : pour chaque pass, nom,
-  durée, prix normal, prix de lancement, étiquette (« −13 % »…) et mise en vente ; offre de lancement activée ou non.
+- **Promo du moment** : réutilisable à chaque événement (lancement, Noël, anniversaire du site…). Nom affiché aux joueurs,
+  prix promo par pass, fin automatique facultative (date et heure). Par défaut : « Offre de lancement » à moitié prix
+  (2,49 €, 6,49 €, 19,99 €). Le site affiche le nom de la promo, le prix promo et le prix normal appliqué ensuite (pas de
+  faux prix barré) ; les CGV suivent. Les réglages enregistrés avant (offre de lancement) sont repris automatiquement.
+- **Boutique modifiable** (administration → « Boutique », site ou application, fondateur) : promo du moment et, pour
+  chaque pass, nom, durée, prix normal, prix promo, étiquette (« −13 % »…) et mise en vente.
   Appliqué tout de suite au site et aux conditions générales de vente (prix lus en direct), journalisé pass par pass.
   Les identifiants des passes (`vip_1m`, `vip_3m`, `vip_12m`) restent fixes : ce sont ceux de Google Play, dont les prix se
   changent dans la Play Console au même moment.
@@ -153,11 +188,12 @@ pour tester Google sur téléphone, expose l'API avec une adresse publique (tunn
 - **Codes de l'équipe** (administration → Boutique) : création par lots (jusqu'à 100), durée du VIP, nombre d'utilisations,
   date limite et note interne ; liste avec compteur et désactivation.
 - **Clips de l'administration** : filtres « En attente », « Acceptés », « Refusés », et pour les défis du jour
-  « Défi du jour » (clips joués aujourd'hui, avec le nombre de réponses), « Planifiés » (jours suivants) et « Disponibles »
+  « Défi du jour » (les clips des défis d'aujourd'hui, avec le nombre de réponses), « Planifiés » (jours suivants) et « Disponibles »
   (acceptés, jamais passés en défi : ceux tirés au sort pour les prochains défis), filtre par jeu, et badges de passage
   en défi sur chaque clip. Un clip du défi du jour peut être supprimé même si des joueurs y ont déjà répondu : un autre
-  clip le remplace aussitôt et ceux qui avaient répondu gardent leur résultat. Page « Défis du jour » : retirer un clip du
-  planning ou supprimer le clip directement depuis le calendrier.
+  clip le remplace aussitôt et ceux qui avaient répondu gardent leur résultat. Page « Défis du jour » : planifier un clip
+  sur un défi précis (n° 1 à 3) ou sur la première place libre du jour ; un clip déjà planifié disparaît de la liste des
+  clips à choisir. Retirer un clip du planning ou supprimer le clip directement depuis le calendrier.
 - **Remise à zéro d'un joueur** (administration, page Utilisateurs, « Réinitialiser les stats ») : en cas de faille
   exploitée ou de triche, XP et niveau, scores et places dans tous les classements (saisons archivées comprises),
   pourcentage de réussite, séries, record Infini, statistiques par jeu, succès et bilan des duels repartent de zéro.
@@ -182,7 +218,8 @@ Gold 100 · Silver ou Platinum 20 · Bronze ou Emerald 5 · Diamond et au-dessus
 
 ```bash
 npm run dev            # API + site + administration
-npm run mobile         # application mobile (Expo)
+npm run mobile         # application mobile (Expo), après vérification des dépendances
+npm run reinstall      # réinstallation propre (supprime tous les node_modules)
 npm run lint           # ESLint sur tout le projet
 npm run typecheck      # vérification TypeScript
 npm test               # tests du barème
@@ -225,8 +262,9 @@ ranksight/
 - **Comptes** : mots de passe hachés (scrypt), verrouillage 15 minutes après 10 mots de passe incorrects, alerte par email
   quand le mot de passe change, « Se déconnecter de tous les appareils » (profil), confirmation de l'adresse email
   (nécessaire pour écrire et proposer des clips), acceptation des CGU et déclaration d'avoir 15 ans ou plus.
-- **Administration** : double authentification (application d'authentification, codes de secours), obligatoire en
-  production (`ADMIN_REQUIRE_2FA=auto`) ; un code est demandé une fois par session et par 12 heures. Secret chiffré en base
+- **Administration** : double authentification (application d'authentification, codes de secours), facultative par
+  défaut (`ADMIN_REQUIRE_2FA=false` : chaque membre l'active ou la désactive sur son compte) ; `true` la rend obligatoire
+  pour la modération et l'administration. Quand elle est active, un code est demandé une fois par session et par 12 heures. Secret chiffré en base
   (AES-256-GCM). Un administrateur peut la retirer à un membre qui a perdu son téléphone. Actions journalisées avec l'adresse IP.
 - **Démarrage refusé en production** si les secrets JWT sont faibles, si une adresse n'est pas en HTTPS, si CORS contient
   localhost ou si la base utilise le mot de passe de développement.
@@ -247,10 +285,11 @@ authentification que l'administration web :
   rang corrigé, difficulté, acceptation ou refus motivé.
 - **Signalements** : joueurs (message signalé, suppression du message, coupure du chat, bannissement pour les
   administrateurs) et clips (voir, retirer, classer sans suite).
+- **Suggestions** (modération) : idées des joueurs par statut, réponse à l'auteur, suppression.
 - **Joueurs** : recherche, rôle, chat, VIP, email, photo, double authentification, statistiques, bannissement, suppression.
-- **Boutique** (administrateurs) : passes, offre de lancement, codes cadeaux (création, partage, désactivation).
-- **Sécurité du compte** : activation de la double authentification depuis le téléphone (clé ouverte directement dans
-  l'application d'authentification, codes de secours à enregistrer).
+- **Boutique** (fondateur) : promo du moment, passes, codes cadeaux (création, partage, désactivation).
+- **Sécurité du compte** : activation (ou désactivation, quand elle n'est pas obligatoire) de la double authentification
+  depuis le téléphone (clé ouverte directement dans l'application d'authentification, codes de secours à enregistrer).
 
 Le planning des défis du jour, les saisons, les rangs, les récompenses et le stockage restent sur l'administration web
 (lien en bas de l'accueil), plus pratique sur un grand écran.
@@ -284,8 +323,15 @@ directement depuis le fichier du téléphone (`expo-file-system`), sans être co
 | Joueur | Le jeu |
 | Trieur de clips | Le jeu, et dans l'administration seulement « Tri des clips » |
 | Modérateur | Administration : clips, signalements, chat, joueurs (sans changer les rôles ni supprimer de compte) |
-| Administrateur | Tout, sauf gérer les autres administrateurs quand un fondateur existe |
-| Fondateur | Tout ; seul à nommer, retirer ou sanctionner un administrateur ; son compte est intouchable |
+| Administrateur | Tout, sauf ce qui est réservé au fondateur (quand un fondateur existe) |
+| Fondateur | Tout ; son compte est intouchable |
+
+**Réservé au fondateur** (dès qu'un fondateur est nommé ; avant, les administrateurs y ont accès pour que le site ne
+soit jamais bloqué) : nommer, rétrograder ou sanctionner un administrateur (les administrateurs ne peuvent pas se retirer
+le grade entre eux), la boutique (prix, promo du moment, codes cadeaux), le VIP offert ou retiré, l'annonce du site et de
+l'application, le stockage (place occupée, nettoyage), le journal d'audit, la suppression définitive d'un compte et le
+retrait de la double authentification d'un membre. Les administrateurs gardent la modération (bannir, couper le chat,
+remettre des statistiques à zéro, clips, signalements, récompenses, saisons, défis du jour).
 
 - **Fondateur** : compte du propriétaire du site, unique. Personne d'autre ne peut changer son rôle, le bannir, le
   supprimer, remettre ses statistiques à zéro, retirer sa double authentification, sa photo, son VIP ou ses récompenses.
@@ -306,6 +352,9 @@ directement depuis le fichier du téléphone (`expo-file-system`), sans être co
 - **Annonce** (administration, « Vue d'ensemble ») : un message en haut du site et de l'application (information,
   événement, maintenance), avec un lien et une date de fin facultatifs. Le joueur peut la fermer ; une nouvelle annonce
   réapparaît.
+- **Pseudos** : 3 à 20 caractères, lettres accentuées comprises (« Élodie », « Zoé_42 »), chiffres, `_`, `-` et `.`.
+  L'unicité ignore les accents et la casse : « elodie » est refusé si « Élodie » existe ; la recherche d'amis trouve
+  « Élodie » en tapant « elodie ».
 - **Pseudos réservés** : refusés à l'inscription et au changement de pseudo (« Admin », « Modo », « RankGuess_Officiel »,
   « Staff… »), ainsi que ceux qui contiennent un mot interdit du chat. Un nom Google ou Discord refusé devient « JoueurXXXX ».
 - **Partage et installation** : icône du site, aperçu des liens partagés (Discord, X, WhatsApp), site installable sur
@@ -318,7 +367,8 @@ directement depuis le fichier du téléphone (`expo-file-system`), sans être co
   affiché dans le chat, les classements, les duels, la liste d'amis et le profil public.
 - Obtention : **paliers de niveau** (Recrue au niveau 5, cadre Bronze au 10, Argent au 20, Or au 30, Néon au 50…),
   **succès** (« Œil de lynx », « Machine »…), **fin de saison** (titres « Champion saison N » et « Podium saison N »,
-  badge « Top 10 saison N », créés automatiquement à la clôture) ou **attribution par l'équipe** (Youtubeur, Streamer,
+  badge « Top 10 saison N », titre « Contributeur saison N » pour le joueur qui a fait accepter le plus de clips,
+  créés automatiquement à la clôture) ou **attribution par l'équipe** (Youtubeur, Streamer,
   Partenaire, Bêta-testeur…).
 - **Comment l'obtenir** : chaque titre, badge et cadre indique sa provenance (« Succès « X » », « Atteindre le niveau N »,
   « 1re place du classement de la saison N », « Attribué par l'équipe : <description> » ; « Succès secret » pour un succès
@@ -369,6 +419,10 @@ docker compose --env-file .env.production -f docker-compose.prod.yml up -d --bui
 - **PostgreSQL** et **Redis** (avec mot de passe) ne sont pas exposés sur Internet.
 - **Sauvegarde** de la base chaque nuit dans `deploy/backups` (14 jours) ; restauration : `sh restore.sh backups/<fichier>.dump`.
 - L'API applique les migrations et charge les jeux, rangs et succès à chaque démarrage.
+- **Stockage R2** : les vidéos et photos partent directement du navigateur vers R2 (URL signées). Il faut donc 1) la
+  règle CORS du bucket (origines du site, de `www.` et de l'administration ; méthodes GET, HEAD, PUT ; en-têtes `*` ;
+  en-tête exposé `ETag`), 2) `S3_ENDPOINT` dans `.env.production` : il est ajouté automatiquement à la CSP du site et de
+  l'administration au moment de leur construction (`build admin web` après un changement). Le bucket reste privé.
 - Application mobile : `eas.json` (profils preview et production), icônes dans `apps/mobile/assets`.
 
 ## Publier sur Google Play
@@ -403,7 +457,8 @@ côté API).
    automatiquement). Crée l'application dans la Play Console et envoie ce fichier sur la piste **Test interne**
    (Google n'autorise la création des produits qu'après un premier envoi contenant la bibliothèque de paiement).
 4. **Produits** : Play Console → Monétiser → Produits → Produits intégrés → créer `vip_1m`, `vip_3m` et `vip_12m`
-   (mêmes identifiants, prix de lancement 2,49 €, 6,49 €, 19,99 € ; à la fin de l'offre : 4,99 €, 12,99 €, 39,99 €), puis les activer.
+   (mêmes identifiants, prix promo 2,49 €, 6,49 €, 19,99 € pendant la promo ; ensuite 4,99 €, 12,99 €, 39,99 €), puis les
+   activer. À chaque promo, changer aussi les prix dans la Play Console (Google ne lit pas les prix de RankGuess).
 5. **Compte de service** : console.cloud.google.com → nouveau projet → activer « Google Play Android Developer API » →
    IAM → Comptes de service → créer → Clés → Ajouter une clé JSON. Dans la Play Console → Utilisateurs et
    autorisations → inviter l'adresse du compte de service avec les droits « Afficher les données financières » et

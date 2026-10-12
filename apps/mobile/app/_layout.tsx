@@ -29,6 +29,7 @@ export default function RootLayout() {
         if (chat) router.push({ pathname: "/chat/[id]", params: { id: chat[1] } });
         else if (versus) router.push({ pathname: "/versus/[id]", params: { id: versus[1] } });
         else if (url === "my-clips") router.push("/my-clips");
+        else if (url === "suggestions") router.push("/suggestions");
         else router.push("/");
       }),
     [],
@@ -55,6 +56,7 @@ export default function RootLayout() {
           <Stack.Screen name="player/[id]" options={{ headerShown: true, title: "Profil du joueur", ...header }} />
           <Stack.Screen name="versus/[id]" options={{ headerShown: true, title: "Duel", ...header }} />
           <Stack.Screen name="submit" options={{ headerShown: true, title: "Proposer un clip", ...header }} />
+          <Stack.Screen name="suggestions" options={{ headerShown: true, title: "Suggestions", ...header }} />
           <Stack.Screen name="admin" options={{ headerShown: false }} />
         </Stack>
         <InviteBanner />

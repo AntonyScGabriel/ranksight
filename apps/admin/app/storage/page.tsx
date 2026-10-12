@@ -1,6 +1,5 @@
 "use client";
 
-import { isAdminRole } from "@ranksight/shared";
 import { useCallback, useEffect, useState } from "react";
 import { adminFetch, session, type Me } from "@/lib/api";
 import { useConfirm } from "@/lib/confirm";
@@ -31,7 +30,7 @@ function formatBytes(n: number) {
   return `${v.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} ${units[i]}`;
 }
 
-/** Stockage des vidéos : place occupée, compression, nettoyage automatique (chaque nuit) ou manuel. */
+/** Stockage des vidéos (fondateur) : place occupée, compression, nettoyage automatique (chaque nuit) ou manuel. */
 export default function StoragePage() {
   const confirm = useConfirm();
   const [data, setData] = useState<Overview | null>(null);
@@ -80,7 +79,7 @@ export default function StoragePage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="font-display text-2xl font-bold">Stockage</h1>
-        {isAdminRole(me?.role) && (
+        {me?.siteOwner && (
           <button onClick={cleanup} disabled={busy} className="btn-primary !py-2">{busy ? "Nettoyage…" : "Nettoyer maintenant"}</button>
         )}
       </div>

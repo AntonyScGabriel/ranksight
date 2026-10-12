@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import type { FriendRelation, FriendRequestsDto, UserSearchResultDto, UserSummaryDto } from "@ranksight/shared";
 import { PrismaService } from "../../prisma/prisma.service.js";
 import { flairSelect, toFlair } from "../cosmetics/flair.js";
+import { pseudoKey } from "@ranksight/shared";
 
 const summarySelect = { id: true, username: true, displayName: true, avatarUrl: true, level: true, ...flairSelect } as const;
 
@@ -51,7 +52,7 @@ export class FriendsService {
       where: {
         status: "ACTIVE",
         id: { not: userId },
-        OR: [{ username: { contains: term.toLowerCase() } }, { displayName: { contains: term, mode: "insensitive" } }],
+        OR: [{ username: { contains: pseudoKey(term) } }, { displayName: { contains: term, mode: "insensitive" } }],
       },
       select: summarySelect,
       orderBy: { username: "asc" },

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import {
+  CLIP_DURATION_LABEL, clipDurationOk,
   GAME_PLATFORMS, InGamePseudo, PLATFORM_LABEL, REGION_LABEL, REGIONS, firstIssue,
   type GameDto, type GameSlug, type Platform, type Region,
 } from "@ranksight/shared";
@@ -40,7 +41,7 @@ export default function UploadPage() {
     if (pseudo && !pseudo.success) return setStatus(firstIssue(pseudo.error));
     try {
       const durationSec = await duration(file);
-      if (durationSec < 15 || durationSec > 30.5) return setStatus("Le clip doit durer entre 15 et 30 secondes.");
+      if (!clipDurationOk(durationSec)) return setStatus(`Le clip doit durer de ${CLIP_DURATION_LABEL}.`);
       setStatus("Envoi…");
       const storageKey = await uploadFile(file, setProgress);
       await adminFetch("/clips", {

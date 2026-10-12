@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ROLE_LABEL, isAdminRole, isStaffRole } from "@ranksight/shared";
+import { ROLE_LABEL, isStaffRole } from "@ranksight/shared";
 import { mfa, session, type Me, type MfaStatus } from "@/lib/api";
 import { MfaPrompt, MfaSettings } from "./Mfa";
 
@@ -18,6 +18,7 @@ const NAV = [
   ["/reports", "Signalements clips", "⚑"],
   ["/moderation", "Signalements joueurs", "⚠"],
   ["/chat", "Chat global", "✉"],
+  ["/suggestions", "Suggestions", "✎"],
   ["/users", "Utilisateurs", "◉"],
   ["/rewards", "Récompenses", "✦"],
   ["/shop", "Boutique", "€"],
@@ -27,8 +28,8 @@ const NAV = [
 
 /** Pages accessibles aux trieurs de clips (le reste de l'administration est réservé à la modération) */
 const REVIEWER_PAGES = ["/triage", "/security"];
-/** Pages réservées aux administrateurs */
-const ADMIN_PAGES = ["/shop"];
+/** Pages réservées au fondateur (aux administrateurs tant qu'aucun fondateur n'est nommé) */
+const OWNER_PAGES = ["/shop", "/storage"];
 
 /** Accès réservé à l'équipe : connexion, contrôle du rôle, navigation. */
 export function AdminShell({ children }: { children: React.ReactNode }) {
@@ -94,7 +95,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     );
   }
 
-  const visibleNav = NAV.filter(([href]) => (!reviewer || REVIEWER_PAGES.includes(href)) && (isAdminRole(me.role) || !ADMIN_PAGES.includes(href)));
+  const visibleNav = NAV.filter(([href]) => (!reviewer || REVIEWER_PAGES.includes(href)) && (me.siteOwner || !OWNER_PAGES.includes(href)));
   const currentLabel = visibleNav.find(([href]) => (href === "/" ? pathname === "/" : pathname.startsWith(href)))?.[1] ?? "Administration";
 
   return (

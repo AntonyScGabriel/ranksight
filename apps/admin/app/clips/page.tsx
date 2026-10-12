@@ -23,7 +23,7 @@ type ClipDetail = ClipRow & {
 const TABS: [Status, string][] = [["PENDING_REVIEW", "En attente"], ["TRIAGED", "Pré-triés"], ["APPROVED", "Acceptés"], ["REJECTED", "Refusés"]];
 /** Vues liées aux défis du jour */
 const DAILY_TABS: [Status, string, string][] = [
-  ["TODAY", "Défi du jour", "Clips joués aujourd'hui en défi du jour (un par jeu)."],
+  ["TODAY", "Défi du jour", "Clips joués aujourd'hui en défi du jour (3 par jeu)."],
   ["SCHEDULED", "Planifiés", "Clips prévus en défi du jour pour les prochains jours."],
   ["AVAILABLE", "Disponibles", "Clips acceptés jamais passés en défi : ce sont eux qui sont tirés au sort pour les prochains défis."],
 ];
@@ -268,7 +268,7 @@ export default function ClipsPage() {
             {current.status === "PENDING_REVIEW" && (
               <ul className="list-inside list-disc text-xs text-muted">
                 <li>Pseudo, rang et indices de classement masqués ?</li>
-                <li>Durée 15 à 30 s, image lisible, aucun contenu choquant ?</li>
+                <li>Durée de 5 s à 1 min, image lisible, aucun contenu choquant ?</li>
                 <li>Rang cohérent avec la preuve fournie ?</li>
               </ul>
             )}

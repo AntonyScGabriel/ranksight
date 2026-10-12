@@ -9,6 +9,8 @@ x-build-args: &build-args
   WEB_URL: https://${WEB_DOMAIN}
   ADMIN_URL: https://${ADMIN_DOMAIN}
   NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
+  # Stockage S3/R2 : le navigateur y envoie directement les vidéos et photos (autorisé dans la CSP du site et de l'admin)
+  S3_ENDPOINT: ${S3_ENDPOINT:-}
   LEGAL_PUBLISHER_NAME: ${LEGAL_PUBLISHER_NAME:-}
   LEGAL_PUBLISHER_STATUS: ${LEGAL_PUBLISHER_STATUS:-}
   LEGAL_ADDRESS: ${LEGAL_ADDRESS:-}

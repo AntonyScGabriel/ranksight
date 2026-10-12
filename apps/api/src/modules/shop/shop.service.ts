@@ -2,8 +2,8 @@ import { BadRequestException, ConflictException, ForbiddenException, Inject, Inj
 import { Cron } from "@nestjs/schedule";
 import type { Redis } from "ioredis";
 import {
-  DEFAULT_SHOP_PRODUCTS, ShopProduct, formatPrice, vipPriceCents,
-  type GiftChoice, type PurchaseDto, type ShopCatalogDto, type ShopDto, type ShopSettingsDto, type ShopSettingsInput, type VipProductId,
+  DEFAULT_SHOP_PRODUCTS, DEFAULT_SHOP_PROMO, ShopProduct, ShopPromo, formatPrice, isPromoRunning, vipPriceCents,
+  type GiftChoice, type PromoInfoDto, type PurchaseDto, type ShopCatalogDto, type ShopDto, type ShopSettingsDto, type ShopSettingsInput, type VipProductId,
 } from "@ranksight/shared";
 import { z } from "zod";
 import { AuditService } from "../../common/audit/audit.module.js";
@@ -58,32 +58,50 @@ export class ShopService {
   private settingsCache: { value: ShopSettingsDto; at: number } | null = null;
 
   /**
-   * Réglages de la boutique (page « Boutique » de l'administration) : offre de lancement et passes (nom, durée, prix,
-   * étiquette, mise en vente). Sans réglage enregistré : catalogue par défaut, offre de lancement active.
+   * Réglages de la boutique (page « Boutique » de l'administration) : promo du moment et passes (nom, durée, prix,
+   * prix promo, étiquette, mise en vente). Sans réglage enregistré : catalogue par défaut et « Offre de lancement ».
+   * Les réglages enregistrés avant l'arrivée de la promo du moment (offre de lancement) sont repris tels quels.
    */
   async settings(): Promise<ShopSettingsDto> {
     if (this.settingsCache && Date.now() - this.settingsCache.at < SETTINGS_CACHE_MS) return this.settingsCache.value;
     const row = await this.prisma.appSetting.findUnique({ where: { key: SETTINGS_KEY } });
-    const stored = (row?.value ?? {}) as { launchOffer?: boolean; products?: unknown };
-    const saved = z.array(ShopProduct).safeParse(stored.products);
+    const stored = (row?.value ?? {}) as { promo?: unknown; launchOffer?: boolean; products?: unknown };
+    const legacyProducts = Array.isArray(stored.products)
+      ? stored.products.map((p: Record<string, unknown>) => ("launchPriceCents" in p && !("promoPriceCents" in p) ? { ...p, promoPriceCents: p.launchPriceCents } : p))
+      : stored.products;
+    const saved = z.array(ShopProduct).safeParse(legacyProducts);
     const products = DEFAULT_SHOP_PRODUCTS.map((d) => (saved.success ? saved.data.find((p) => p.id === d.id) : undefined) ?? d);
-    const value = { launchOffer: stored.launchOffer ?? true, products };
+    const promoSaved = ShopPromo.safeParse(stored.promo);
+    const promo = promoSaved.success
+      ? promoSaved.data
+      : { ...DEFAULT_SHOP_PROMO, active: stored.launchOffer ?? DEFAULT_SHOP_PROMO.active };
+    const value = { promo, products };
     this.settingsCache = { value, at: Date.now() };
     return value;
   }
 
-  async launchOffer(): Promise<boolean> {
-    return (await this.settings()).launchOffer;
+  /** Promo en cours (active et pas terminée) : nom et date de fin, sinon null */
+  async runningPromo(): Promise<PromoInfoDto> {
+    const { promo } = await this.settings();
+    return isPromoRunning(promo) ? { label: promo.label, endsAt: promo.endsAt } : null;
   }
 
   private async product(id: VipProductId) {
     return (await this.settings()).products.find((p) => p.id === id)!;
   }
 
+  /** Prix à payer maintenant pour ce pass (prix promo pendant une promo en cours) */
+  private async currentPrice(product: ShopProduct) {
+    return vipPriceCents(product, (await this.runningPromo()) !== null);
+  }
+
   async updateSettings(actorId: string, input: ShopSettingsInput) {
+    if (input.promo.active && input.promo.endsAt && new Date(input.promo.endsAt) <= new Date()) {
+      throw new BadRequestException({ code: "PROMO_ENDED", message: "La date de fin de la promo est déjà passée." });
+    }
     const current = await this.settings();
     const value: ShopSettingsDto = {
-      launchOffer: input.launchOffer,
+      promo: { ...input.promo, endsAt: input.promo.endsAt ? new Date(input.promo.endsAt).toISOString() : null },
       products: input.products ? DEFAULT_SHOP_PRODUCTS.map((d) => input.products!.find((p) => p.id === d.id)!) : current.products,
     };
     await this.prisma.appSetting.upsert({
@@ -92,8 +110,8 @@ export class ShopService {
       update: { value, updatedById: actorId },
     });
     this.settingsCache = { value, at: Date.now() };
-    if (value.launchOffer !== current.launchOffer) {
-      await this.audit.log(actorId, "shop.launch_offer", "app_setting", SETTINGS_KEY, { launchOffer: value.launchOffer });
+    if (JSON.stringify(value.promo) !== JSON.stringify(current.promo)) {
+      await this.audit.log(actorId, "shop.promo", "app_setting", SETTINGS_KEY, { from: current.promo, to: value.promo });
     }
     if (input.products) {
       // Journal : uniquement ce qui a changé, pass par pass
@@ -109,23 +127,24 @@ export class ShopService {
 
   /** Prix publics (conditions générales de vente) : passes en vente uniquement */
   async catalog(): Promise<ShopCatalogDto> {
-    const { launchOffer, products } = await this.settings();
+    const [{ products }, promo] = await Promise.all([this.settings(), this.runningPromo()]);
     return {
-      launchOffer,
-      products: products.filter((p) => p.active).map(({ id, name, days, priceCents, launchPriceCents }) => ({ id, name, days, priceCents, launchPriceCents })),
+      promo,
+      products: products.filter((p) => p.active).map(({ id, name, days, priceCents, promoPriceCents }) => ({ id, name, days, priceCents, promoPriceCents })),
     };
   }
 
   async overview(userId: string): Promise<ShopDto> {
-    const [user, { launchOffer, products }] = await Promise.all([
+    const [user, { products }, promo] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: vipSelect }),
       this.settings(),
+      this.runningPromo(),
     ]);
     return {
       products: products.filter((p) => p.active).map((p) => ({
-        id: p.id, name: p.name, days: p.days, highlight: p.highlight || null, priceCents: vipPriceCents(p, launchOffer), regularPriceCents: p.priceCents,
+        id: p.id, name: p.name, days: p.days, highlight: p.highlight || null, priceCents: vipPriceCents(p, promo !== null), regularPriceCents: p.priceCents,
       })),
-      launchOffer,
+      promo,
       paymentsEnabled: this.stripe.enabled,
       googlePlayEnabled: this.googlePlay.enabled,
       vip: vipStatus(user.subscription),
@@ -137,7 +156,7 @@ export class ShopService {
     if (!product.active) throw new BadRequestException({ code: "PRODUCT_UNAVAILABLE", message: "Ce pass n'est plus proposé. Recharge la boutique." });
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { email: true } });
     const recipient = gift?.type === "friend" ? await this.giftRecipient(userId, gift.friendId) : null;
-    const amountCents = vipPriceCents(product, await this.launchOffer());
+    const amountCents = await this.currentPrice(product);
     const session = await this.stripe.createCheckout({
       userId,
       email: user.email,
@@ -254,7 +273,7 @@ export class ShopService {
           data: {
             userId, product: product.id, days: product.days * quantity,
             // Achat de test (comptes testeurs de la Play Console) : aucun montant réellement payé
-            amountCents: isTest ? 0 : vipPriceCents(product, await this.launchOffer()) * quantity,
+            amountCents: isTest ? 0 : (await this.currentPrice(product)) * quantity,
             provider: "GOOGLE_PLAY", externalId: purchaseToken, orderId: gp.orderId ?? null,
             status: "PAID", paidAt: new Date(),
             // Confirmation affichée avant l'ouverture du paiement Google Play

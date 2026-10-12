@@ -108,7 +108,7 @@ export default function VersusMatchScreen() {
           <Text style={{ color: colors.ink, fontSize: 18, fontWeight: "700", textAlign: "center" }}>
             {opp?.displayName} te défie{match.game ? ` sur ${match.game.name}` : ""} !
           </Text>
-          <Muted center>5 clips, 30 secondes par manche, en même temps que ton adversaire.</Muted>
+          <Muted center>5 clips, 30 secondes par manche (plus pour un clip long), en même temps que ton adversaire.</Muted>
           <PrimaryButton label="Accepter et jouer" onPress={() => act(() => api.acceptVersus(id))} />
           <GhostButton label="Refuser" onPress={() => act(async () => { await api.declineVersus(id); router.replace("/versus"); })} />
         </Card>

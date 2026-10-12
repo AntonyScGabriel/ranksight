@@ -59,8 +59,8 @@ const EnvSchema = z.object({
   // Sécurité
   /** Clé de chiffrement des données sensibles en base (secret 2FA). Vide = dérivée de JWT_REFRESH_SECRET */
   ENCRYPTION_KEY: z.string().default(""),
-  /** Double authentification obligatoire pour l'administration : auto = oui en production */
-  ADMIN_REQUIRE_2FA: z.enum(["auto", "true", "false"]).default("auto"),
+  /** Double authentification obligatoire pour l'administration : false (facultative, par défaut), true, ou auto = oui en production */
+  ADMIN_REQUIRE_2FA: z.enum(["auto", "true", "false"]).default("false"),
   /** Adresse qui reçoit les messages du formulaire de contact (vide = adresse de MAIL_FROM) */
   CONTACT_EMAIL: z.string().default(""),
   /** Suivi des erreurs (Sentry). Vide = désactivé */

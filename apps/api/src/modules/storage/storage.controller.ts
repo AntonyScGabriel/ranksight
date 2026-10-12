@@ -8,6 +8,7 @@ import { pipeline } from "node:stream/promises";
 import path from "node:path";
 import { Public } from "../../common/decorators/public.decorator.js";
 import { MAX_UPLOAD_BYTES, StorageService } from "./storage.service.js";
+import { CLIP_MAX_MB } from "@ranksight/shared";
 
 /**
  * Pilote "local" uniquement : reçoit les uploads et sert les vidéos.
@@ -41,7 +42,7 @@ export class StorageController {
     const limit = new Transform({
       transform(chunk: Buffer, _enc, cb) {
         received += chunk.length;
-        cb(received > MAX_UPLOAD_BYTES ? new PayloadTooLargeException("Fichier trop volumineux (80 Mo max)") : null, chunk);
+        cb(received > MAX_UPLOAD_BYTES ? new PayloadTooLargeException(`Fichier trop volumineux (${CLIP_MAX_MB} Mo max)`) : null, chunk);
       },
     });
     try {

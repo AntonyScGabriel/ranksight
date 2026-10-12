@@ -10,7 +10,7 @@ import { Avatar, Loading, LoginRequired } from "@/components/ui";
 import { FlairBadge, TitleText } from "@/components/Flair";
 
 const SCOPES = [["global", "Global"], ["friends", "Amis"]] as const;
-const PERIODS = [["daily", "Jour"], ["weekly", "Sem."], ["season", "Saison"], ["all_time", "Total"], ["infinite", "Infini"]] as const;
+const PERIODS = [["daily", "Jour"], ["weekly", "Sem."], ["season", "Saison"], ["all_time", "Total"], ["infinite", "Infini"], ["contributors", "Contrib."]] as const;
 const GAMES: [LeaderboardGame, string][] = [["all", "Tous les jeux"], ...GAME_SLUGS.map((s) => [s, GAME_NAMES[s]] as [LeaderboardGame, string])];
 
 export default function LeaderboardScreen() {
@@ -26,12 +26,29 @@ export default function LeaderboardScreen() {
   const [seasonKey, setSeasonKey] = useState("");
   const season = seasons.find((s) => s.key === seasonKey) ?? seasons[0];
   const pastSeason = period === "season" && season && !season.current ? season.key : undefined;
+  /** Classement des contributeurs : clips acceptés, par saison ou depuis le lancement ("all") */
+  const contributors = period === "contributors";
+  const [contribPeriod, setContribPeriod] = useState("");
+  const contribSeason = contribPeriod === "all" ? null : (seasons.find((s) => s.key === contribPeriod) ?? seasons[0] ?? null);
+  const contribKey = contribPeriod === "all" ? "all" : contribSeason?.key;
+  const [reward, setReward] = useState<string | null>(null);
 
   useEffect(() => {
     if (me) api.seasons().then(setSeasons).catch(() => setSeasons([]));
   }, [me]);
 
   const load = useCallback(() => {
+    if (contributors) {
+      api
+        .contributors(scope, contribKey)
+        .then((d) => {
+          setEntries(d.entries);
+          setMine(d.me);
+          setReward(d.reward);
+        })
+        .catch(() => undefined);
+      return;
+    }
     api
       .leaderboard(period, scope, effectiveGame, pastSeason)
       .then((d) => {
@@ -39,11 +56,13 @@ export default function LeaderboardScreen() {
         setMine(d.me);
       })
       .catch(() => undefined);
-  }, [period, scope, effectiveGame, pastSeason]);
+  }, [contributors, contribKey, period, scope, effectiveGame, pastSeason]);
 
   useEffect(() => {
     if (!me) return;
     load();
+    // Contributeurs : rechargé à l'ouverture de l'onglet (change à chaque clip accepté)
+    if (contributors) return;
     // Saison terminée : classement définitif, pas de temps réel
     if (pastSeason) return;
     // Temps réel : le serveur signale un changement, on recharge
@@ -53,7 +72,7 @@ export default function LeaderboardScreen() {
     return () => {
       socket.disconnect();
     };
-  }, [me, period, effectiveGame, pastSeason, load]);
+  }, [me, contributors, period, effectiveGame, pastSeason, load]);
 
   if (loading) return <Loading />;
   if (!me) return <View style={{ flex: 1, padding: 16 }}><LoginRequired text="Connecte-toi pour voir les classements." /></View>;
@@ -66,7 +85,7 @@ export default function LeaderboardScreen() {
         <View style={{ gap: 6 }}>
           <Text style={{ color: colors.ink, fontWeight: "700" }}>{season.label}</Text>
           <Text style={{ color: colors.muted, fontSize: 12 }}>
-            {season.current ? `Se termine le ${new Date(season.endsAt).toLocaleDateString("fr-FR", { timeZone: "UTC" })} à minuit (UTC). Le 1er remporte le succès « Champion de saison ».` : "Saison terminée : classement définitif."}
+            {season.current ? `Se termine le ${new Date(season.endsAt).toLocaleDateString("fr-FR", { timeZone: "UTC" })} à minuit (UTC). Le 1er remporte le titre « Champion », le top 3 le titre « Podium » et le top 10 un badge.` : "Saison terminée : classement définitif."}
           </Text>
           {seasons.length > 1 && (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }} style={{ flexGrow: 0 }}>
@@ -83,7 +102,31 @@ export default function LeaderboardScreen() {
           )}
         </View>
       )}
-      {period !== "infinite" && (
+      {contributors && (
+        <View style={{ gap: 6 }}>
+          <Text style={{ color: colors.ink, fontWeight: "700" }}>{contribSeason ? `Contributeurs · ${contribSeason.label}` : "Contributeurs depuis le lancement"}</Text>
+          <Text style={{ color: colors.muted, fontSize: 12, lineHeight: 17 }}>
+            Clips proposés et acceptés par l&apos;équipe{contribSeason ? " pendant la saison" : ""}. À égalité, le premier à atteindre ce nombre passe devant.
+            {contribSeason && reward
+              ? contribSeason.current
+                ? ` À la fin de la saison, le premier reçoit le titre « ${reward} ».`
+                : ` Le premier a reçu le titre « ${reward} ».`
+              : ""}
+          </Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }} style={{ flexGrow: 0 }}>
+            {[...seasons.map((s) => [s.key, `Saison ${s.number}`] as const), ["all", "Depuis le lancement"] as const].map(([k, label]) => (
+              <Pressable
+                key={k}
+                onPress={() => setContribPeriod(k)}
+                style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: k === contribKey ? colors.violet : colors.line }}
+              >
+                <Text style={{ color: k === contribKey ? colors.ink : colors.muted, fontSize: 12, fontWeight: "600" }}>{label}</Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+      {period !== "infinite" && !contributors && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }} style={{ flexGrow: 0 }}>
           {GAMES.map(([k, label]) => (
             <Pressable
@@ -96,7 +139,7 @@ export default function LeaderboardScreen() {
           ))}
         </ScrollView>
       )}
-      {mine && <Text style={{ color: colors.neon, fontWeight: "700" }}>Ta position : #{mine.rank} · {mine.score} pts</Text>}
+      {mine && <Text style={{ color: colors.neon, fontWeight: "700" }}>Ta position : #{mine.rank} · {contributors ? clipsLabel(mine.score) : `${mine.score} pts`}</Text>}
       <FlatList
         data={entries}
         keyExtractor={(e) => e.userId}
@@ -119,18 +162,24 @@ export default function LeaderboardScreen() {
               </View>
               {item.flair.title && <TitleText title={item.flair.title} size={10} />}
             </View>
-            <Text style={{ color: colors.ink, fontVariant: ["tabular-nums"] }}>{item.score}</Text>
+            <Text style={{ color: colors.ink, fontVariant: ["tabular-nums"] }}>{contributors ? clipsLabel(item.score) : item.score}</Text>
           </Pressable>
         )}
         ListEmptyComponent={
           <Text style={{ color: colors.muted, textAlign: "center", marginTop: 40 }} onPress={scope === "friends" ? () => router.push("/friends") : undefined}>
-            {scope === "friends" ? "Ajoute des amis pour comparer vos scores." : "Personne n'a encore marqué de points sur cette période."}
+            {scope === "friends"
+              ? "Ajoute des amis pour comparer vos scores."
+              : contributors
+                ? "Aucun clip proposé par un joueur n'a encore été accepté sur cette période."
+                : "Personne n'a encore marqué de points sur cette période."}
           </Text>
         }
       />
     </View>
   );
 }
+
+const clipsLabel = (n: number) => `${n} clip${n > 1 ? "s" : ""}`;
 
 function Segmented({ items, value, onChange, small }: { items: readonly (readonly [string, string])[]; value: string; onChange: (v: string) => void; small?: boolean }) {
   return (

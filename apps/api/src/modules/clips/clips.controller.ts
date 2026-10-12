@@ -1,6 +1,6 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Post, Query } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Post, Query } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
-import { SubmitClipInput, UploadUrlInput } from "@ranksight/shared";
+import { DAILY_PER_GAME, SubmitClipInput, UploadUrlInput } from "@ranksight/shared";
 import { CurrentUser, type AuthUser } from "../../common/decorators/current-user.decorator.js";
 import { Premium } from "../../common/decorators/roles.decorator.js";
 import { ZodPipe } from "../../common/pipes/zod.pipe.js";
@@ -11,16 +11,23 @@ import { SubmissionsService } from "./submissions.service.js";
 export class PlayController {
   constructor(private readonly clips: ClipsService) {}
 
-  /** GET /v1/play/daily — « Défis du jour » : les 4 jeux et l'état de chaque défi pour le joueur */
+  /** GET /v1/play/daily — « Défis du jour » : les jeux, leurs 3 défis et l'état de chacun pour le joueur */
   @Get("daily")
   daily(@CurrentUser() user: AuthUser) {
     return this.clips.dailyOverview(user.sub);
   }
 
-  /** GET /v1/play/daily/:game — clip du défi du jour de ce jeu (sans le rang) + jeton de partie ; 409 si déjà joué */
+  /**
+   * GET /v1/play/daily/:game?slot=2 — clip d'un défi du jour (sans le rang) + jeton de partie ; sans `slot`, le premier
+   * défi pas encore joué ; 409 si déjà joué
+   */
   @Get("daily/:game")
-  dailyGame(@CurrentUser() user: AuthUser, @Param("game") game: string) {
-    return this.clips.dailyForGame(user.sub, game);
+  dailyGame(@CurrentUser() user: AuthUser, @Param("game") game: string, @Query("slot") slot?: string) {
+    const n = slot === undefined ? undefined : Number(slot);
+    if (n !== undefined && !(Number.isInteger(n) && n >= 1 && n <= DAILY_PER_GAME)) {
+      throw new BadRequestException(`Numéro de défi invalide (1 à ${DAILY_PER_GAME}).`);
+    }
+    return this.clips.dailyForGame(user.sub, game, n);
   }
 
   /** POST /v1/play/infinite/runs — démarre une partie infinie */

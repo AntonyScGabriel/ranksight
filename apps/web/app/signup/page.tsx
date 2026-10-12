@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { MIN_AGE, SignupInput } from "@ranksight/shared";
+import { MIN_AGE, SignupInput, PSEUDO_RULE } from "@ranksight/shared";
 import { api, ApiError } from "@/lib/api";
 import { safeNext } from "@/lib/nav";
 import { useSession } from "@/lib/session";
@@ -68,7 +68,7 @@ function Signup() {
       <OAuthButtons next={next} onError={setError} />
       <Divider />
       <form onSubmit={submit} className="space-y-4" noValidate>
-        <Field label="Pseudo" autoComplete="username" value={form.pseudo} onChange={set("pseudo")} error={fieldErrors.pseudo} hint="3 à 20 caractères : lettres, chiffres ou _" maxLength={20} />
+        <Field label="Pseudo" autoComplete="username" value={form.pseudo} onChange={set("pseudo")} error={fieldErrors.pseudo} hint={PSEUDO_RULE} maxLength={20} />
         <Field label="Email" type="email" autoComplete="email" value={form.email} onChange={set("email")} error={fieldErrors.email} />
         <Field label="Mot de passe" type="password" autoComplete="new-password" value={form.password} onChange={set("password")} error={fieldErrors.password} hint="8 caractères minimum, avec au moins une lettre et un chiffre" />
         <Field label="Confirmation du mot de passe" type="password" autoComplete="new-password" value={form.passwordConfirm} onChange={set("passwordConfirm")} error={fieldErrors.passwordConfirm} />

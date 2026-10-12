@@ -7,7 +7,7 @@
 import { config } from "dotenv";
 import { createInterface } from "node:readline";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { Email, Password } from "@ranksight/shared";
+import { Email, Password, pseudoKey } from "@ranksight/shared";
 import { PrismaClient } from "../src/generated/prisma/client.js";
 import { hashPassword } from "../src/modules/auth/password-hash.js";
 
@@ -42,7 +42,7 @@ function ask(question: string): Promise<string> {
 
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }) });
 try {
-  const user = await prisma.user.findUnique({ where: { username: pseudo.toLowerCase() } });
+  const user = await prisma.user.findUnique({ where: { username: pseudoKey(pseudo) } });
   if (!user) {
     console.error(`Aucun compte avec le pseudo « ${pseudo} ».`);
     process.exitCode = 1;

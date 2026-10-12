@@ -1,5 +1,5 @@
 import { ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
-import { NO_CLIP_MESSAGES, type DailyOverviewDto, type PlayableClipDto, type RankDto } from "@ranksight/shared";
+import { DAILY_PER_GAME, NO_CLIP_MESSAGES, type DailyOverviewDto, type PlayableClipDto, type RankDto } from "@ranksight/shared";
 import { PrismaService } from "../../prisma/prisma.service.js";
 import { StorageService } from "../storage/storage.service.js";
 import { PlayTokenService } from "./play-token.service.js";
@@ -32,32 +32,42 @@ export class ClipsService {
     private readonly playTokens: PlayTokenService,
   ) {}
 
-  // ----- Défis du jour : un par jeu -----
+  // ----- Défis du jour : DAILY_PER_GAME par jeu -----
 
-  /** Les 4 défis du jour et, pour chacun, l'état du joueur : disponible, terminé (avec son score) ou indisponible. */
+  /** Les défis du jour (3 par jeu) et, pour chacun, l'état du joueur : disponible, terminé (avec son score) ou indisponible. */
   async dailyOverview(userId: string): Promise<DailyOverviewDto> {
     const date = todayUtc();
     const games = await this.prisma.game.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" } });
-    const dailies = await Promise.all(games.map((g) => this.ensureDaily(g.id)));
-    const ids = dailies.filter((d): d is NonNullable<typeof d> => !!d).map((d) => d.id);
+    const dailies = await Promise.all(games.map((g) => this.ensureDailies(g.id)));
+    const ids = dailies.flat().map((d) => d.id);
     const [guesses, user] = await Promise.all([
       this.prisma.guess.findMany({
         where: { userId, dailyChallengeId: { in: ids } },
         include: { guessedRank: { select: { name: true, color: true } }, clip: { select: { rank: { select: { name: true, color: true } } } } },
+        orderBy: { createdAt: "asc" },
       }),
       this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { dailyStreak: true, lastDailyDate: true } }),
     ]);
     const byDaily = new Map(guesses.map((g) => [g.dailyChallengeId, g]));
+    const toResult = (g: (typeof guesses)[number]) => ({ score: g.score, distance: g.distance, guessedRank: g.guessedRank, correctRank: g.clip.rank });
 
     const items = games.map((game, i) => {
-      const daily = dailies[i];
-      const guess = daily ? byDaily.get(daily.id) : undefined;
+      const challenges = Array.from({ length: DAILY_PER_GAME }, (_, k) => {
+        const daily = dailies[i].find((d) => d.slot === k + 1);
+        const guess = daily ? byDaily.get(daily.id) : undefined;
+        return {
+          slot: k + 1,
+          status: guess ? ("PLAYED" as const) : daily ? ("AVAILABLE" as const) : ("UNAVAILABLE" as const),
+          result: guess ? toResult(guess) : null,
+        };
+      });
+      const played = challenges.filter((c) => c.result);
       return {
         game: { id: game.id, slug: game.slug as DailyOverviewDto["games"][number]["game"]["slug"], name: game.name, iconUrl: game.iconUrl, accent: game.accent },
-        status: guess ? ("PLAYED" as const) : daily ? ("AVAILABLE" as const) : ("UNAVAILABLE" as const),
-        result: guess
-          ? { score: guess.score, distance: guess.distance, guessedRank: guess.guessedRank, correctRank: guess.clip.rank }
-          : null,
+        status: challenges.some((c) => c.status === "AVAILABLE") ? ("AVAILABLE" as const) : played.length ? ("PLAYED" as const) : ("UNAVAILABLE" as const),
+        result: played.at(-1)?.result ?? null,
+        challenges,
+        score: played.reduce((sum, c) => sum + (c.result?.score ?? 0), 0),
       };
     });
     // La série est perdue si le joueur n'a joué ni hier ni aujourd'hui
@@ -67,48 +77,72 @@ export class ClipsService {
       games: items,
       totalScore: guesses.reduce((s, g) => s + g.score, 0),
       played: guesses.length,
+      total: ids.length,
       dailyStreak: daysSince <= 1 ? user.dailyStreak : 0,
     };
   }
 
-  /** Clip du défi du jour d'un jeu. Refusé si le joueur a déjà répondu : une seule tentative par jeu et par jour. */
-  async dailyForGame(userId: string, slug: string): Promise<PlayableClipDto> {
+  /**
+   * Clip d'un défi du jour (n° `slot`, ou le premier pas encore joué si `slot` est absent : anciennes versions de
+   * l'application). Une seule tentative par défi.
+   */
+  async dailyForGame(userId: string, slug: string, slot?: number): Promise<PlayableClipDto & { slot: number }> {
     const game = await this.prisma.game.findUnique({ where: { slug } });
     if (!game || !game.isActive) throw new NotFoundException({ code: "GAME_NOT_FOUND", message: "Ce jeu n'est pas disponible." });
-    const daily = await this.ensureDaily(game.id);
-    if (!daily) throw noClipAvailable();
+    // Les défis des autres jeux sont tirés en même temps : « Grand chelem » et « Sans faute » se mesurent
+    // sur l'ensemble des défis du jour
+    const [dailies] = await Promise.all([this.ensureDailies(game.id), this.ensureTodayDailies(game.id)]);
+    if (!dailies.length) throw noClipAvailable();
 
-    const played = await this.prisma.guess.findUnique({
-      where: { userId_dailyChallengeId: { userId, dailyChallengeId: daily.id } },
-      select: { id: true },
-    });
-    if (played) {
+    const played = new Set(
+      (await this.prisma.guess.findMany({ where: { userId, dailyChallengeId: { in: dailies.map((d) => d.id) } }, select: { dailyChallengeId: true } }))
+        .map((g) => g.dailyChallengeId),
+    );
+    const daily = slot ? dailies.find((d) => d.slot === slot) : dailies.find((d) => !played.has(d.id));
+    if (slot && !daily) throw noClipAvailable();
+    if (!daily || played.has(daily.id)) {
+      const left = dailies.filter((d) => !played.has(d.id)).length;
       throw new ConflictException({
         code: "ALREADY_PLAYED",
-        message: `Tu as déjà joué le défi ${game.name} aujourd'hui. Reviens demain pour un nouveau clip !`,
+        message: left
+          ? `Tu as déjà joué ce défi ${game.name}. Il t'en reste ${left} aujourd'hui !`
+          : `Tu as joué les ${dailies.length} défis ${game.name} du jour. Reviens demain pour de nouveaux clips !`,
       });
     }
     const token = await this.playTokens.sign({ uid: userId, cid: daily.clipId, mode: "DAILY", did: daily.id });
-    return this.toPlayable(daily.clip, token, "DAILY", daily.date);
+    return { ...(await this.toPlayable(daily.clip, token, "DAILY", daily.date)), slot: daily.slot };
   }
 
-  /** Garantit un défi du jour pour chaque jeu actif (après la suppression d'un clip par l'équipe, par exemple). */
-  async ensureTodayDailies() {
-    const games = await this.prisma.game.findMany({ where: { isActive: true }, select: { id: true } });
-    await Promise.all(games.map((g) => this.ensureDaily(g.id)));
+  /** Garantit les défis du jour de chaque jeu actif (après la suppression d'un clip par l'équipe, par exemple). */
+  async ensureTodayDailies(exceptGameId?: string) {
+    const games = await this.prisma.game.findMany({ where: { isActive: true, ...(exceptGameId ? { id: { not: exceptGameId } } : {}) }, select: { id: true } });
+    await Promise.all(games.map((g) => this.ensureDailies(g.id)));
+  }
+
+  /** Les défis du jour d'un jeu, triés par numéro (moins de DAILY_PER_GAME si le catalogue manque de clips). */
+  private async ensureDailies(gameId: string) {
+    const list = [];
+    // Dans l'ordre : chaque tirage exclut les clips déjà retenus pour les défis précédents du jour
+    for (let slot = 1; slot <= DAILY_PER_GAME; slot++) {
+      const daily = await this.ensureDaily(gameId, slot);
+      if (daily) list.push(daily);
+    }
+    return list;
   }
 
   /**
-   * Défi du jour d'un jeu : celui planifié par la modération, sinon un clip accepté de ce jeu tiré au sort
-   * (en priorité un clip jamais passé en défi). La contrainte unique (date, jeu) garantit un seul défi par jeu et par jour.
+   * Défi n° `slot` du jour d'un jeu : celui planifié par la modération, sinon un clip accepté de ce jeu tiré au sort
+   * (en priorité un clip jamais passé en défi, jamais deux fois le même clip le même jour). La contrainte unique
+   * (date, jeu, numéro) garantit un seul clip par défi.
    */
-  private async ensureDaily(gameId: string) {
+  private async ensureDaily(gameId: string, slot: number) {
     const date = todayUtc();
-    const where = { date_gameId: { date, gameId } };
+    const where = { date_gameId_slot: { date, gameId, slot } };
     const existing = await this.prisma.dailyChallenge.findUnique({ where, include: { clip: { include: clipInclude } } });
     if (existing && existing.clip.status === "APPROVED" && !existing.clip.deletedAt) return existing;
 
-    const playable = { ...PLAYABLE, gameId };
+    const usedToday = (await this.prisma.dailyChallenge.findMany({ where: { date, gameId, slot: { not: slot } }, select: { clipId: true } })).map((d) => d.clipId);
+    const playable = { ...PLAYABLE, gameId, id: { notIn: usedToday } };
     const pick = (await this.randomClip({ ...playable, dailies: { none: {} } })) ?? (await this.randomClip(playable));
     if (!pick) return null;
 
@@ -118,11 +152,11 @@ export class ClipsService {
       return this.prisma.dailyChallenge.update({ where: { id: existing.id }, data: { clipId: pick.id }, include: { clip: { include: clipInclude } } });
     }
     try {
-      const created = await this.prisma.dailyChallenge.create({ data: { date, gameId, clipId: pick.id }, include: { clip: { include: clipInclude } } });
-      this.logger.log(`Défi du ${date.toISOString().slice(0, 10)} (${gameId}) tiré au sort : ${pick.id}`);
+      const created = await this.prisma.dailyChallenge.create({ data: { date, gameId, slot, clipId: pick.id }, include: { clip: { include: clipInclude } } });
+      this.logger.log(`Défi n° ${slot} du ${date.toISOString().slice(0, 10)} (${gameId}) tiré au sort : ${pick.id}`);
       return created;
     } catch {
-      // Deux requêtes simultanées : l'autre a déjà créé le défi du jour pour ce jeu
+      // Deux requêtes simultanées : l'autre a déjà créé ce défi
       return this.prisma.dailyChallenge.findUnique({ where, include: { clip: { include: clipInclude } } });
     }
   }

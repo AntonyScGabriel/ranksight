@@ -71,7 +71,7 @@ export default function VersusPage() {
         <div>
           <h1 className="font-display text-3xl font-bold">Duels</h1>
           <p className="max-w-xl text-sm text-muted">
-            Duel en direct : 5 clips, les mêmes pour les deux joueurs, au même moment. 30 secondes par manche, puis les deux
+            Duel en direct : 5 clips, les mêmes pour les deux joueurs, au même moment. 30 secondes par manche (plus pour un clip long), puis les deux
             réponses sont dévoilées. Le meilleur total l&apos;emporte.
           </p>
         </div>

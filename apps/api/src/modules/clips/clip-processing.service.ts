@@ -11,13 +11,14 @@ import { env } from "../../config/env.js";
 import { PrismaService } from "../../prisma/prisma.service.js";
 import { REDIS } from "../../redis/redis.module.js";
 import { StorageService } from "../storage/storage.service.js";
+import { CLIP_MAX_SEC } from "@ranksight/shared";
 
 const run = promisify(execFile);
 
 /** Hauteur maximale des vidéos stockées : 720p suffit largement pour deviner un rang et divise la taille par 3 à 6. */
 const MAX_HEIGHT = 720;
-/** Durée maximale conservée (les clips font 15 à 30 s) */
-const MAX_DURATION_SEC = 35;
+/** Durée maximale conservée (les clips font de 5 s à 1 min) */
+const MAX_DURATION_SEC = CLIP_MAX_SEC + 1;
 /** Un clip refusé garde sa vidéo 14 jours (le joueur peut la revoir dans « Mes clips »), puis le fichier est supprimé. */
 const REJECTED_KEEP_DAYS = 14;
 /** Un fichier envoyé mais jamais rattaché à un clip (envoi abandonné) est supprimé après 6 heures. */

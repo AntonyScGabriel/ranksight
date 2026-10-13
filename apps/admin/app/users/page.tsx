@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { ASSIGNABLE_ROLES, ROLE_LABEL, isAdminRole, isStaffRole, type UserRole, COSMETIC_SOURCE_LABEL, COSMETIC_TYPE_LABEL, type AdminCosmeticDto, type CosmeticRefDto, type CosmeticSource } from "@ranksight/shared";
 import { adminFetch, media, session, type Me } from "@/lib/api";
 import { useConfirm } from "@/lib/confirm";
@@ -55,9 +56,12 @@ export default function UsersPage() {
   };
 
   const patch = async (u: U, body: Partial<Pick<U, "role" | "status">>, label: string) => {
-    const ok = await confirm({ title: `${label} ?`, message: `Compte : ${u.displayName}. L'action est inscrite au journal d'audit.`, confirmLabel: label });
+    const ok = await confirm({ title: `${label} ?`, message: `Compte : ${u.displayName}. L'action est inscrite au journal d'audit.`, confirmLabel: label, withReason: true });
     if (ok === false) return load(q);
-    await run(() => adminFetch(`/users/${u.id}`, { method: "PATCH", body: JSON.stringify(body) }), `${u.displayName} : modification enregistrée.`);
+    await run(
+      () => adminFetch(`/users/${u.id}`, { method: "PATCH", body: JSON.stringify({ ...body, ...(ok ? { reason: ok } : {}) }) }),
+      `${u.displayName} : modification enregistrée.`,
+    );
   };
 
   const remove = async (u: U) => {
@@ -81,10 +85,11 @@ export default function UsersPage() {
       confirmLabel: "Réinitialiser",
       danger: true,
       requireText: u.displayName,
+      withReason: true,
     });
     if (ok === false) return;
     await run(
-      () => adminFetch(`/users/${u.id}/reset-stats`, { method: "POST" }),
+      () => adminFetch(`/users/${u.id}/reset-stats`, { method: "POST", body: JSON.stringify(ok ? { reason: ok } : {}) }),
       `Statistiques de ${u.displayName} remises à zéro.`,
     );
   };
@@ -167,7 +172,7 @@ export default function UsersPage() {
                   <td className="flex items-start gap-3 px-4 py-3">
                     <UserAvatar u={u} />
                     <div>
-                    <p className="font-medium">{u.displayName}</p>
+                    <Link href={`/users/${u.id}`} className="font-medium hover:text-violet-soft hover:underline">{u.displayName}</Link>
                     <p className="text-xs text-muted">
                       @{u.username}{u.email ? ` · ${u.email}` : ""}
                       {u.email && !u.emailVerified && <span className="ml-1 text-warn">(non confirmé)</span>}
@@ -215,6 +220,7 @@ export default function UsersPage() {
                     )}
                   </td>
                   <td className="space-x-2 whitespace-nowrap px-4 py-3 text-right">
+                    <Link href={`/users/${u.id}`} className="btn-ghost !py-1">Historique</Link>
                     <button onClick={() => setRewardsOf(u)} className="btn-ghost !py-1">Récompenses</button>
                     {u.avatarUrl && !locked && <button onClick={() => removeAvatar(u)} className="btn-ghost !py-1">Retirer la photo</button>}
                     {locked && <span className="text-xs text-muted">{u.role === "OWNER" ? "Compte protégé" : "Géré par le fondateur"}</span>}

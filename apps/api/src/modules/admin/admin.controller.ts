@@ -5,10 +5,14 @@ import type { z } from "zod";
 import { CurrentUser, type AuthUser } from "../../common/decorators/current-user.decorator.js";
 import { Roles } from "../../common/decorators/roles.decorator.js";
 import { ZodPipe } from "../../common/pipes/zod.pipe.js";
+import { PlayerHistoryQuery } from "@ranksight/shared";
+import { PrismaService } from "../../prisma/prisma.service.js";
 import { AdminService } from "./admin.service.js";
+import { PlayerHistoryService } from "./player-history.service.js";
 import { MfaService } from "../auth/mfa.service.js";
 import {
-  AchievementBody, ConfirmTriageBody, CreateClipBody, ResolveReportBody, ReviewClipBody, ScheduleDailyBody, UpdateUserBody, UploadUrlBody,
+  AchievementBody, ConfirmTriageBody, CreateClipBody, ResetStatsBody, ResolveReportBody, ReviewClipBody, ScheduleDailyBody, UpdateUserBody,
+  UploadUrlBody,
 } from "./admin.dto.js";
 
 /**
@@ -18,7 +22,12 @@ import {
 @Controller("admin")
 @Roles("MODERATOR")
 export class AdminController {
-  constructor(private readonly admin: AdminService, private readonly mfa: MfaService) {}
+  constructor(
+    private readonly admin: AdminService,
+    private readonly mfa: MfaService,
+    private readonly history: PlayerHistoryService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   // ---------- Statistiques ----------
   @Get("stats/overview") overview() { return this.admin.overview(); }
@@ -92,8 +101,8 @@ export class AdminController {
   }
 
   @Roles("ADMIN") @Post("users/:id/reset-stats")
-  resetStats(@CurrentUser() u: AuthUser, @Param("id", ParseUUIDPipe) id: string) {
-    return this.admin.resetStats(u.sub, id);
+  resetStats(@CurrentUser() u: AuthUser, @Param("id", ParseUUIDPipe) id: string, @Body(new ZodPipe(ResetStatsBody)) b: z.infer<typeof ResetStatsBody>) {
+    return this.admin.resetStats(u.sub, id, b?.reason);
   }
 
   /** POST /v1/admin/users/:id/verify-email — confirme l'adresse sans le lien envoyé par email (email non reçu, bug) */
@@ -112,6 +121,35 @@ export class AdminController {
   @Roles("OWNER") @Delete("users/:id") @HttpCode(204)
   deleteUser(@CurrentUser() u: AuthUser, @Param("id", ParseUUIDPipe) id: string) {
     return this.admin.deleteUser(u.sub, id);
+  }
+
+  // ---------- Historique d'un joueur (enquête, modération) ----------
+
+  /** GET /v1/admin/users/:id/history?page=1&game=lol&mode=DAILY&result=exact&from=AAAA-MM-JJ&to=AAAA-MM-JJ — parties, 50 par page */
+  @Get("users/:id/history")
+  playerHistory(@Param("id", ParseUUIDPipe) id: string, @Query(new ZodPipe(PlayerHistoryQuery)) q: z.output<typeof PlayerHistoryQuery>) {
+    return this.history.history(id, q);
+  }
+
+  /** GET /v1/admin/users/:id/stats — records, statistiques par mode et par jeu, parties terminées, évolution */
+  @Get("users/:id/stats")
+  playerStats(@Param("id", ParseUUIDPipe) id: string) {
+    return this.history.stats(id);
+  }
+
+  /** GET /v1/admin/users/:id/audit?page=1 — journal d'audit du joueur (adresse IP visible par le fondateur seulement) */
+  @Get("users/:id/audit")
+  async playerAudit(@CurrentUser() u: AuthUser, @Param("id", ParseUUIDPipe) id: string, @Query("page", new DefaultValuePipe(1), ParseIntPipe) page: number) {
+    // Rôle lu en base (celui du jeton peut dater d'avant une promotion)
+    const role = (await this.prisma.user.findUnique({ where: { id: u.sub }, select: { role: true } }))?.role;
+    const showIp = role === "OWNER" || (role === "ADMIN" && (await this.prisma.user.count({ where: { role: "OWNER" } })) === 0);
+    return this.history.audit(id, page, { showIp });
+  }
+
+  /** GET /v1/admin/users/:id/indicators — indicateurs explicables (aide à l'enquête, aucune sanction automatique) */
+  @Get("users/:id/indicators")
+  playerIndicators(@Param("id", ParseUUIDPipe) id: string) {
+    return this.history.indicators(id);
   }
 
   // ---------- Signalements ----------

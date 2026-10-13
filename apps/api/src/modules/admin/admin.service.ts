@@ -185,10 +185,14 @@ export class AdminService {
       where: { id },
       data: { ...data, reviewer: { connect: { id: actorId } }, reviewedAt: new Date() },
     });
-    await this.audit.log(actorId, `clip.${b.decision.toLowerCase()}`, "clip", id, {
-      ...b,
-      ...(clip.triageDecision ? { triage: clip.triageDecision, triageAgreed: clip.triageDecision === b.decision } : {}),
-    });
+    await this.audit.log(
+      actorId,
+      `clip.${b.decision.toLowerCase()}`,
+      "clip",
+      id,
+      { ...b, ...(clip.triageDecision ? { triage: clip.triageDecision, triageAgreed: clip.triageDecision === b.decision } : {}) },
+      { targetUserId: clip.source === "COMMUNITY" ? clip.uploaderId : null },
+    );
     if (clip.source === "COMMUNITY") {
       // Succès « clips acceptés » pour l'auteur, et notification de la décision sur son téléphone
       if (b.decision === "APPROVE") await this.achievements.evaluate(clip.uploaderId);
@@ -343,9 +347,17 @@ export class AdminService {
     if (id === actorId) throw new BadRequestException("Impossible de modifier son propre compte");
     await assertCanManage(this.prisma, actorId, id);
     if (b.role) await assertCanSetRole(this.prisma, actorId, b.role);
-    const user = await this.prisma.user.update({ where: { id }, data: b, select: { id: true, role: true, status: true } });
+    const { reason, ...data } = b;
+    const previous = await this.prisma.user.findUniqueOrThrow({ where: { id }, select: { role: true, status: true } });
+    const user = await this.prisma.user.update({ where: { id }, data, select: { id: true, role: true, status: true } });
     if (b.status && b.status !== "ACTIVE") await this.tokens.revokeAll(id);
-    await this.audit.log(actorId, "user.update", "user", id, b);
+    // Avant / après : seulement les champs modifiés
+    const keys = (Object.keys(data) as ("role" | "status")[]).filter((k) => previous[k] !== user[k]);
+    await this.audit.log(actorId, "user.update", "user", id, data, {
+      before: Object.fromEntries(keys.map((k) => [k, previous[k]])),
+      after: Object.fromEntries(keys.map((k) => [k, user[k]])),
+      reason,
+    });
     return user;
   }
 
@@ -355,9 +367,15 @@ export class AdminService {
    * Les réponses déjà données restent en base mais ne comptent plus (statsResetAt) : les défis du jour
    * déjà joués ne peuvent donc pas être rejoués.
    */
-  async resetStats(actorId: string, id: string) {
+  async resetStats(actorId: string, id: string, reason?: string) {
     await assertCanManage(this.prisma, actorId, id);
-    const target = await this.prisma.user.findUnique({ where: { id }, select: { status: true, displayName: true, xp: true, totalGuesses: true } });
+    const target = await this.prisma.user.findUnique({
+      where: { id },
+      select: {
+        status: true, displayName: true, xp: true, level: true, totalGuesses: true, exactGuesses: true, dailyStreak: true, bestDailyStreak: true,
+        winStreak: true, bestWinStreak: true, infiniteBest: true, statsResetAt: true,
+      },
+    });
     if (!target || target.status === "DELETED") throw new NotFoundException("Compte introuvable.");
     const now = new Date();
     const [, , achievements, snapshots] = await this.prisma.$transaction([
@@ -376,11 +394,22 @@ export class AdminService {
     const leaderboards = await this.leaderboards.removeUser(id);
     // Titres, badges et cadres gagnés en jouant retirés (ceux attribués par l'équipe restent)
     const rewards = await this.cosmetics.revokeEarned(id);
-    await this.audit.log(actorId, "user.reset_stats", "user", id, {
-      rewards,
-      displayName: target.displayName, xp: target.xp, totalGuesses: target.totalGuesses,
-      achievements: achievements.count, archivedRankings: snapshots.count, leaderboards,
-    });
+    const { status: _status, displayName, statsResetAt, ...before } = target;
+    await this.audit.log(
+      actorId,
+      "user.reset_stats",
+      "user",
+      id,
+      { rewards, displayName, achievements: achievements.count, archivedRankings: snapshots.count, leaderboards },
+      {
+        before: { ...before, statsResetAt: statsResetAt?.toISOString() ?? null },
+        after: {
+          xp: 0, level: 1, totalGuesses: 0, exactGuesses: 0, dailyStreak: 0, bestDailyStreak: 0, winStreak: 0, bestWinStreak: 0, infiniteBest: 0,
+          statsResetAt: now.toISOString(),
+        },
+        reason,
+      },
+    );
     return { achievements: achievements.count, leaderboards, archivedRankings: snapshots.count, rewards };
   }
 

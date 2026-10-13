@@ -235,16 +235,21 @@ export class ModerationService {
       },
       data: { status: b.status, resolution: b.resolution || null, resolverId: actorId, resolvedAt: new Date() },
     });
-    await this.audit.log(actorId, "player_report.resolve", "chat_report", id, { ...b, targetUserId: report.targetUserId });
+    await this.audit.log(actorId, "player_report.resolve", "chat_report", id, { ...b, targetUserId: report.targetUserId }, { targetUserId: report.targetUserId });
   }
 
   async mute(actorId: string, userId: string, hours: number, log = true) {
-    const target = await this.prisma.user.findUnique({ where: { id: userId }, select: { role: true, status: true } });
+    const target = await this.prisma.user.findUnique({ where: { id: userId }, select: { role: true, status: true, chatMutedUntil: true } });
     if (!target || target.status === "DELETED") throw new NotFoundException("Compte introuvable.");
     if (isStaffRole(target.role) && hours > 0) throw new BadRequestException("Impossible de couper le chat d'un membre de l'équipe.");
     const until = hours > 0 ? new Date(Date.now() + hours * 3_600_000) : null;
     await this.prisma.user.update({ where: { id: userId }, data: { chatMutedUntil: until } });
-    if (log) await this.audit.log(actorId, hours ? "user.mute" : "user.unmute", "user", userId, { hours });
+    if (log) {
+      await this.audit.log(actorId, hours ? "user.mute" : "user.unmute", "user", userId, { hours }, {
+        before: { chatMutedUntil: target.chatMutedUntil?.toISOString() ?? null },
+        after: { chatMutedUntil: until?.toISOString() ?? null },
+      });
+    }
     return { chatMutedUntil: until?.toISOString() ?? null };
   }
 }

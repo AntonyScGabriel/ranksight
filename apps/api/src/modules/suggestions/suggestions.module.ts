@@ -97,7 +97,11 @@ export class SuggestionsService {
         ...(replyChanged ? { repliedById: input.reply ? actorId : null, repliedAt: input.reply ? new Date() : null } : {}),
       },
     });
-    await this.audit.log(actorId, "suggestion.review", "suggestion", id, { status: input.status, reply: !!input.reply });
+    await this.audit.log(actorId, "suggestion.review", "suggestion", id, { status: input.status, reply: !!input.reply }, {
+      targetUserId: before.userId,
+      before: { status: before.status },
+      after: { status: updated.status },
+    });
     if (before.status !== updated.status || (replyChanged && updated.reply)) {
       await this.push.toUsers([updated.userId], {
         title: "Ta suggestion a été traitée",
@@ -112,7 +116,7 @@ export class SuggestionsService {
     const s = await this.prisma.suggestion.findUnique({ where: { id }, select: { id: true, userId: true } });
     if (!s) throw new NotFoundException("Suggestion introuvable.");
     await this.prisma.suggestion.delete({ where: { id } });
-    await this.audit.log(actorId, "suggestion.delete", "suggestion", id, { authorId: s.userId });
+    await this.audit.log(actorId, "suggestion.delete", "suggestion", id, { authorId: s.userId }, { targetUserId: s.userId });
   }
 
   countNew() {

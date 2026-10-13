@@ -124,7 +124,7 @@ export class GlobalChatService {
     if (message.userId !== actorId && !isModerator) throw new ForbiddenException("Tu ne peux supprimer que tes propres messages.");
 
     await this.prisma.globalMessage.update({ where: { id: message.id }, data: { deletedAt: new Date(), deletedById: actorId } });
-    if (message.userId !== actorId) await this.audit.log(actorId, "chat.delete", "global_message", message.id, { authorId: message.userId });
+    if (message.userId !== actorId) await this.audit.log(actorId, "chat.delete", "global_message", message.id, { authorId: message.userId }, { targetUserId: message.userId });
     this.gateway.emitGlobal(GLOBAL_CHAT_EVENTS.deleted, { id: message.id });
   }
 

@@ -430,6 +430,8 @@ model Guess {
   score            Int
   xpGained         Int       @map("xp_gained")
   watchedMs        Int       @map("watched_ms")
+  /// Temps de réponse mesuré par le serveur : de la remise du clip (jeton de partie) à la réponse. NULL avant son enregistrement
+  responseMs       Int?      @map("response_ms")
   createdAt        DateTime  @default(now()) @map("created_at")
 
   user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -744,19 +746,30 @@ model PushToken {
 }
 
 /// Toute action d'administration est journalisée (qui, quoi, quand).
+/// Journal d'audit : ajout seulement. Un déclencheur PostgreSQL refuse toute modification et toute suppression
+/// d'une entrée de moins d'un an (la purge automatique ne retire que les entrées plus anciennes).
 model AuditLog {
-  id         String   @id @default(uuid(7)) @db.Uuid
-  actorId    String   @map("actor_id") @db.Uuid
-  action     String   // clip.approve, user.ban, report.resolve…
-  entityType String   @map("entity_type")
-  entityId   String   @map("entity_id")
-  metadata   Json?
-  ip         String?  @db.Inet
-  createdAt  DateTime @default(now()) @map("created_at")
+  id           String   @id @default(uuid(7)) @db.Uuid
+  /// Auteur de l'action ; NULL = action du système (tâche automatique)
+  actorId      String?  @map("actor_id") @db.Uuid
+  action       String   // clip.approve, user.ban, report.resolve…
+  entityType   String   @map("entity_type")
+  entityId     String   @map("entity_id")
+  /// Joueur concerné (historique d'un joueur dans l'administration). Sans clé étrangère : le journal ne change jamais
+  targetUserId String?  @map("target_user_id") @db.Uuid
+  /// Valeurs avant et après la modification
+  before       Json?
+  after        Json?
+  /// Motif donné par l'équipe
+  reason       String?  @db.VarChar(500)
+  metadata     Json?
+  ip           String?  @db.Inet
+  createdAt    DateTime @default(now()) @map("created_at")
 
-  actor User @relation(fields: [actorId], references: [id])
+  actor User? @relation(fields: [actorId], references: [id], onDelete: Restrict)
 
   @@index([entityType, entityId])
+  @@index([targetUserId, createdAt(sort: Desc)])
   @@index([createdAt])
   @@map("audit_logs")
 }

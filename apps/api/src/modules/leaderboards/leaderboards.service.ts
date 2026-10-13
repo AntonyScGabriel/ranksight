@@ -3,6 +3,7 @@ import { Cron } from "@nestjs/schedule";
 import type { Redis } from "ioredis";
 import { GAME_SLUGS, type ContributorsBoardDto, type ContributorsPeriod, type LeaderboardEntryDto, type LeaderboardGame, type LeaderboardPeriod, type LeaderboardScope } from "@ranksight/shared";
 import { REDIS } from "../../redis/redis.module.js";
+import { AuditService } from "../../common/audit/audit.module.js";
 import { PrismaService } from "../../prisma/prisma.service.js";
 import { FriendsService } from "../friends/friends.service.js";
 import { AchievementEngine } from "../achievements/achievement-engine.service.js";
@@ -43,6 +44,7 @@ export class LeaderboardsService implements OnApplicationBootstrap {
     private readonly friends: FriendsService,
     private readonly gateway: LeaderboardsGateway,
     private readonly achievements: AchievementEngine,
+    private readonly audit: AuditService,
   ) {}
 
   /** Clé Redis d'un classement ; `game` = "all" pour le cumul des 4 jeux (le mode Infini n'a qu'un classement). */
@@ -302,7 +304,9 @@ export class LeaderboardsService implements OnApplicationBootstrap {
     const previous = previousSeasonKey(seasonKeyOf(new Date()));
     if (seasonNumber(previous) < 1) return;
     try {
-      await this.closeSeason(previous);
+      const result = await this.closeSeason(previous);
+      // Clôture automatique : action du système, inscrite au journal
+      if (!result.alreadyClosed) await this.audit.system("season.close", "season", previous, result);
     } catch (e) {
       this.logger.error(`Clôture de la saison ${previous} impossible : ${(e as Error).message}`);
     }

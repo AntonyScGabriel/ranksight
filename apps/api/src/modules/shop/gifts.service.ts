@@ -106,7 +106,7 @@ export class GiftsService {
       });
       return extendVip(tx, userId, code.days, "MANUAL", "gift_code");
     });
-    await this.audit.log(userId, "gift_code.redeem", "gift_code", code.id, { days: code.days });
+    await this.audit.log(userId, "gift_code.redeem", "gift_code", code.id, { days: code.days }, { targetUserId: userId });
     const from = code.purchase?.user && code.purchase.user.id !== userId ? code.purchase.user.displayName : null;
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: vipSelect });
     return { days: code.days, until: until.toISOString(), from, vip: vipStatus(user.subscription) };

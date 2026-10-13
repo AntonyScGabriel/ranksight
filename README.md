@@ -316,6 +316,34 @@ directement depuis le fichier du téléphone (`expo-file-system`), sans être co
 - **Photo de profil** : signalable (« Photo de profil inappropriée ») et retirable par la modération.
 - **Email non reçu** : un administrateur peut confirmer l'adresse d'un joueur depuis la page « Utilisateurs » (journalisé).
 
+## Historique des joueurs (enquête)
+
+Administration → « Utilisateurs » → nom du joueur ou bouton « Historique » (modération et administration) :
+
+- **Parties** : chaque réponse avec date et heure, jeu et mode, partie (défi n° et date, partie Infini, duel et son
+  issue), clip et rang réel, rang proposé, écart et résultat (exact, proche, manqué), score, XP, temps de réponse
+  **mesuré par le serveur** (de la remise du clip à la réponse, enregistré depuis cette version : « — » pour les
+  réponses plus anciennes) et temps de visionnage déclaré par l'application, identifiant de la réponse. 50 par page
+  (pagination côté serveur), filtres par jeu, mode, résultat et période. Les réponses antérieures à une remise à zéro
+  restent visibles, marquées « ne compte plus ».
+- **Records et statistiques** : réponses, rangs exacts et taux de réussite, score total, moyen et meilleur score
+  d'une partie, record Infini, séries, niveau ; parties jouées et terminées (défis du jour, Infini, duels) ;
+  statistiques par mode et par jeu ; meilleures places de fin de saison ; évolution par semaine.
+- **Journal** : actions de l'équipe et du système sur le compte, ses résultats et ses clips (rôle, statut, remise à
+  zéro, VIP, chat, récompenses, signalements, nouveaux records Infini…), avec l'auteur (membre de l'équipe, joueur ou
+  système), les valeurs avant et après et le **motif** saisi à la confirmation (bannissement, changement de rôle,
+  remise à zéro). L'adresse IP n'est montrée qu'au fondateur.
+- **Indicateurs** : contrôles recalculés à chaque ouverture, chacun avec sa règle et son résultat chiffré, et un lien
+  vers les réponses en cause : scores hors barème, écarts incohérents, XP impossible, parties Infini incohérentes,
+  compteurs du compte (réponses, rangs exacts, XP, niveau, statistiques par jeu, classement général) différents des
+  réponses enregistrées, records non justifiés par une partie, réponses en double, taux de rangs exacts très supérieur
+  à la moyenne, rangs exacts très rapides, rafales d'activité. Seuils dans `packages/shared/src/history.ts`.
+  **Aucune sanction automatique** : bannir ou remettre à zéro reste une décision de l'équipe.
+
+Le **journal d'audit** est en ajout seulement : un déclencheur PostgreSQL refuse toute modification et toute
+suppression d'une entrée de moins d'un an (la purge automatique au-delà d'un an reste possible). Les événements qui
+n'étaient pas enregistrés avant cette version (anciens records, anciens temps de réponse) ne sont pas reconstitués.
+
 ## Rôles et tri des clips
 
 | Rôle | Accès |
@@ -419,6 +447,9 @@ docker compose --env-file .env.production -f docker-compose.prod.yml up -d --bui
 - **PostgreSQL** et **Redis** (avec mot de passe) ne sont pas exposés sur Internet.
 - **Sauvegarde** de la base chaque nuit dans `deploy/backups` (14 jours) ; restauration : `sh restore.sh backups/<fichier>.dump`.
 - L'API applique les migrations et charge les jeux, rangs et succès à chaque démarrage.
+- **Construction de l'image de l'API** : `prisma generate` exige `DATABASE_URL`. Le `Dockerfile` en fournit une
+  factice (`postgresql://rankguess:build-only@localhost:5432/rankguess`) à l'étape de construction seulement : elle
+  n'est ni utilisée pour se connecter ni copiée dans l'image finale, qui reçoit la vraie adresse de `docker-compose`.
 - **Stockage R2** : les vidéos et photos partent directement du navigateur vers R2 (URL signées). Il faut donc 1) la
   règle CORS du bucket (origines du site, de `www.` et de l'administration ; méthodes GET, HEAD, PUT ; en-têtes `*` ;
   en-tête exposé `ETag`), 2) `S3_ENDPOINT` dans `.env.production` : il est ajouté automatiquement à la CSP du site et de

@@ -362,7 +362,7 @@ export class ShopService {
       }
       return p;
     });
-    if (purchase) await this.audit.log(purchase.userId, "vip.refund", "purchase", purchase.id, { source, days: purchase.days });
+    if (purchase) await this.audit.log(purchase.userId, "vip.refund", "purchase", purchase.id, { source, days: purchase.days }, { targetUserId: purchase.userId });
     return !!purchase;
   }
 
@@ -479,13 +479,17 @@ export class ShopService {
   async grant(actorId: string, userId: string, days: number) {
     const target = await this.prisma.user.findUnique({ where: { id: userId }, select: { status: true } });
     if (!target || target.status === "DELETED") throw new NotFoundException("Joueur introuvable.");
+    const previous = await this.prisma.subscription.findUnique({ where: { userId } });
     const until = await this.prisma.$transaction(async (tx) => {
       await tx.purchase.create({
         data: { userId, product: "manual", days, amountCents: 0, provider: "MANUAL", status: "PAID", paidAt: new Date(), grantedById: actorId },
       });
       return extendVip(tx, userId, days, "MANUAL", "manual");
     });
-    await this.audit.log(actorId, "vip.grant", "user", userId, { days });
+    await this.audit.log(actorId, "vip.grant", "user", userId, { days }, {
+      before: { vipUntil: previous && isVip(previous) ? previous.currentPeriodEnd.toISOString() : null },
+      after: { vipUntil: until.toISOString() },
+    });
     return { active: true, until: until.toISOString() };
   }
 
@@ -494,7 +498,10 @@ export class ShopService {
     const sub = await this.prisma.subscription.findUnique({ where: { userId } });
     if (!sub || !isVip(sub)) throw new BadRequestException("Ce joueur n'est pas VIP.");
     await this.prisma.subscription.update({ where: { userId }, data: { status: "CANCELED", currentPeriodEnd: new Date() } });
-    await this.audit.log(actorId, "vip.revoke", "user", userId);
+    await this.audit.log(actorId, "vip.revoke", "user", userId, undefined, {
+      before: { vipUntil: sub.currentPeriodEnd.toISOString() },
+      after: { vipUntil: null },
+    });
     return { active: false, until: null };
   }
 }

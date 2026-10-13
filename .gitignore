@@ -13,3 +13,6 @@ dist
 node_modules
 deploy/.env.production
 dump.rdb
+
+# Fichiers temporaires TypeScript
+*.tsbuildinfo

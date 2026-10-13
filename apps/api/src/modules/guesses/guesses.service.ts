@@ -10,6 +10,7 @@ import {
   type SubmitGuessInput,
   VIP_XP_MULTIPLIER,
 } from "@ranksight/shared";
+import { AuditService } from "../../common/audit/audit.module.js";
 import { PrismaService } from "../../prisma/prisma.service.js";
 import { REDIS } from "../../redis/redis.module.js";
 import { PlayTokenService } from "../clips/play-token.service.js";
@@ -34,6 +35,7 @@ export class GuessesService {
     private readonly leaderboards: LeaderboardsService,
     private readonly achievements: AchievementEngine,
     private readonly versus: VersusService,
+    private readonly audit: AuditService,
   ) {}
 
   async submit(userId: string, input: SubmitGuessInput): Promise<GuessResultDto & { run?: unknown; versus?: unknown }> {
@@ -93,6 +95,8 @@ export class GuessesService {
           score,
           xpGained,
           watchedMs: input.watchedMs,
+          // Mesuré par le serveur (le temps de visionnage, lui, est déclaré par l'application)
+          responseMs: Math.max(0, elapsedMs),
         },
       });
 
@@ -157,6 +161,14 @@ export class GuessesService {
         data: { infiniteBest: Math.max(user.infiniteBest, result.run.score) },
       });
       await this.leaderboards.recordInfiniteRun(userId, result.run.score);
+      // Nouveau record personnel : inscrit au journal (historique du joueur dans l'administration)
+      if (result.run.score > user.infiniteBest) {
+        await this.audit.system("record.infinite", "infinite_run", result.run.id, { clipsPlayed: result.run.clipsPlayed }, {
+          targetUserId: userId,
+          before: { infiniteBest: user.infiniteBest },
+          after: { infiniteBest: result.run.score },
+        });
+      }
     }
     const versus = claims.mode === "VERSUS" && claims.vid ? await this.versus.afterAnswer(userId, claims.vid) : undefined;
     const { achievements: unlockedAchievements, rewards: unlockedRewards } = await this.achievements.evaluateWithRewards(userId);

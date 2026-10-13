@@ -6,6 +6,7 @@ import { AuthModule } from "../auth/auth.module.js";
 import { LeaderboardsModule } from "../leaderboards/leaderboards.module.js";
 import { AdminController } from "./admin.controller.js";
 import { AdminService } from "./admin.service.js";
+import { PlayerHistoryService } from "./player-history.service.js";
 
-@Module({ imports: [AchievementsModule, AuthModule, ClipsModule, LeaderboardsModule, UsersModule], controllers: [AdminController], providers: [AdminService] })
+@Module({ imports: [AchievementsModule, AuthModule, ClipsModule, LeaderboardsModule, UsersModule], controllers: [AdminController], providers: [AdminService, PlayerHistoryService] })
 export class AdminModule {}

@@ -8,6 +8,10 @@ COPY apps/api/package.json apps/api/
 RUN npm ci --workspace @ranksight/api --workspace @ranksight/shared --include-workspace-root
 COPY packages/shared packages/shared
 COPY apps/api apps/api
+# URL factice uniquement pour la compilation Prisma (prisma.config.ts exige DATABASE_URL pour `prisma generate`,
+# qui ne se connecte pas à la base). Limitée à cette étape de construction : l'image finale ne la contient pas,
+# la véritable URL est fournie au démarrage par docker-compose (deploy/.env.production).
+ENV DATABASE_URL="postgresql://rankguess:build-only@localhost:5432/rankguess"
 RUN npm run build -w @ranksight/shared && npm run build -w @ranksight/api \
  && npm prune --omit=dev --workspace @ranksight/api --workspace @ranksight/shared
 

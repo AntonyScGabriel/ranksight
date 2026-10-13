@@ -36,13 +36,19 @@ export const ScheduleDailyBody = z.object({
   slot: z.number().int().min(1).max(DAILY_PER_GAME).optional(),
 });
 
+/** Motif facultatif d'une action sur un compte, inscrit au journal d'audit */
+const Reason = z.string().trim().max(500, "500 caractères maximum.").optional();
+
 export const UpdateUserBody = z
   .object({
     role: z.enum(["USER", "REVIEWER", "MODERATOR", "ADMIN", "OWNER"]),
     status: z.enum(["ACTIVE", "SUSPENDED", "BANNED"]),
+    reason: Reason,
   })
   .partial()
   .strict();
+
+export const ResetStatsBody = z.object({ reason: Reason }).strict().optional();
 
 export const ResolveReportBody = z.object({
   status: z.enum(["RESOLVED", "DISMISSED"]),

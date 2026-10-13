@@ -1,7 +1,7 @@
 # Image de production (web), construite depuis la racine du projet :
 #   docker build -f apps/web/Dockerfile -t rankguess-web .
 # Les adresses publiques et les informations légales sont intégrées au moment de la construction (arguments ci-dessous).
-FROM node:22-alpine AS build
+FROM node:26-alpine AS build
 WORKDIR /repo
 COPY package.json package-lock.json ./
 COPY packages/shared/package.json packages/shared/
@@ -29,7 +29,7 @@ ARG LEGAL_MEDIATOR_URL=""
 ENV NEXT_OUTPUT=standalone NEXT_TELEMETRY_DISABLED=1 NODE_ENV=production
 RUN npm run build -w @ranksight/shared && npm run build -w @ranksight/web
 
-FROM node:22-alpine
+FROM node:26-alpine
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0
 WORKDIR /app
 COPY --from=build --chown=node:node /repo/apps/web/.next/standalone ./

@@ -46,6 +46,11 @@ async function bootstrap() {
 
   await app.listen(config.API_PORT, "0.0.0.0");
   new Logger("Bootstrap").log(`API RankGuess prête sur ${config.API_PUBLIC_URL}/v1`);
+  if (config.EMAIL_VERIFICATION_REQUIRED === "true" && !config.SMTP_HOST) {
+    new Logger("Bootstrap").warn(
+      "Confirmation des adresses email obligatoire mais aucun serveur SMTP (SMTP_HOST) : les liens de confirmation sont seulement écrits dans ce journal.",
+    );
+  }
 }
 
 void bootstrap();

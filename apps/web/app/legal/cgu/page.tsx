@@ -20,7 +20,7 @@ export default function CguPage() {
           <li>Il faut avoir au moins {MIN_AGE} ans pour créer un compte.</li>
           <li>Un seul compte par personne. Le pseudo ne doit pas être injurieux, trompeur ni usurper l&apos;identité d&apos;autrui.</li>
           <li>Tu es responsable de la confidentialité de ton mot de passe. Active la double authentification si elle t&apos;est proposée.</li>
-          <li>L&apos;adresse email doit être confirmée pour discuter et proposer des clips.</li>
+          <li>Un compte créé avec une adresse email est activé quand l&apos;adresse est confirmée (lien envoyé à l&apos;inscription, valable 48 heures).</li>
           <li>Tu peux supprimer ton compte à tout moment depuis ton profil.</li>
         </ul>
       </Section>

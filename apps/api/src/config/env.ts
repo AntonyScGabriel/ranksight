@@ -21,7 +21,7 @@ const EnvSchema = z.object({
   GOOGLE_CLIENT_SECRET: z.string().default(""),
   DISCORD_CLIENT_ID: z.string().default(""),
   DISCORD_CLIENT_SECRET: z.string().default(""),
-  /** Mois de la saison 1 (AAAA-MM). Une saison dure un mois civil ; la saison 2 commence le mois suivant, etc. */
+  /** Premier mois joué (AAAA-MM) : sert une seule fois, au premier démarrage avec les saisons gérées dans l'administration */
   SEASON_ONE: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).default("2026-10"),
   /** Schéma des liens profonds de l'application mobile (ex. ranksight://auth/callback) */
   APP_SCHEME: z.string().regex(/^[a-z][a-z0-9+.-]*$/).default("ranksight"),
@@ -61,6 +61,8 @@ const EnvSchema = z.object({
   ENCRYPTION_KEY: z.string().default(""),
   /** Double authentification obligatoire pour l'administration : false (facultative, par défaut), true, ou auto = oui en production */
   ADMIN_REQUIRE_2FA: z.enum(["auto", "true", "false"]).default("false"),
+  /** Inscription par email : compte bloqué tant que l'adresse n'est pas confirmée (false = confirmation facultative) */
+  EMAIL_VERIFICATION_REQUIRED: z.enum(["true", "false"]).default("true"),
   /** Adresse qui reçoit les messages du formulaire de contact (vide = adresse de MAIL_FROM) */
   CONTACT_EMAIL: z.string().default(""),
   /** Suivi des erreurs (Sentry). Vide = désactivé */

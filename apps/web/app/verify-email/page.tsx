@@ -28,7 +28,7 @@ function VerifyEmail() {
     sent.current = true;
     api.verifyEmail(token).then(
       () => {
-        setState({ ok: true, message: "Ton adresse email est confirmée. Tu peux maintenant discuter et proposer des clips." });
+        setState({ ok: true, message: "Ton adresse email est confirmée : ton compte est activé. Bon jeu !" });
         void refresh();
       },
       (e) => setState({ ok: false, message: errorMessage(e, "Ce lien n'est pas valide.") }),

@@ -1,5 +1,6 @@
-import { BadRequestException, Controller, DefaultValuePipe, Get, HttpCode, Module, Param, ParseIntPipe, Post, Query } from "@nestjs/common";
-import { ContributorsPeriod, LeaderboardGame, LeaderboardPeriod, LeaderboardScope, SeasonKey } from "@ranksight/shared";
+import { BadRequestException, ConflictException, Body, Controller, DefaultValuePipe, Delete, Get, HttpCode, Module, Param, ParseIntPipe, Patch, Post, Query } from "@nestjs/common";
+import { ContributorsPeriod, LeaderboardGame, LeaderboardPeriod, LeaderboardScope, SeasonInput, SeasonKey } from "@ranksight/shared";
+import type { z } from "zod";
 import { AuditService } from "../../common/audit/audit.module.js";
 import { CurrentUser, type AuthUser } from "../../common/decorators/current-user.decorator.js";
 import { Roles } from "../../common/decorators/roles.decorator.js";
@@ -8,15 +9,15 @@ import { ZodPipe } from "../../common/pipes/zod.pipe.js";
 import { FriendsModule } from "../friends/friends.module.js";
 import { LeaderboardsGateway } from "./leaderboards.gateway.js";
 import { LeaderboardsService } from "./leaderboards.service.js";
-import { seasonKeyOf } from "./seasons.js";
+import { SeasonsService } from "./seasons.service.js";
 
 @Controller("leaderboards")
 export class LeaderboardsController {
-  constructor(private readonly lb: LeaderboardsService) {}
+  constructor(private readonly lb: LeaderboardsService, private readonly seasonsService: SeasonsService) {}
 
   /**
    * GET /v1/leaderboards?period=daily|weekly|season|all_time|infinite&scope=global|friends
-   *   &game=all|lol|valorant|rocket-league|cs2&season=AAAA-MM&limit=50&offset=0
+   *   &game=all|lol|valorant|rocket-league|cs2&season=saison-1&limit=50&offset=0
    * `season` (facultatif) : saison passée à afficher ; par défaut, la saison en cours.
    */
   @Get()
@@ -33,7 +34,7 @@ export class LeaderboardsController {
   }
 
   /**
-   * GET /v1/leaderboards/contributors?season=AAAA-MM|all&scope=global|friends — joueurs qui ont fait accepter
+   * GET /v1/leaderboards/contributors?season=<clé>|all&scope=global|friends — joueurs qui ont fait accepter
    * le plus de clips (par défaut : saison en cours). Le premier de chaque saison reçoit un titre à la clôture.
    */
   @Get("contributors")
@@ -45,7 +46,8 @@ export class LeaderboardsController {
     @Query("offset", new DefaultValuePipe(0), ParseIntPipe) offset: number,
   ) {
     return this.lb.contributors({
-      period: season ?? seasonKeyOf(new Date()),
+      // Par défaut la saison en cours ; entre deux saisons, depuis le lancement
+      period: season ?? this.seasonsService.keyAt() ?? "all",
       scope,
       userId: user.sub,
       limit: Math.min(Math.max(limit, 1), 100),
@@ -53,7 +55,7 @@ export class LeaderboardsController {
     });
   }
 
-  /** GET /v1/leaderboards/seasons — saisons de la plus récente (en cours) à la saison 1 */
+  /** GET /v1/leaderboards/seasons — saisons de la plus récente à la plus ancienne (saisons à venir comprises) */
   @Get("seasons")
   seasons() {
     return this.lb.seasons();
@@ -77,7 +79,7 @@ export class LeaderboardsController {
 @Controller("admin/seasons")
 @Roles("MODERATOR")
 export class SeasonsAdminController {
-  constructor(private readonly lb: LeaderboardsService, private readonly audit: AuditService) {}
+  constructor(private readonly lb: LeaderboardsService, private readonly seasons: SeasonsService, private readonly audit: AuditService) {}
 
   /** GET /v1/admin/seasons — saisons, statut, nombre de joueurs et top 10 */
   @Get()
@@ -85,7 +87,33 @@ export class SeasonsAdminController {
     return this.lb.adminSeasons();
   }
 
-  /** POST /v1/admin/seasons/:season/close — clôture manuelle (normalement automatique chaque début de mois) */
+  /** POST /v1/admin/seasons — { name, number, startsAt, endsAt, rewardsEnabled, rewards } : nouvelle saison */
+  @Roles("ADMIN")
+  @Post()
+  create(@CurrentUser() actor: AuthUser, @Body(new ZodPipe(SeasonInput)) body: z.output<typeof SeasonInput>) {
+    return this.seasons.create(actor.sub, body);
+  }
+
+  /** PATCH /v1/admin/seasons/:season — modification (dates figées selon l'avancement de la saison) */
+  @Roles("ADMIN")
+  @Patch(":season")
+  update(
+    @CurrentUser() actor: AuthUser,
+    @Param("season", new ZodPipe(SeasonKey)) season: string,
+    @Body(new ZodPipe(SeasonInput)) body: z.output<typeof SeasonInput>,
+  ) {
+    return this.seasons.update(actor.sub, season, body);
+  }
+
+  /** DELETE /v1/admin/seasons/:season — suppression d'une saison qui n'a pas commencé */
+  @Roles("ADMIN")
+  @Delete(":season")
+  @HttpCode(204)
+  remove(@CurrentUser() actor: AuthUser, @Param("season", new ZodPipe(SeasonKey)) season: string) {
+    return this.seasons.remove(actor.sub, season);
+  }
+
+  /** POST /v1/admin/seasons/:season/close — clôture manuelle (normalement automatique, chaque heure, après la fin) */
   @Roles("ADMIN")
   @Post(":season/close")
   @HttpCode(200)
@@ -95,6 +123,7 @@ export class SeasonsAdminController {
       await this.audit.log(actor.sub, "season.close", "season", season, result);
       return result;
     } catch (e) {
+      if (e instanceof ConflictException) throw e;
       throw new BadRequestException((e as Error).message);
     }
   }
@@ -103,7 +132,7 @@ export class SeasonsAdminController {
 @Module({
   imports: [FriendsModule, AchievementsModule],
   controllers: [LeaderboardsController, SeasonsAdminController],
-  providers: [LeaderboardsService, LeaderboardsGateway],
-  exports: [LeaderboardsService],
+  providers: [LeaderboardsService, LeaderboardsGateway, SeasonsService],
+  exports: [LeaderboardsService, SeasonsService],
 })
 export class LeaderboardsModule {}

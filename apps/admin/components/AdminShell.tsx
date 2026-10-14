@@ -102,9 +102,9 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     <div className="grid min-h-dvh grid-cols-[minmax(0,1fr)] md:grid-cols-[15rem_minmax(0,1fr)]">
       <aside className="flex min-w-0 flex-col border-b border-line/60 bg-abyss/80 p-4 md:border-b-0 md:border-r">
         <div className="flex items-center justify-between gap-3 md:mb-6">
-          <p className="font-display text-lg font-bold">
+          <a href="https://ranksight.fr" aria-label="Retourner à l'accueil de RankSight" className="font-display text-lg font-bold">
             RANK<span className="text-neon">GUESS</span> <span className="text-xs text-muted">admin</span>
-          </p>
+          </a>
           <button
             type="button"
             onClick={() => setMenuOpen((o) => !o)}

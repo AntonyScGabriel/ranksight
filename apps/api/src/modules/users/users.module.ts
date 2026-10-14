@@ -1,3 +1,5 @@
+import { env } from "../../config/env.js";
+import { AllowUnverified } from "../../common/decorators/allow-unverified.decorator.js";
 import {
   BadRequestException, Body, ConflictException, Controller, Delete, Get, HttpCode, Injectable, Module, NotFoundException, Param, ParseUUIDPipe, Patch, Post, Res,
 } from "@nestjs/common";
@@ -82,6 +84,8 @@ export class UsersService {
       newRewards: await this.cosmetics.unseenCount(userId),
       // Adresse confirmée, ou compte Google/Discord (identité vérifiée par le fournisseur)
       emailVerified: !!emailVerifiedAt || oauthAccounts.length > 0,
+      /** Compte bloqué jusqu'à la confirmation de l'adresse (inscription par email ; jamais pour l'équipe) */
+      mustVerifyEmail: env().EMAIL_VERIFICATION_REQUIRED === "true" && !emailVerifiedAt && oauthAccounts.length === 0 && user.role === "USER",
       /** CGU de la version en vigueur acceptées (sinon les clients demandent l'acceptation) */
       termsAccepted: !!termsAcceptedAt && termsVersion === TERMS_VERSION,
       chatMutedUntil: chatMutedUntil && chatMutedUntil > new Date() ? chatMutedUntil.toISOString() : null,
@@ -310,15 +314,15 @@ export class UsersService {
 export class UsersController {
   constructor(private readonly users: UsersService) {}
 
-  @Get("me") me(@CurrentUser() u: AuthUser) { return this.users.me(u.sub); }
+  @AllowUnverified() @Get("me") me(@CurrentUser() u: AuthUser) { return this.users.me(u.sub); }
 
-  @Patch("me")
+  @AllowUnverified() @Patch("me")
   update(@CurrentUser() u: AuthUser, @Body(new ZodPipe(UpdateMe)) body: z.infer<typeof UpdateMe>) {
     return this.users.update(u.sub, body);
   }
 
   /** DELETE /v1/users/me — { confirm: pseudo } ; supprime le compte et ferme la session */
-  @Delete("me") @HttpCode(204)
+  @AllowUnverified() @Delete("me") @HttpCode(204)
   async remove(
     @CurrentUser() u: AuthUser,
     @Body(new ZodPipe(DeleteMeBody)) body: z.infer<typeof DeleteMeBody>,
@@ -330,7 +334,7 @@ export class UsersController {
   }
 
   /** POST /v1/users/me/terms — acceptation des CGU en vigueur (et déclaration d'avoir 15 ans ou plus) */
-  @Post("me/terms") @HttpCode(204)
+  @AllowUnverified() @Post("me/terms") @HttpCode(204)
   async acceptTerms(@CurrentUser() u: AuthUser, @Body(new ZodPipe(AcceptTermsBody)) _b: z.infer<typeof AcceptTermsBody>) {
     await this.users.acceptTerms(u.sub);
   }
@@ -340,7 +344,7 @@ export class UsersController {
   @Premium() @Get("me/stats/advanced")
   advanced(@CurrentUser() u: AuthUser) { return this.users.advancedStats(u.sub); }
 
-  @Post("me/push-tokens") @HttpCode(204)
+  @AllowUnverified() @Post("me/push-tokens") @HttpCode(204)
   push(@CurrentUser() u: AuthUser, @Body(new ZodPipe(PushTokenBody)) body: z.infer<typeof PushTokenBody>) {
     return this.users.registerPushToken(u.sub, body);
   }

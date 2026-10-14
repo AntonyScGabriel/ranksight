@@ -1,7 +1,8 @@
-import { Inject, Injectable, Logger, OnApplicationBootstrap } from "@nestjs/common";
+import { randomUUID } from "node:crypto";
+import { ConflictException, Inject, Injectable, Logger, OnApplicationBootstrap } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
 import type { Redis } from "ioredis";
-import { GAME_SLUGS, type ContributorsBoardDto, type ContributorsPeriod, type LeaderboardEntryDto, type LeaderboardGame, type LeaderboardPeriod, type LeaderboardScope } from "@ranksight/shared";
+import { GAME_SLUGS, type AdminSeasonDto, type ContributorsBoardDto, type ContributorsPeriod, type LeaderboardEntryDto, type LeaderboardGame, type LeaderboardPeriod, type LeaderboardScope } from "@ranksight/shared";
 import { REDIS } from "../../redis/redis.module.js";
 import { AuditService } from "../../common/audit/audit.module.js";
 import { PrismaService } from "../../prisma/prisma.service.js";
@@ -9,7 +10,7 @@ import { FriendsService } from "../friends/friends.service.js";
 import { AchievementEngine } from "../achievements/achievement-engine.service.js";
 import { isVip, vipSelect } from "../shop/vip.js";
 import { flairSelect, toFlair } from "../cosmetics/flair.js";
-import { allSeasons, previousSeasonKey, seasonInfo, seasonKeyOf, seasonNumber } from "./seasons.js";
+import { SeasonsService, seasonRewards, seasonStatus } from "./seasons.service.js";
 import { LeaderboardsGateway } from "./leaderboards.gateway.js";
 
 /** Semaine ISO : 2026-W41 */
@@ -45,15 +46,27 @@ export class LeaderboardsService implements OnApplicationBootstrap {
     private readonly gateway: LeaderboardsGateway,
     private readonly achievements: AchievementEngine,
     private readonly audit: AuditService,
-  ) {}
+    private readonly seasonsService: SeasonsService,
+  ) { }
 
-  /** Clé Redis d'un classement ; `game` = "all" pour le cumul des 4 jeux (le mode Infini n'a qu'un classement). */
-  key(period: LeaderboardPeriod, at = new Date(), game: LeaderboardGame = "all") {
+  /**
+   * Clé Redis d'un classement ; `game` = "all" pour le cumul des 4 jeux (le mode Infini n'a qu'un classement).
+   * Saison : celle en cours à cet instant, null entre deux saisons.
+   */
+  key(period: LeaderboardPeriod, at = new Date(), game: LeaderboardGame = "all"): string | null {
     const suffix = game === "all" || period === "infinite" ? "" : `:${game}`;
     if (period === "daily") return `lb:daily:${at.toISOString().slice(0, 10)}${suffix}`;
     if (period === "weekly") return `lb:weekly:${isoWeek(at)}${suffix}`;
-    if (period === "season") return `lb:season:${seasonKeyOf(at)}${suffix}`;
+    if (period === "season") {
+      const season = this.seasonsService.keyAt(at);
+      return season ? this.seasonBoardKey(season, game) : null;
+    }
     return `lb:${period}${suffix}`;
+  }
+
+  /** Classement d'une saison donnée (en cours ou à clôturer) */
+  seasonBoardKey(season: string, game: LeaderboardGame = "all") {
+    return `lb:season:${season}${game === "all" ? "" : `:${game}`}`;
   }
 
   async recordScore(userId: string, points: number, game: LeaderboardGame) {
@@ -61,15 +74,17 @@ export class LeaderboardsService implements OnApplicationBootstrap {
     const now = new Date();
     const keys: string[] = [];
     const pipe = this.redis.multi();
+    const season = this.seasonsService.at(now);
     for (const scope of ["all", game] as const) {
       for (const period of ["daily", "weekly", "season", "all_time"] as const) {
         const key = this.key(period, now, scope);
+        if (!key) continue; // entre deux saisons
         keys.push(key);
         pipe.zincrby(key, points, userId);
         if (period === "daily") pipe.expire(key, 3 * 86_400);
         if (period === "weekly") pipe.expire(key, 21 * 86_400);
-        // Conservée au-delà du mois : la clôture peut avoir lieu quelques jours plus tard (serveur arrêté)
-        if (period === "season") pipe.expire(key, 120 * 86_400);
+        // Conservée 60 jours après la fin : la clôture peut avoir lieu plus tard (serveur arrêté)
+        if (period === "season" && season) pipe.expire(key, Math.ceil((season.endsAt.getTime() - now.getTime()) / 1000) + 60 * 86_400);
       }
     }
     await pipe.exec();
@@ -96,20 +111,24 @@ export class LeaderboardsService implements OnApplicationBootstrap {
   }
 
   async recordInfiniteRun(userId: string, runScore: number) {
-    await this.redis.zadd(this.key("infinite"), "GT", runScore, userId);
-    this.gateway.notify(this.key("infinite"));
+    await this.redis.zadd(this.key("infinite")!, "GT", runScore, userId);
+    this.gateway.notify(this.key("infinite")!);
   }
 
   async get(opts: {
     period: LeaderboardPeriod; scope: LeaderboardScope; game: LeaderboardGame; userId: string; limit: number; offset: number; season?: string;
   }): Promise<Board> {
-    // Saison passée et déjà clôturée : lecture de l'archive
-    if (opts.period === "season" && opts.season && opts.season !== seasonKeyOf(new Date())) {
-      const archived = await this.prisma.leaderboardSnapshot.count({ where: { period: "SEASON", periodKey: snapshotKey(opts.season, opts.game) } });
-      if (archived > 0) return this.archivedSeason(opts.season, opts);
+    let key: string | null;
+    if (opts.period === "season") {
+      // Saison demandée, sinon celle en cours ; clôturée : lecture de l'archive
+      const season = opts.season ? this.seasonsService.byKey(opts.season) : this.seasonsService.at();
+      if (!season || seasonStatus(season) === "upcoming") return { entries: [], me: null };
+      if (season.closedAt) return this.archivedSeason(season.key, opts);
+      key = this.seasonBoardKey(season.key, opts.game);
+    } else {
+      key = this.key(opts.period, new Date(), opts.game);
     }
-    const at = opts.period === "season" && opts.season ? new Date(`${opts.season}-15T00:00:00Z`) : new Date();
-    const key = this.key(opts.period, at, opts.game);
+    if (!key) return { entries: [], me: null };
     if (opts.scope === "friends") return this.friendsBoard(key, opts.userId);
 
     const raw = await this.redis.zrevrange(key, opts.offset, opts.offset + opts.limit - 1, "WITHSCORES");
@@ -147,7 +166,7 @@ export class LeaderboardsService implements OnApplicationBootstrap {
   }
 
   seasons() {
-    return allSeasons();
+    return this.seasonsService.list();
   }
 
   /**
@@ -155,7 +174,8 @@ export class LeaderboardsService implements OnApplicationBootstrap {
    * (toujours en ligne), comptés à la date d'acceptation. À égalité, le premier à atteindre ce nombre passe devant.
    */
   private async contributorRanking(period: ContributorsPeriod): Promise<{ userId: string; count: number }[]> {
-    const info = period === "all" ? null : seasonInfo(period);
+    const info = period === "all" ? null : this.seasonsService.byKey(period);
+    if (period !== "all" && !info) return [];
     const rows = await this.prisma.clip.groupBy({
       by: ["uploaderId"],
       where: {
@@ -178,7 +198,8 @@ export class LeaderboardsService implements OnApplicationBootstrap {
 
   async contributors(opts: { period: ContributorsPeriod; scope: LeaderboardScope; userId: string; limit: number; offset: number }): Promise<ContributorsBoardDto> {
     let ranking = await this.contributorRanking(opts.period);
-    const reward = opts.period === "all" ? null : `Contributeur saison ${seasonNumber(opts.period)}`;
+    const season = opts.period === "all" ? null : this.seasonsService.byKey(opts.period);
+    const reward = season?.rewardsEnabled ? seasonRewards(season).contributor.name : null;
     if (opts.scope === "friends") {
       const ids = new Set([opts.userId, ...(await this.friends.friendIds(opts.userId))]);
       ranking = ranking.filter((r) => ids.has(r.userId));
@@ -230,90 +251,104 @@ export class LeaderboardsService implements OnApplicationBootstrap {
   }
 
   /**
-   * Vue d'administration : toutes les saisons, de la plus récente à la saison 1, avec leur statut
-   * (en cours, clôturée, à clôturer), le nombre de joueurs classés et le top 10 du classement général.
+   * Vue d'administration : toutes les saisons (à venir comprises), de la plus récente à la plus ancienne, avec leur
+   * statut, leurs récompenses, le nombre de joueurs classés et le top 10 du classement général.
    */
-  async adminSeasons() {
+  async adminSeasons(): Promise<AdminSeasonDto[]> {
+    // Lecture directe de la base pour l'équipe (modifications faites ailleurs comprises)
+    await this.seasonsService.reload();
     const now = new Date();
     return Promise.all(
-      allSeasons(now).map(async (season) => {
-        const archived = await this.prisma.leaderboardSnapshot.count({ where: { period: "SEASON", periodKey: season.key } });
-        if (archived > 0) {
-          const rows = await this.prisma.leaderboardSnapshot.findMany({
-            where: { period: "SEASON", periodKey: season.key },
-            orderBy: { position: "asc" },
-            take: 10,
-          });
-          const top = await this.hydrate(rows.map((r) => [r.userId, r.score] as [string, number]), 0);
-          const closedAt = await this.prisma.auditLog.findFirst({ where: { action: "season.close", entityId: season.key }, orderBy: { createdAt: "desc" } });
-          return { ...season, status: "closed" as const, players: archived, top, closedAt: closedAt?.createdAt.toISOString() ?? rows[0]?.createdAt.toISOString() ?? null };
+      [...this.seasonsService.all()].reverse().map(async (season) => {
+        const status = seasonStatus(season, now);
+        const base = {
+          ...this.seasonsService.toDto(season, now),
+          status,
+          rewardsEnabled: season.rewardsEnabled,
+          rewardsConfig: seasonRewards(season),
+          closedAt: season.closedAt?.toISOString() ?? null,
+        };
+        if (status === "closed") {
+          const [players, rows] = await Promise.all([
+            this.prisma.leaderboardSnapshot.count({ where: { period: "SEASON", periodKey: season.key } }),
+            this.prisma.leaderboardSnapshot.findMany({ where: { period: "SEASON", periodKey: season.key }, orderBy: { position: "asc" }, take: 10 }),
+          ]);
+          return { ...base, players, top: await this.hydrate(rows.map((r) => [r.userId, r.score] as [string, number]), 0) };
         }
-        const key = this.key("season", new Date(`${season.key}-15T00:00:00Z`));
+        if (status === "upcoming") return { ...base, players: 0, top: [] };
+        const key = this.seasonBoardKey(season.key);
         const [players, raw] = await Promise.all([this.redis.zcard(key), this.redis.zrevrange(key, 0, 9, "WITHSCORES")]);
         const pairs: [string, number][] = [];
         for (let i = 0; i < raw.length; i += 2) pairs.push([raw[i], Number(raw[i + 1])]);
-        return {
-          ...season,
-          status: season.current ? ("current" as const) : ("to_close" as const),
-          players,
-          top: await this.hydrate(pairs, 0),
-          closedAt: null,
-        };
+        return { ...base, players, top: await this.hydrate(pairs, 0) };
       }),
     );
   }
 
   /**
-   * Clôture d'une saison : archive le classement complet (général et par jeu)
-   * puis attribue les succès de saison d'après le classement général, et le titre du meilleur contributeur. Sans effet si la saison est déjà archivée.
+   * Clôture d'une saison terminée : archive le classement complet (général et par jeu), puis, si la saison a des
+   * récompenses, attribue les succès et récompenses de classement et le titre du meilleur contributeur.
+   * Sans effet si la saison est déjà clôturée.
    */
-  async closeSeason(season: string): Promise<{ season: string; players: number; alreadyClosed: boolean }> {
-    if (season >= seasonKeyOf(new Date())) throw new Error("Une saison en cours ne peut pas être clôturée.");
-    const lockKey = `lb:season-closing:${season}`;
-    if (!(await this.redis.set(lockKey, "1", "EX", 600, "NX"))) return { season, players: 0, alreadyClosed: true };
-    try {
-      const done = await this.prisma.leaderboardSnapshot.count({ where: { period: "SEASON", periodKey: season } });
-      if (done > 0) return { season, players: done, alreadyClosed: true };
+  async closeSeason(key: string): Promise<{ season: string; players: number; alreadyClosed: boolean }> {
+    await this.seasonsService.reload();
+    const season = this.seasonsService.byKey(key);
+    if (!season) throw new Error("Saison introuvable.");
+    if (season.closedAt) return { season: key, players: await this.prisma.leaderboardSnapshot.count({ where: { period: "SEASON", periodKey: key } }), alreadyClosed: true };
+    if (season.endsAt >= new Date()) throw new Error("Une saison en cours ou à venir ne peut pas être clôturée.");
+    const lockKey = `lb:season-closing:${key}`;
+    const lockToken = randomUUID();
 
-      const at = new Date(`${season}-15T00:00:00Z`);
+    if (!(await this.redis.set(lockKey, lockToken, "EX", 600, "NX"))) {
+      throw new ConflictException({ code: "SEASON_CLOSING", message: "La clôture de cette saison est déjà en cours. Réessaie dans quelques instants." });
+    }
+    try {
       let players = 0;
       for (const game of ["all", ...GAME_SLUGS] as const) {
-        const raw = await this.redis.zrevrange(this.key("season", at, game), 0, -1, "WITHSCORES");
+        const raw = await this.redis.zrevrange(this.seasonBoardKey(key, game), 0, -1, "WITHSCORES");
         const data = [];
         for (let i = 0; i < raw.length; i += 2) {
-          data.push({ period: "SEASON" as const, periodKey: snapshotKey(season, game), userId: raw[i], position: i / 2 + 1, score: Number(raw[i + 1]) });
+          data.push({ period: "SEASON" as const, periodKey: snapshotKey(key, game), userId: raw[i], position: i / 2 + 1, score: Number(raw[i + 1]) });
         }
         if (data.length) await this.prisma.leaderboardSnapshot.createMany({ data, skipDuplicates: true });
         if (game === "all") {
           players = data.length;
-          await this.achievements.awardSeason(seasonNumber(season), data.map((d) => ({ userId: d.userId, position: d.position })));
+          if (season.rewardsEnabled) await this.achievements.awardSeason(season, data.map((d) => ({ userId: d.userId, position: d.position })));
         }
       }
-      const [contributor] = await this.contributorRanking(season);
-      if (contributor) await this.achievements.awardSeasonContributor(seasonNumber(season), contributor.userId);
-      this.logger.log(`Saison ${season} clôturée : ${players} joueur(s) classé(s)`);
-      return { season, players, alreadyClosed: false };
+      if (season.rewardsEnabled) {
+        const [contributor] = await this.contributorRanking(key);
+        if (contributor) await this.achievements.awardSeasonContributor(season, contributor.userId);
+      }
+      await this.seasonsService.markClosed(key);
+      this.logger.log(`${season.name} clôturée : ${players} joueur(s) classé(s)${season.rewardsEnabled ? ", récompenses attribuées" : ""}`);
+      return { season: key, players, alreadyClosed: false };
     } finally {
-      await this.redis.del(lockKey);
+      await this.redis.eval(
+        'if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("del", KEYS[1]) else return 0 end',
+        1,
+        lockKey,
+        lockToken,
+      );
     }
   }
 
-  /** Au démarrage et chaque jour à 00:10 UTC : clôture la saison précédente si ce n'est pas déjà fait. */
-  @Cron("10 0 * * *", { timeZone: "UTC" })
-  async closePreviousSeason() {
-    const previous = previousSeasonKey(seasonKeyOf(new Date()));
-    if (seasonNumber(previous) < 1) return;
-    try {
-      const result = await this.closeSeason(previous);
-      // Clôture automatique : action du système, inscrite au journal
-      if (!result.alreadyClosed) await this.audit.system("season.close", "season", previous, result);
-    } catch (e) {
-      this.logger.error(`Clôture de la saison ${previous} impossible : ${(e as Error).message}`);
+  /** Au démarrage et chaque heure : clôture les saisons terminées. */
+  @Cron("7 * * * *", { timeZone: "UTC" })
+  async closeEndedSeasons() {
+    for (const season of this.seasonsService.toClose()) {
+      try {
+        const result = await this.closeSeason(season.key);
+        // Clôture automatique : action du système, inscrite au journal
+        if (!result.alreadyClosed) await this.audit.system("season.close", "season", season.key, result);
+      } catch (e) {
+        this.logger.error(`Clôture de ${season.name} impossible : ${(e as Error).message}`);
+      }
     }
   }
 
   onApplicationBootstrap() {
-    void this.closePreviousSeason();
+    void this.closeEndedSeasons();
   }
 
   /** Chaque jour à 00:05 UTC : archive le top 1000 de la veille. */
@@ -321,7 +356,7 @@ export class LeaderboardsService implements OnApplicationBootstrap {
   async archiveYesterday() {
     const yesterday = new Date(Date.now() - 86_400_000);
     const periodKey = yesterday.toISOString().slice(0, 10);
-    const raw = await this.redis.zrevrange(this.key("daily", yesterday), 0, 999, "WITHSCORES");
+    const raw = await this.redis.zrevrange(this.key("daily", yesterday)!, 0, 999, "WITHSCORES");
     const data = [];
     for (let i = 0; i < raw.length; i += 2) {
       data.push({ period: "DAILY" as const, periodKey, userId: raw[i], position: i / 2 + 1, score: Number(raw[i + 1]) });

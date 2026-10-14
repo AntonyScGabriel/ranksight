@@ -66,8 +66,16 @@ Trois façons de se connecter, sur le site, l'application et l'administration :
   mot de passe haché avec scrypt (jamais stocké en clair). « Mot de passe oublié » envoie un lien valable 1 heure.
 - **Google** et **Discord** (OAuth, entièrement géré par l'API : aucun secret dans le site ni dans l'application).
 
-Sans serveur SMTP (`SMTP_HOST` vide), le lien « mot de passe oublié » est écrit dans le terminal de l'API.
-Pour l'envoyer réellement, renseigne les variables `SMTP_*` et `MAIL_FROM` dans `.env`.
+**Confirmation de l'adresse email** : après une inscription par email, le compte est **bloqué** tant que l'adresse n'est
+pas confirmée (lien envoyé à l'inscription, valable 48 heures). Le site et l'application affichent alors un écran
+« Confirme ton adresse email » avec « J'ai confirmé », « Renvoyer l'email » et « Mauvaise adresse ? » (correction de
+l'adresse avec le mot de passe, nouveau lien aussitôt). L'API refuse toute autre action (`403 EMAIL_NOT_VERIFIED`) ;
+restent possibles : profil, CGU, suppression du compte, déconnexion et pages publiques. Les comptes Google ou Discord et
+les membres de l'équipe ne sont jamais bloqués. `EMAIL_VERIFICATION_REQUIRED=false` rend la confirmation facultative
+(le compte n'est plus bloqué ; le chat et l'envoi de clips la demandent toujours).
+
+Sans serveur SMTP (`SMTP_HOST` vide), les liens (confirmation, mot de passe oublié) sont écrits dans le terminal de l'API.
+Pour les envoyer réellement, renseigne les variables `SMTP_*` et `MAIL_FROM` dans `.env` (voir « Emails avec Brevo »).
 
 ### Paiement (boutique VIP)
 
@@ -75,9 +83,13 @@ Pour l'envoyer réellement, renseigne les variables `SMTP_*` et `MAIL_FROM` dans
 2. Développeurs → Clés API : copie la clé secrète `sk_test_…` dans `STRIPE_SECRET_KEY` du `.env`, puis relance `npm run dev`.
 3. Achète un pass avec la carte de test `4242 4242 4242 4242` (date future, CVC au choix).
 
-En local, l'achat est validé au retour sur la boutique. En production, ajoute aussi un webhook Stripe vers
-`<API_PUBLIC_URL>/v1/shop/webhook` (événement `checkout.session.completed`) et sa clé dans `STRIPE_WEBHOOK_SECRET` :
-l'achat est alors crédité même si le joueur ferme la page avant le retour.
+En local, l'achat est validé au retour sur la boutique. En production, ajoute aussi un webhook Stripe (voir « Activer
+le paiement en production ») : l'achat est alors crédité même si le joueur ferme la page avant le retour, un
+remboursement total fait depuis le tableau de bord retire les jours de VIP, et un paiement abandonné passe en échec.
+
+**Moyens de paiement** : la page de paiement Stripe (en français) propose les moyens activés dans le tableau de bord
+Stripe (Paramètres → Moyens de paiement) : carte bancaire, Apple Pay et Google Pay (automatiques avec la carte), PayPal,
+etc. Rien à changer dans le code pour en ajouter un.
 
 Dans l'application Android, le VIP s'achète avec **Google Play Billing** (voir « Publier sur Google Play »). Le VIP est
 lié au compte : acheté sur le site ou dans l'application, il vaut partout.
@@ -148,11 +160,17 @@ pour tester Google sur téléphone, expose l'API avec une adresse publique (tunn
   proposés par chaque joueur et acceptés par l'équipe, par saison (date d'acceptation) ou depuis le lancement. Les clips
   de l'équipe, refusés ou supprimés ne comptent pas ; à égalité, le premier à atteindre ce nombre passe devant. À la
   clôture de chaque saison, le premier reçoit le titre **« Contributeur saison N »**.
-- **Saisons** : une saison = un mois civil (du 1er au dernier jour, minuit UTC). La saison 1 est le mois `SEASON_ONE`
-  du `.env` (octobre 2026 par défaut), la saison 2 le mois suivant, etc. Chaque début de mois, la saison précédente est
-  clôturée automatiquement : son classement est archivé (consultable dans l'onglet Saison) et les succès de saison sont
-  attribués. Où les voir : onglet « Saison » des classements, encart en haut de « Défis du jour », et page « Saisons » de
-  l'administration (statut, joueurs classés, top 10, bouton « Clôturer » si le serveur était arrêté en début de mois).
+- **Saisons** (administration → « Saisons ») : chaque saison a un nom, un numéro facultatif (sans numéro : saison bêta
+  ou événement), des dates de début et de fin libres (heure UTC, comme les défis du jour) et ses récompenses de fin de
+  saison (noms et couleurs des titres Champion et Podium, du badge Top 10 et du titre du meilleur contributeur), qu'on
+  peut aussi désactiver. Les administrateurs créent une saison, modifient une saison à venir (tout), en cours (tout sauf
+  la date de début) ou clôturée (le nom seulement), et suppriment une saison qui n'a pas commencé. Deux saisons ne se
+  chevauchent jamais ; entre deux saisons, seuls les classements jour, semaine et total avancent et l'onglet Saison
+  annonce la prochaine. Une saison terminée est clôturée automatiquement dans l'heure : classement archivé (consultable
+  dans l'onglet Saison) et, si elle a des récompenses, succès et titres attribués. Au premier démarrage de cette
+  version, le mois en cours devient la **Saison bêta** (sans récompense, scores conservés) et le mois suivant la
+  **Saison 1**. Où les voir : onglet « Saison » des classements, encart de « Défis du jour », page « Saisons » de
+  l'administration (statut, récompenses, joueurs classés, top 10). Toutes les modifications sont journalisées.
 - **Succès** : page « Mes succès » (menu du compte, profil, application mobile) avec les succès obtenus et leur date,
   l'avancement des autres, leur rareté et le bonus d'XP. Séries de victoires (rangs exacts d'affilée, tous modes) :
   5, 10, 25, 50 et 100 ; séries de jours ; « Grand chelem » et « Sans faute » sur tous les défis du jour ; experts par jeu ;
@@ -455,6 +473,43 @@ docker compose --env-file .env.production -f docker-compose.prod.yml up -d --bui
   en-tête exposé `ETag`), 2) `S3_ENDPOINT` dans `.env.production` : il est ajouté automatiquement à la CSP du site et de
   l'administration au moment de leur construction (`build admin web` après un changement). Le bucket reste privé.
 - Application mobile : `eas.json` (profils preview et production), icônes dans `apps/mobile/assets`.
+
+### Emails avec Brevo (confirmation d'inscription, mot de passe oublié)
+
+1. Crée un compte gratuit sur brevo.com (300 emails par jour).
+2. Expéditeurs, domaines et IP dédiées → **Domaines** → ajoute `ranksight.fr`. Brevo affiche des enregistrements DNS
+   (code Brevo, DKIM, DMARC) : ajoute-les dans Cloudflare (DNS → Enregistrements, en « DNS uniquement », nuage gris),
+   puis clique sur « Vérifier » dans Brevo. Sans cette étape, les emails arrivent en courrier indésirable.
+3. **SMTP & API** → onglet SMTP : note le serveur (`smtp-relay.brevo.com`, port 587), l'identifiant et génère une
+   **clé SMTP**.
+4. Dans `deploy/.env.production` :
+   ```
+   SMTP_HOST=smtp-relay.brevo.com
+   SMTP_PORT=587
+   SMTP_SECURE=false
+   SMTP_USER=<identifiant SMTP Brevo>
+   SMTP_PASSWORD=<clé SMTP Brevo>
+   MAIL_FROM="RankGuess <no-reply@ranksight.fr>"
+   EMAIL_VERIFICATION_REQUIRED=true
+   ```
+5. `docker compose --env-file .env.production -f docker-compose.prod.yml up -d api`, puis crée un compte test : l'email
+   doit arriver en quelques secondes. Tant que `SMTP_HOST` est vide, l'API écrit un avertissement au démarrage et les
+   liens apparaissent seulement dans ses journaux.
+
+### Activer le paiement en production (Stripe)
+
+1. dashboard.stripe.com → **Activer le compte** : identité, statut (particulier ou micro-entreprise), IBAN pour les
+   virements. Tant que le compte n'est pas activé, seules les clés de test fonctionnent.
+2. Paramètres → **Moyens de paiement** : active ceux à proposer (carte bancaire activée d'office ; Apple Pay, Google Pay,
+   PayPal…). Paramètres → Image de marque : nom, logo et couleur affichés sur la page de paiement.
+3. Développeurs → **Clés API** (mode production) : copie la clé secrète `sk_live_…` dans `STRIPE_SECRET_KEY`.
+4. Développeurs → **Webhooks** → Ajouter une destination : adresse `https://api.ranksight.fr/v1/shop/webhook`,
+   événements `checkout.session.completed`, `checkout.session.async_payment_succeeded`,
+   `checkout.session.async_payment_failed`, `checkout.session.expired` et `charge.refunded`. Copie le **secret de
+   signature** `whsec_…` dans `STRIPE_WEBHOOK_SECRET`.
+5. `docker compose --env-file .env.production -f docker-compose.prod.yml up -d api`. La boutique affiche alors le
+   paiement ; fais un premier achat réel de 1 mois puis rembourse-le depuis Stripe pour vérifier que le VIP est retiré.
+6. Les CGV (`/legal/cgv`) et les mentions légales doivent indiquer le vendeur (`LEGAL_*` dans `.env.production`).
 
 ## Publier sur Google Play
 

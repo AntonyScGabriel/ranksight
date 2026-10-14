@@ -17,7 +17,8 @@ export default function DailyPage() {
   useEffect(() => {
     Promise.all([api.seasons(), api.leaderboard("season", "global")])
       .then(([seasons, board]) => {
-        const info = seasons.find((s) => s.current);
+        // Saison en cours, sinon la prochaine annoncée
+        const info = seasons.find((s) => s.current) ?? seasons.filter((s) => s.upcoming).at(-1);
         if (info) setSeason({ info, rank: board.me?.rank ?? null, score: board.me?.score ?? 0 });
       })
       .catch(() => undefined);
@@ -78,11 +79,13 @@ export default function DailyPage() {
             <p className="hud-label">Classement saisonnier</p>
             <p className="font-display text-lg font-semibold">{season.info.label}</p>
             <p className="text-sm text-muted">
-              Fin le {new Date(season.info.endsAt).toLocaleDateString("fr-FR", { day: "numeric", month: "long", timeZone: "UTC" })} · chaque défi du jour compte
+              {season.info.upcoming
+                ? `Commence le ${new Date(season.info.startsAt).toLocaleDateString("fr-FR", { day: "numeric", month: "long", timeZone: "UTC" })}`
+                : `Fin le ${new Date(season.info.endsAt).toLocaleDateString("fr-FR", { day: "numeric", month: "long", timeZone: "UTC" })} · chaque défi du jour compte`}
             </p>
           </div>
           <p className="font-display text-xl font-bold">
-            {season.rank ? `#${season.rank} · ${season.score} pts` : "Pas encore classé"} <span className="text-neon">→</span>
+            {season.info.upcoming ? "Bientôt" : season.rank ? `#${season.rank} · ${season.score} pts` : "Pas encore classé"} <span className="text-neon">→</span>
           </p>
         </Link>
       )}

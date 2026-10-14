@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { FlatList, Pressable, ScrollView, Text, View } from "react-native";
 import { router } from "expo-router";
 import { io } from "socket.io-client";
@@ -22,7 +22,10 @@ export default function LeaderboardScreen() {
   const effectiveGame: LeaderboardGame = period === "infinite" ? "all" : game;
   const [entries, setEntries] = useState<LeaderboardEntryDto[]>([]);
   const [mine, setMine] = useState<{ rank: number; score: number } | null>(null);
-  const [seasons, setSeasons] = useState<SeasonDto[]>([]);
+  const [allSeasons, setSeasons] = useState<SeasonDto[]>([]);
+  // Saisons commencées (de la plus récente à la plus ancienne) et prochaine saison annoncée
+  const seasons = useMemo(() => allSeasons.filter((s) => !s.upcoming), [allSeasons]);
+  const nextSeason = useMemo(() => allSeasons.filter((s) => s.upcoming).at(-1) ?? null, [allSeasons]);
   const [seasonKey, setSeasonKey] = useState("");
   const season = seasons.find((s) => s.key === seasonKey) ?? seasons[0];
   const pastSeason = period === "season" && season && !season.current ? season.key : undefined;
@@ -85,7 +88,11 @@ export default function LeaderboardScreen() {
         <View style={{ gap: 6 }}>
           <Text style={{ color: colors.ink, fontWeight: "700" }}>{season.label}</Text>
           <Text style={{ color: colors.muted, fontSize: 12 }}>
-            {season.current ? `Se termine le ${new Date(season.endsAt).toLocaleDateString("fr-FR", { timeZone: "UTC" })} à minuit (UTC). Le 1er remporte le titre « Champion », le top 3 le titre « Podium » et le top 10 un badge.` : "Saison terminée : classement définitif."}
+            {season.current
+              ? `Se termine le ${new Date(season.endsAt).toLocaleDateString("fr-FR", { timeZone: "UTC" })}. ${rewardsText(season)}`
+              : season.closed
+                ? "Saison terminée : classement définitif."
+                : "Saison terminée : classement en cours de clôture."}
           </Text>
           {seasons.length > 1 && (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }} style={{ flexGrow: 0 }}>
@@ -95,12 +102,19 @@ export default function LeaderboardScreen() {
                   onPress={() => setSeasonKey(s.key)}
                   style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: s.key === season.key ? colors.violet : colors.line }}
                 >
-                  <Text style={{ color: s.key === season.key ? colors.ink : colors.muted, fontSize: 12, fontWeight: "600" }}>Saison {s.number}</Text>
+                  <Text style={{ color: s.key === season.key ? colors.ink : colors.muted, fontSize: 12, fontWeight: "600" }}>{s.name}</Text>
                 </Pressable>
               ))}
             </ScrollView>
           )}
         </View>
+      )}
+      {period === "season" && nextSeason && !seasons.some((s) => s.current) && (
+        <Text style={{ color: colors.muted, fontSize: 12, lineHeight: 17 }}>
+          Prochaine saison : <Text style={{ color: colors.ink, fontWeight: "700" }}>{nextSeason.name}</Text>, du{" "}
+          {new Date(nextSeason.startsAt).toLocaleDateString("fr-FR", { timeZone: "UTC" })} au {new Date(nextSeason.endsAt).toLocaleDateString("fr-FR", { timeZone: "UTC" })}.{" "}
+          {rewardsText(nextSeason)}
+        </Text>
       )}
       {contributors && (
         <View style={{ gap: 6 }}>
@@ -114,7 +128,7 @@ export default function LeaderboardScreen() {
               : ""}
           </Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }} style={{ flexGrow: 0 }}>
-            {[...seasons.map((s) => [s.key, `Saison ${s.number}`] as const), ["all", "Depuis le lancement"] as const].map(([k, label]) => (
+            {[...seasons.map((s) => [s.key, s.name] as const), ["all", "Depuis le lancement"] as const].map(([k, label]) => (
               <Pressable
                 key={k}
                 onPress={() => setContribPeriod(k)}
@@ -177,6 +191,13 @@ export default function LeaderboardScreen() {
       />
     </View>
   );
+}
+
+/** Récompenses annoncées, ou saison sans récompense */
+function rewardsText(season: SeasonDto) {
+  if (!season.rewards) return "Saison sans récompense.";
+  const r = season.rewards;
+  return `Le 1er remporte le titre « ${r.champion.name} », le top 3 le titre « ${r.podium.name} » et le top 10 le badge « ${r.top10.name} ».`;
 }
 
 const clipsLabel = (n: number) => `${n} clip${n > 1 ? "s" : ""}`;

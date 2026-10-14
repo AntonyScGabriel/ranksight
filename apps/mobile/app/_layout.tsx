@@ -4,6 +4,7 @@ import { Stack, router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { InviteBanner } from "@/components/InviteBanner";
 import { TermsGate } from "@/components/TermsGate";
+import { VerifyEmailGate } from "@/components/VerifyEmailGate";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { ChatProvider } from "@/lib/chat";
 import { ConfirmProvider } from "@/lib/confirm";
@@ -61,6 +62,7 @@ export default function RootLayout() {
         </Stack>
         <InviteBanner />
         <TermsGate />
+        <VerifyEmailGate />
       </ChatProvider>
       </StaffGuardProvider>
       </ConfirmProvider>

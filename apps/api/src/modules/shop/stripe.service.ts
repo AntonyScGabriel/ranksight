@@ -11,6 +11,17 @@ export interface CheckoutSession {
   metadata: Record<string, string>;
 }
 
+/** Remboursement d'un paiement (événement charge.refunded) */
+export interface StripeCharge {
+  id: string;
+  payment_intent: string | null;
+  amount: number;
+  amount_refunded: number;
+  refunded: boolean;
+}
+
+export type StripeEvent = { type: string; data: { object: CheckoutSession | StripeCharge } };
+
 /** Tolérance sur l'horodatage des notifications Stripe (protection contre le rejeu) */
 const WEBHOOK_TOLERANCE_SEC = 300;
 
@@ -40,6 +51,8 @@ export class StripeService {
       "line_items[0][price_data][product_data][name]": `RankGuess · ${input.name}`,
       "metadata[userId]": input.userId,
       "metadata[product]": input.productId,
+      // Page de paiement en français ; moyens de paiement (carte, Apple Pay, Google Pay, PayPal…) choisis dans le tableau de bord Stripe
+      locale: "fr",
     });
     if (input.email) form.set("customer_email", input.email);
     return this.call<CheckoutSession>("POST", "/v1/checkout/sessions", form);
@@ -49,8 +62,14 @@ export class StripeService {
     return this.call<CheckoutSession>("GET", `/v1/checkout/sessions/${encodeURIComponent(sessionId)}`);
   }
 
+  /** Session de paiement d'un paiement (remboursement signalé par Stripe sur le paiement, pas sur la session) */
+  async checkoutForPaymentIntent(paymentIntent: string): Promise<CheckoutSession | null> {
+    const list = await this.call<{ data: CheckoutSession[] }>("GET", `/v1/checkout/sessions?payment_intent=${encodeURIComponent(paymentIntent)}&limit=1`);
+    return list.data[0] ?? null;
+  }
+
   /** Vérifie l'en-tête Stripe-Signature (HMAC SHA-256 de « horodatage.corps ») et renvoie l'événement. */
-  verifyWebhook(rawBody: Buffer | undefined, header: string | undefined): { type: string; data: { object: CheckoutSession } } | null {
+  verifyWebhook(rawBody: Buffer | undefined, header: string | undefined): StripeEvent | null {
     const secret = env().STRIPE_WEBHOOK_SECRET;
     if (!secret || !rawBody || !header) return null;
     const parts = Object.fromEntries(header.split(",").map((p) => p.split("=") as [string, string]));

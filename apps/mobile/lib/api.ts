@@ -85,6 +85,8 @@ export interface Me {
   exactGuesses: number;
   progress: { level: number; current: number; next: number };
   emailVerified: boolean;
+  /** Compte bloqué tant que l'adresse email n'est pas confirmée (inscription par email) */
+  mustVerifyEmail: boolean;
   termsAccepted: boolean;
   chatMutedUntil: string | null;
   mfaEnabled: boolean;
@@ -169,6 +171,7 @@ export const api = {
   },
   me: () => request<Me>("/users/me"),
   resendVerification: () => post<{ sent: boolean }>("/auth/email/resend"),
+  changeEmail: (email: string, password: string) => post<{ sent: boolean }>("/auth/email/change", { email, password }),
   acceptTerms: () => post<void>("/users/me/terms", { accept: true }),
   logoutAll: async () => {
     await post<void>("/auth/logout-all").catch(() => undefined);

@@ -15,7 +15,7 @@ import { MailService } from "../mail/mail.service.js";
 import { PushService } from "../notifications/notifications.module.js";
 import { GiftsService } from "./gifts.service.js";
 import { GooglePlayError, GooglePlayService } from "./google-play.service.js";
-import { StripeService } from "./stripe.service.js";
+import { StripeService, type CheckoutSession, type StripeCharge, type StripeEvent } from "./stripe.service.js";
 import { extendVip, isVip, vipSelect, vipStatus } from "./vip.js";
 import { assertCanManage } from "../../common/staff-policy.js";
 
@@ -222,10 +222,35 @@ export class ShopService {
     };
   }
 
-  /** Notification de Stripe (paiement terminé), y compris si le joueur a fermé la page avant le retour. */
-  async webhook(event: { type: string; data: { object: { id: string; payment_status: string } } }) {
-    if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
-      if (event.data.object.payment_status === "paid") await this.fulfil(event.data.object.id);
+  /**
+   * Notifications de Stripe : paiement terminé (y compris si le joueur a fermé la page avant le retour), paiement
+   * échoué ou session expirée, remboursement total depuis le tableau de bord Stripe (jours de VIP retirés).
+   */
+  async webhook(event: StripeEvent) {
+    switch (event.type) {
+      case "checkout.session.completed":
+      case "checkout.session.async_payment_succeeded": {
+        const session = event.data.object as CheckoutSession;
+        if (session.payment_status === "paid") await this.fulfil(session.id);
+        return;
+      }
+      case "checkout.session.async_payment_failed":
+      case "checkout.session.expired": {
+        const session = event.data.object as CheckoutSession;
+        await this.prisma.purchase.updateMany({ where: { externalId: session.id, status: "PENDING" }, data: { status: "FAILED" } });
+        return;
+      }
+      case "charge.refunded": {
+        const charge = event.data.object as StripeCharge;
+        // Remboursement partiel : le VIP est conservé (geste commercial), seul un remboursement total retire les jours
+        if (!charge.payment_intent || charge.amount_refunded < charge.amount) return;
+        const session = await this.stripe.checkoutForPaymentIntent(charge.payment_intent);
+        const purchase = session ? await this.prisma.purchase.findUnique({ where: { externalId: session.id } }) : null;
+        if (purchase?.provider === "STRIPE" && (await this.refund(purchase.id, "stripe"))) {
+          this.logger.log(`Stripe : achat ${purchase.id} remboursé, VIP ajusté`);
+        }
+        return;
+      }
     }
   }
 

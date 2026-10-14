@@ -30,6 +30,8 @@ const SEASON_HINT: Record<string, (n: string) => string> = {
 export function unlockHint(c: Pick<RefRow, "key" | "description" | "unlockLevel" | "unlockAchievement">): string {
   if (c.unlockLevel !== null) return `Atteindre le niveau ${c.unlockLevel}`;
   if (c.unlockAchievement) return c.unlockAchievement.isHidden ? "Succès secret" : `Succès « ${c.unlockAchievement.name} »`;
+  // Récompense de fin de saison : sa description dit comment elle a été obtenue (« 1re place du classement de Saison 1 »)
+  if (c.key.startsWith("season-") && c.description) return c.description;
   const season = SEASON_KEY.exec(c.key);
   if (season) return SEASON_HINT[season[2]](season[1]);
   return c.description ? `Attribué par l'équipe : ${c.description}` : "Attribué par l'équipe";

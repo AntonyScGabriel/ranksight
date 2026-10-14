@@ -1,5 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { levelFromXp, type CosmeticRefDto } from "@ranksight/shared";
+import type { SeasonRecord } from "../cosmetics/cosmetics.service.js";
 import { PrismaService } from "../../prisma/prisma.service.js";
 import { CosmeticsService } from "../cosmetics/cosmetics.service.js";
 
@@ -19,7 +20,7 @@ export type Criteria =
   | { type: "versus_wins"; threshold: number }
   | { type: "season_rank"; maxRank: number; season?: number };
 
-/** Données du joueur nécessaires pour mesurer l'avancement de tous les succès. */
+/** DonnÃ©es du joueur nÃ©cessaires pour mesurer l'avancement de tous les succÃ¨s. */
 interface Snapshot {
   totalGuesses: number;
   exactGuesses: number;
@@ -36,8 +37,8 @@ interface Snapshot {
 }
 
 /**
- * Moteur de succès piloté par la donnée : chaque succès a un `criteria` JSON (créable depuis l'administration
- * sans redéploiement). Évalué après chaque réponse ; les succès de saison sont attribués à la clôture du mois.
+ * Moteur de succÃ¨s pilotÃ© par la donnÃ©e : chaque succÃ¨s a un `criteria` JSON (crÃ©able depuis l'administration
+ * sans redÃ©ploiement). Ã‰valuÃ© aprÃ¨s chaque rÃ©ponse ; les succÃ¨s de saison sont attribuÃ©s Ã  la clÃ´ture du mois.
  */
 @Injectable()
 export class AchievementEngine {
@@ -45,7 +46,7 @@ export class AchievementEngine {
 
   constructor(private readonly prisma: PrismaService, private readonly cosmetics: CosmeticsService) {}
 
-  /** Avancement d'un succès : valeur actuelle et objectif. null = non mesurable en continu (succès de saison). */
+  /** Avancement d'un succÃ¨s : valeur actuelle et objectif. null = non mesurable en continu (succÃ¨s de saison). */
   measure(c: Criteria, s: Snapshot): { current: number; target: number } | null {
     switch (c.type) {
       case "total_guesses": return { current: s.totalGuesses, target: c.threshold };
@@ -76,7 +77,7 @@ export class AchievementEngine {
         select: { totalGuesses: true, exactGuesses: true, bestDailyStreak: true, bestWinStreak: true, level: true, infiniteBest: true, statsResetAt: true },
       }),
       this.prisma.userGameStats.findMany({ where: { userId }, include: { game: { select: { slug: true } } } }),
-      // Jours où le joueur a joué tous les défis du jour (tous les jeux actifs, chacun de leurs défis), et combien de ces
+      // Jours oÃ¹ le joueur a jouÃ© tous les dÃ©fis du jour (tous les jeux actifs, chacun de leurs dÃ©fis), et combien de ces
       // jours sans aucune erreur
       this.prisma.$queryRaw<{ full_days: bigint; perfect_days: bigint }[]>`
         WITH per_day AS (
@@ -108,19 +109,19 @@ export class AchievementEngine {
       dailyPerfectDays: Number(days[0]?.perfect_days ?? 0),
       friends,
       acceptedClips,
-      // Après une remise à zéro par l'équipe, seuls les duels gagnés depuis comptent
+      // AprÃ¨s une remise Ã  zÃ©ro par l'Ã©quipe, seuls les duels gagnÃ©s depuis comptent
       versusWins: versusWins.filter((m) => !statsResetAt || (m.finishedAt && m.finishedAt > statsResetAt)).length,
     };
   }
 
-  /** Évalue les succès non encore obtenus et attribue ceux qui sont atteints (avec leur bonus d'XP). */
+  /** Ã‰value les succÃ¨s non encore obtenus et attribue ceux qui sont atteints (avec leur bonus d'XP). */
   async evaluate(userId: string) {
     return (await this.evaluateWithRewards(userId)).achievements;
   }
 
   /**
-   * Succès atteints, puis récompenses (titres, badges, cadres) débloquées par un palier de niveau ou par un succès.
-   * Appelé après chaque partie : le niveau a pu changer même sans nouveau succès.
+   * SuccÃ¨s atteints, puis rÃ©compenses (titres, badges, cadres) dÃ©bloquÃ©es par un palier de niveau ou par un succÃ¨s.
+   * AppelÃ© aprÃ¨s chaque partie : le niveau a pu changer mÃªme sans nouveau succÃ¨s.
    */
   async evaluateWithRewards(userId: string): Promise<{ achievements: { code: string; name: string; iconUrl: string | null }[]; rewards: CosmeticRefDto[] }> {
     const [unlocked, candidates] = await Promise.all([
@@ -142,13 +143,17 @@ export class AchievementEngine {
   }
 
   /**
-   * Clôture d'une saison : attribue les succès de type season_rank aux joueurs classés
-   * (positions du classement général de la saison, tous jeux confondus).
+   * ClÃ´ture d'une saison : attribue les succÃ¨s de type season_rank aux joueurs classÃ©s
+   * (positions du classement gÃ©nÃ©ral de la saison, tous jeux confondus).
    */
-  async awardSeason(seasonNumber: number, ranking: { userId: string; position: number }[]) {
+  /**
+   * ClÃ´ture d'une saison avec rÃ©compenses : succÃ¨s de classement (Â« Champion de saison Â», ou d'une saison prÃ©cise par
+   * son numÃ©ro), puis titres et badge de la saison.
+   */
+  async awardSeason(season: SeasonRecord, ranking: { userId: string; position: number }[]) {
     const seasonal = (await this.prisma.achievement.findMany({ where: { isActive: true } })).filter((a) => {
       const c = a.criteria as Criteria;
-      return c.type === "season_rank" && (c.season === undefined || c.season === seasonNumber);
+      return c.type === "season_rank" && (c.season === undefined || c.season === season.number);
     });
     let granted = 0;
     for (const { userId, position } of ranking) {
@@ -159,27 +164,61 @@ export class AchievementEngine {
       );
       granted += (await this.grant(userId, eligible.filter((a) => !owned.has(a.id)))).length;
     }
-    if (granted) this.logger.log(`Saison ${seasonNumber} : ${granted} succès attribués`);
-    await this.cosmetics.awardSeason(seasonNumber, ranking);
-    // Les succès de saison peuvent débloquer des récompenses
+    if (granted) this.logger.log(`${season.name} : ${granted} succÃ¨s attribuÃ©s`);
+    await this.cosmetics.awardSeason(season, ranking);
+    // Les succÃ¨s de saison peuvent dÃ©bloquer des rÃ©compenses
     for (const { userId } of ranking.filter((r) => r.position <= 10)) await this.cosmetics.sync(userId);
   }
 
-  /** Titre du meilleur contributeur de la saison (le plus de clips acceptés) */
-  awardSeasonContributor(seasonNumber: number, userId: string) {
-    return this.cosmetics.awardSeasonContributor(seasonNumber, userId);
+  /** Titre du meilleur contributeur de la saison (le plus de clips acceptÃ©s) */
+  awardSeasonContributor(season: SeasonRecord, userId: string) {
+    return this.cosmetics.awardSeasonContributor(season, userId);
   }
+
 
   private async grant(userId: string, achievements: { id: string; code: string; name: string; iconUrl: string | null; xpReward: number }[]) {
     if (!achievements.length) return [];
-    const xp = achievements.reduce((sum, a) => sum + a.xpReward, 0);
-    await this.prisma.$transaction([
-      this.prisma.userAchievement.createMany({ data: achievements.map((a) => ({ userId, achievementId: a.id })), skipDuplicates: true }),
-      this.prisma.user.update({ where: { id: userId }, data: { xp: { increment: xp } } }),
-    ]);
-    // Le bonus d'XP peut faire passer un niveau
-    const { xp: total } = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { xp: true } });
-    await this.prisma.user.update({ where: { id: userId }, data: { level: levelFromXp(total).level } });
-    return achievements.map((a) => ({ code: a.code, name: a.name, iconUrl: a.iconUrl }));
+
+    const granted = await this.prisma.$transaction(async (tx) => {
+      const newlyGranted: typeof achievements = [];
+      let xp = 0;
+
+      for (const achievement of achievements) {
+        const result = await tx.userAchievement.createMany({
+          data: [{ userId, achievementId: achievement.id }],
+          skipDuplicates: true,
+        });
+
+        if (result.count > 0) {
+          newlyGranted.push(achievement);
+          xp += achievement.xpReward;
+        }
+      }
+
+      if (xp > 0) {
+        await tx.user.update({
+          where: { id: userId },
+          data: { xp: { increment: xp } },
+        });
+
+        const { xp: total } = await tx.user.findUniqueOrThrow({
+          where: { id: userId },
+          select: { xp: true },
+        });
+
+        await tx.user.update({
+          where: { id: userId },
+          data: { level: levelFromXp(total).level },
+        });
+      }
+
+      return newlyGranted;
+    });
+
+    return granted.map((a) => ({
+      code: a.code,
+      name: a.name,
+      iconUrl: a.iconUrl,
+    }));
   }
 }

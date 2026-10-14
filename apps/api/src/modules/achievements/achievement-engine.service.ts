@@ -38,7 +38,7 @@ interface Snapshot {
 
 /**
  * Moteur de succÃ¨s pilotÃ© par la donnÃ©e : chaque succÃ¨s a un `criteria` JSON (crÃ©able depuis l'administration
- * sans redÃ©ploiement). Ã‰valuÃ© aprÃ¨s chaque rÃ©ponse ; les succÃ¨s de saison sont attribuÃ©s Ã  la clÃ´ture du mois.
+ * sans redÃ©ploiement). Ã‰valuÃ© aprÃ¨s chaque rÃ©ponse ; les succÃ¨s de saison sont attribuÃ©s Ã  la clÃ´ture du mois.
  */
 @Injectable()
 export class AchievementEngine {
@@ -109,7 +109,7 @@ export class AchievementEngine {
       dailyPerfectDays: Number(days[0]?.perfect_days ?? 0),
       friends,
       acceptedClips,
-      // AprÃ¨s une remise Ã  zÃ©ro par l'Ã©quipe, seuls les duels gagnÃ©s depuis comptent
+      // AprÃ¨s une remise Ã  zÃ©ro par l'Ã©quipe, seuls les duels gagnÃ©s depuis comptent
       versusWins: versusWins.filter((m) => !statsResetAt || (m.finishedAt && m.finishedAt > statsResetAt)).length,
     };
   }

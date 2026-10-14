@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { io } from "socket.io-client";
@@ -36,7 +36,10 @@ function Leaderboard() {
   // Le mode Infini n'a qu'un classement, tous jeux confondus
   const effectiveGame: LeaderboardGame = period === "infinite" ? "all" : game;
   const [data, setData] = useState<Board | null>(null);
-  const [seasons, setSeasons] = useState<SeasonDto[]>([]);
+  const [allSeasons, setSeasons] = useState<SeasonDto[]>([]);
+  // Saisons commencées (de la plus récente à la plus ancienne) et prochaine saison annoncée
+  const seasons = useMemo(() => allSeasons.filter((s) => !s.upcoming), [allSeasons]);
+  const nextSeason = useMemo(() => allSeasons.filter((s) => s.upcoming).at(-1) ?? null, [allSeasons]);
   const [seasonKey, setSeasonKey] = useState<string>("");
   const season = seasons.find((s) => s.key === seasonKey) ?? seasons[0];
   const pastSeason = period === "season" && season && !season.current ? season.key : undefined;
@@ -109,6 +112,7 @@ function Leaderboard() {
       </div>
 
       {period === "season" && season && <SeasonBanner season={season} />}
+      {period === "season" && nextSeason && !seasons.some((s) => s.current) && <NextSeasonBanner season={nextSeason} />}
       {contributors && <ContributorsBanner season={contribSeason} reward={reward} />}
 
       {data?.me && (
@@ -176,6 +180,24 @@ function ContributorsBanner({ season, reward }: { season: SeasonDto | null; rewa
   );
 }
 
+const longDate = (iso: string) => new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+
+/** Récompenses annoncées, ou saison sans récompense */
+function rewardsText(season: SeasonDto) {
+  if (!season.rewards) return "Saison sans récompense.";
+  const r = season.rewards;
+  return `Le 1er remporte le titre « ${r.champion.name} », le top 3 le titre « ${r.podium.name} » et le top 10 le badge « ${r.top10.name} ».`;
+}
+
+function NextSeasonBanner({ season }: { season: SeasonDto }) {
+  return (
+    <div className="glass space-y-1 border-neon/30 p-4">
+      <p className="font-display text-lg font-semibold">Prochaine saison : {season.label}</p>
+      <p className="text-sm text-muted">Du {longDate(season.startsAt)} au {longDate(season.endsAt)}. {rewardsText(season)}</p>
+    </div>
+  );
+}
+
 function SeasonBanner({ season }: { season: SeasonDto }) {
   // Heure figée à l'affichage de la page (suffisant pour un décompte en jours)
   const [now] = useState(() => Date.now());
@@ -186,8 +208,10 @@ function SeasonBanner({ season }: { season: SeasonDto }) {
         <p className="font-display text-lg font-semibold">{season.label}</p>
         <p className="text-sm text-muted">
           {season.current
-            ? `Se termine dans ${daysLeft} jour${daysLeft > 1 ? "s" : ""} (dernier jour du mois, minuit UTC). Le 1er remporte le titre « Champion », le top 3 le titre « Podium » et le top 10 un badge.`
-            : "Saison terminée : classement définitif."}
+            ? `Se termine le ${longDate(season.endsAt)} (dans ${daysLeft} jour${daysLeft > 1 ? "s" : ""}). ${rewardsText(season)}`
+            : season.closed
+              ? "Saison terminée : classement définitif."
+              : "Saison terminée : classement en cours de clôture."}
         </p>
       </div>
       {season.current && <span className="rounded-full bg-violet/20 px-3 py-1 text-xs font-semibold text-violet-soft">En cours</span>}

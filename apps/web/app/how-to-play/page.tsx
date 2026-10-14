@@ -30,7 +30,7 @@ export default function HowToPlayPage() {
         <ul>
           <li>Chaque réponse rapporte de l&apos;XP ; les niveaux montent avec.</li>
           <li>Séries : jours joués d&apos;affilée et rangs exacts d&apos;affilée.</li>
-          <li>Classements du jour, de la semaine, de la saison (un mois) et de tous les temps, globaux ou entre amis.</li>
+          <li>Classements du jour, de la semaine, de la saison (dates annoncées dans l&apos;onglet Saison) et de tous les temps, globaux ou entre amis.</li>
           <li>Succès à débloquer dans « Mes succès ».</li>
         </ul>
       </Section>

@@ -5,6 +5,7 @@ import { decrypt, encrypt } from "../../common/crypto.js";
 import { AuditService } from "../../common/audit/audit.module.js";
 import { env } from "../../config/env.js";
 import { PrismaService } from "../../prisma/prisma.service.js";
+import { TokenService } from "./token.service.js";
 import { REDIS } from "../../redis/redis.module.js";
 import { MailService } from "../mail/mail.service.js";
 import { newTotpSecret, otpauthUri, recoveryCodes, TOTP_PERIOD, verifyTotp } from "./totp.js";
@@ -29,6 +30,7 @@ export class MfaService {
     private readonly audit: AuditService,
     private readonly mail: MailService,
     @Inject(REDIS) private readonly redis: Redis,
+    private readonly tokens: TokenService,
   ) {}
 
   /** Double authentification exigée pour les routes de l'administration ? */
@@ -107,6 +109,7 @@ export class MfaService {
       data: { totpSecret: null, totpEnabledAt: null, totpRecovery: [] },
       select: { email: true, displayName: true },
     });
+    await this.tokens.revokeAll(userId);
     await this.audit.log(actorId, "mfa.reset", "user", userId);
     await this.notify(user, "La double authentification de ton compte RankGuess a été réinitialisée par un administrateur.");
   }

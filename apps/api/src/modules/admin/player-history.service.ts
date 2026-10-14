@@ -417,7 +417,7 @@ export class PlayerHistoryService {
     ]);
     const t = totals[0];
     const expectedXp = (t?.xp ?? 0) + (achievementsXp[0]?.xp ?? 0);
-    const boardScore = Number((await this.redis.zscore(this.leaderboards.key("all_time"), userId)) ?? 0);
+    const boardScore = Number((await this.redis.zscore(this.leaderboards.key("all_time")!, userId)) ?? 0);
     const details: string[] = [];
     const check = (label: string, stored: number, computed: number) => {
       if (stored !== computed) details.push(`${label} : ${stored} enregistré(s), ${computed} d'après les réponses`);

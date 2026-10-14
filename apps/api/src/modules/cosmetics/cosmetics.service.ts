@@ -6,6 +6,8 @@ import { CosmeticInput } from "@ranksight/shared";
 import type { z } from "zod";
 import { AuditService } from "../../common/audit/audit.module.js";
 import { PrismaService } from "../../prisma/prisma.service.js";
+import type { Prisma } from "../../generated/prisma/client.js";
+import { seasonRewards } from "../leaderboards/seasons.service.js";
 import { cosmeticRefSelect, flairSelect, toCosmeticRef, toFlair, unlockHint } from "./flair.js";
 import { assertCanManage } from "../../common/staff-policy.js";
 import { pseudoKey } from "@ranksight/shared";
@@ -17,20 +19,15 @@ const EQUIP_FIELD: Record<CosmeticType, "titleId" | "badgeId" | "frameId"> = { T
 const slugify = (s: string) =>
   s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "recompense";
 
-/** Récompenses de fin de saison, créées automatiquement à la clôture de chaque saison */
+/** Récompenses de fin de saison (noms et couleurs propres à chaque saison, créées à sa clôture) */
 const SEASON_REWARDS = [
-  { suffix: "champion", type: "TITLE", maxRank: 1, name: (n: number) => `Champion saison ${n}`, color: "#FACC15", description: (n: number) => `1re place du classement de la saison ${n}` },
-  { suffix: "podium", type: "TITLE", maxRank: 3, name: (n: number) => `Podium saison ${n}`, color: "#E5E7EB", description: (n: number) => `Top 3 du classement de la saison ${n}` },
-  { suffix: "top10", type: "BADGE", maxRank: 10, name: (n: number) => `Top 10 saison ${n}`, color: "#A78BFA", description: (n: number) => `Top 10 du classement de la saison ${n}`, icon: "trophy" },
+  { slot: "champion", type: "TITLE", maxRank: 1, describe: (s: string) => `1re place du classement de ${s}` },
+  { slot: "podium", type: "TITLE", maxRank: 3, describe: (s: string) => `Top 3 du classement de ${s}` },
+  { slot: "top10", type: "BADGE", maxRank: 10, describe: (s: string) => `Top 10 du classement de ${s}`, icon: "trophy" },
 ] as const;
 
-/** Récompense du meilleur contributeur de la saison (le plus de clips acceptés) */
-const CONTRIBUTOR_REWARD = {
-  suffix: "contributor",
-  name: (n: number) => `Contributeur saison ${n}`,
-  color: "#34D399",
-  description: (n: number) => `Le plus de clips acceptés pendant la saison ${n}`,
-} as const;
+/** Saison clôturée (sous-ensemble du modèle Season) */
+export type SeasonRecord = { key: string; number: number | null; name: string; rewards: unknown };
 
 /**
  * Récompenses des joueurs : titres, badges et cadres d'avatar.
@@ -83,17 +80,17 @@ export class CosmeticsService {
   }
 
   /** Clôture d'une saison : titres et badge de la saison pour le haut du classement général. */
-  async awardSeason(seasonNumber: number, ranking: { userId: string; position: number }[]) {
+  async awardSeason(season: SeasonRecord, ranking: { userId: string; position: number }[]) {
+    const rewards = seasonRewards({ rewards: season.rewards as Prisma.JsonValue, name: season.name });
     let granted = 0;
     for (const reward of SEASON_REWARDS) {
       const winners = ranking.filter((r) => r.position <= reward.maxRank);
       if (!winners.length) continue;
+      const def = rewards[reward.slot];
+      const key = `season-${season.key}-${reward.slot}`;
       const cosmetic = await this.prisma.cosmetic.upsert({
-        where: { key: `season-${seasonNumber}-${reward.suffix}` },
-        create: {
-          key: `season-${seasonNumber}-${reward.suffix}`, type: reward.type, name: reward.name(seasonNumber), color: reward.color,
-          description: reward.description(seasonNumber), icon: "icon" in reward ? reward.icon : null,
-        },
+        where: { key },
+        create: { key, type: reward.type, name: def.name, color: def.color, description: reward.describe(season.name), icon: "icon" in reward ? reward.icon : null },
         update: {},
       });
       const { count } = await this.prisma.userCosmetic.createMany({
@@ -102,19 +99,20 @@ export class CosmeticsService {
       });
       granted += count;
     }
-    if (granted) this.logger.log(`Saison ${seasonNumber} : ${granted} récompense(s) de classement attribuée(s)`);
+    if (granted) this.logger.log(`${season.name} : ${granted} récompense(s) de classement attribuée(s)`);
   }
 
-  /** Clôture d'une saison : titre « Contributeur » pour le joueur qui a fait accepter le plus de clips. */
-  async awardSeasonContributor(seasonNumber: number, userId: string) {
-    const key = `season-${seasonNumber}-${CONTRIBUTOR_REWARD.suffix}`;
+  /** Clôture d'une saison : titre du joueur qui a fait accepter le plus de clips. */
+  async awardSeasonContributor(season: SeasonRecord, userId: string) {
+    const def = seasonRewards({ rewards: season.rewards as Prisma.JsonValue, name: season.name }).contributor;
+    const key = `season-${season.key}-contributor`;
     const cosmetic = await this.prisma.cosmetic.upsert({
       where: { key },
-      create: { key, type: "TITLE", name: CONTRIBUTOR_REWARD.name(seasonNumber), color: CONTRIBUTOR_REWARD.color, description: CONTRIBUTOR_REWARD.description(seasonNumber) },
+      create: { key, type: "TITLE", name: def.name, color: def.color, description: `Le plus de clips acceptés pendant ${season.name}` },
       update: {},
     });
     const { count } = await this.prisma.userCosmetic.createMany({ data: [{ userId, cosmeticId: cosmetic.id, source: "SEASON" }], skipDuplicates: true });
-    if (count) this.logger.log(`Saison ${seasonNumber} : titre de meilleur contributeur attribué`);
+    if (count) this.logger.log(`${season.name} : titre de meilleur contributeur attribué`);
     return count > 0;
   }
 

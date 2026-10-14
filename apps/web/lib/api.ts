@@ -72,6 +72,8 @@ export interface Me {
   progress: { level: number; current: number; next: number };
   /** Adresse email confirmée (ou compte Google/Discord) : nécessaire pour écrire et proposer des clips */
   emailVerified: boolean;
+  /** Compte bloqué tant que l'adresse email n'est pas confirmée (inscription par email) */
+  mustVerifyEmail: boolean;
   /** CGU en vigueur acceptées */
   termsAccepted: boolean;
   /** Chat coupé par la modération jusqu'à cette date */
@@ -136,6 +138,7 @@ export const api = {
     authPost("/auth/password/reset", { token, password, passwordConfirm }),
   verifyEmail: (token: string) => post<void>("/auth/email/verify", { token }),
   resendVerification: () => post<{ sent: boolean }>("/auth/email/resend"),
+  changeEmail: (email: string, password: string) => post<{ sent: boolean }>("/auth/email/change", { email, password }),
   acceptTerms: () => post<void>("/users/me/terms", { accept: true }),
   logoutAll: () => post<void>("/auth/logout-all"),
   blocks: () => request<{ id: string; displayName: string; avatarUrl: string | null; blockedAt: string }[]>("/users/me/blocks"),

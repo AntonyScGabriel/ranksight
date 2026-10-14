@@ -7,7 +7,7 @@ export const metadata: Metadata = { title: "Questions fréquentes" };
 const QA: [string, React.ReactNode][] = [
   ["RankGuess est-il gratuit ?", "Oui. Tous les modes de jeu sont gratuits. Le VIP, optionnel, donne seulement un bonus d'XP et un badge."],
   ["À partir de quel âge peut-on jouer ?", `Il faut avoir au moins ${MIN_AGE} ans pour créer un compte.`],
-  ["Je n'ai pas reçu l'email de confirmation.", "Vérifie tes courriers indésirables, puis utilise « Renvoyer l'email » dans le bandeau en haut du site. Le lien est valable 48 heures."],
+  ["Je n'ai pas reçu l'email de confirmation.", "Vérifie tes courriers indésirables, puis utilise « Renvoyer l'email » sur la fenêtre de confirmation. Adresse mal saisie ? « Mauvaise adresse ? » permet de la corriger. Le lien est valable 48 heures ; le compte est activé dès qu'il est ouvert."],
   ["Pourquoi je ne peux pas écrire dans le chat ?", "Il faut d'abord confirmer ton adresse email. Si l'équipe a suspendu ton accès au chat, la date de fin est indiquée quand tu essaies d'écrire."],
   ["Mon compte est bloqué après plusieurs essais de mot de passe.", "Par sécurité, il est verrouillé 15 minutes après 10 mots de passe incorrects. Utilise « Mot de passe oublié » si besoin."],
   ["Comment proposer un clip ?", <>Depuis « Proposer un clip » : vidéo de 5 secondes à 1 minute, ton vrai rang, et ton pseudo en jeu (montré aux joueurs après leur réponse). Masque ton pseudo et ton rang dans la vidéo. Détails dans les <a href="/legal/cgu">conditions d&apos;utilisation</a>.</>],
@@ -19,7 +19,7 @@ const QA: [string, React.ReactNode][] = [
   ["J'ai reçu un code cadeau, comment l'utiliser ?", <>Connecte-toi sur le site, ouvre la <a href="/shop#code-cadeau">boutique</a> et saisis le code (RG-XXXX-XXXX-XXXX) dans « Tu as un code cadeau ? ». Les jours de VIP s&apos;ajoutent tout de suite.</>],
   ["Combien de défis du jour par jour ?", "3 clips par jeu, chaque jour, les mêmes pour tout le monde. Chaque défi se joue une seule fois ; ton score du jour additionne tous tes défis."],
   ["Puis-je mettre des accents dans mon pseudo ?", "Oui : lettres accentuées, chiffres, _ - et . (3 à 20 caractères). Deux pseudos qui ne diffèrent que par les accents ou les majuscules ne peuvent pas coexister."],
-  ["Comment gagner le titre « Contributeur » ?", <>Fais accepter le plus de clips pendant la saison : l&apos;onglet « Contributeurs » des <a href="/leaderboard?period=contributors">classements</a> montre le classement en cours. Le premier reçoit le titre à la fin du mois.</>],
+  ["Comment gagner le titre « Contributeur » ?", <>Fais accepter le plus de clips pendant la saison : l&apos;onglet « Contributeurs » des <a href="/leaderboard?period=contributors">classements</a> montre le classement en cours. Le premier reçoit le titre à la fin de la saison.</>],
   ["J'ai une idée pour améliorer le jeu.", <>Envoie-la depuis la page <a href="/suggestions">Suggestions</a> : l&apos;équipe lit chaque idée et te répond sur la même page.</>],
   ["Comment obtenir un titre ou un badge ?", <>En montant de niveau, en débloquant certains succès ou en finissant en haut du classement (ou des contributeurs) d&apos;une saison ; d&apos;autres sont attribués par l&apos;équipe (créateurs de contenu…). La page <a href="/rewards">Récompenses</a> indique pour chacun comment l&apos;obtenir.</>],
   ["Comment supprimer mon compte ?", <>Depuis ton profil, « Supprimer mon compte ». Tes données personnelles sont effacées immédiatement (détails sur la page <a href="/legal/suppression-compte">Supprimer son compte</a>).</>],

@@ -10,6 +10,7 @@ import { AuditModule } from "./common/audit/audit.module.js";
 import { HttpThrottlerGuard } from "./common/guards/http-throttler.guard.js";
 import { JwtAuthGuard } from "./common/guards/jwt-auth.guard.js";
 import { RolesGuard } from "./common/guards/roles.guard.js";
+import { EmailVerifiedGuard } from "./common/guards/email-verified.guard.js";
 import { PremiumGuard } from "./common/guards/premium.guard.js";
 import { AuthModule } from "./modules/auth/auth.module.js";
 import { UsersModule } from "./modules/users/users.module.js";
@@ -71,9 +72,10 @@ import { HealthController } from "./health.controller.js";
   ],
   controllers: [HealthController],
   providers: [
-    // Ordre : rate-limit → authentification → rôles → premium
+    // Ordre : rate-limit → authentification → adresse email confirmée → rôles → premium
     { provide: APP_GUARD, useClass: HttpThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: EmailVerifiedGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
     { provide: APP_GUARD, useClass: PremiumGuard },
   ],

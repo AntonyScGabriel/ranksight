@@ -1054,3 +1054,29 @@ model Suggestion {
   @@index([userId, createdAt])
   @@map("suggestions")
 }
+
+// ----------------------------------------------------------------------------
+// Saisons (dates libres, gérées dans l'administration)
+// ----------------------------------------------------------------------------
+
+model Season {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  /// Identifiant stable des classements et des archives : « 2026-10 » (premières saisons mensuelles), « saison-1 »…
+  key            String    @unique @db.VarChar(32)
+  /// Numéro affiché (Saison 1, 2…) ; NULL = saison hors numérotation (bêta, événement)
+  number         Int?      @unique
+  name           String    @db.VarChar(60)
+  startsAt       DateTime  @map("starts_at")
+  endsAt         DateTime  @map("ends_at")
+  /// Récompenses de fin de saison (titres Champion et Podium, badge Top 10, titre du meilleur contributeur)
+  rewardsEnabled Boolean   @default(true) @map("rewards_enabled")
+  /// Nom et couleur de chaque récompense
+  rewards        Json
+  /// Clôture : classement archivé et récompenses attribuées
+  closedAt       DateTime? @map("closed_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@index([startsAt])
+  @@map("seasons")
+}

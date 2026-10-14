@@ -1,10 +1,11 @@
+import { AllowUnverified } from "../../common/decorators/allow-unverified.decorator.js";
 import {
   Body, Controller, Get, HttpCode, Param, ParseEnumPipe, Post, Query, Req, Res, UnauthorizedException,
 } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import type { CookieOptions, Request, Response } from "express";
 import { z } from "zod";
-import { ForgotPasswordInput, LoginInput, ResetPasswordInput, SignupInput, TotpCodeInput } from "@ranksight/shared";
+import { Email, ForgotPasswordInput, LoginInput, ResetPasswordInput, SignupInput, TotpCodeInput } from "@ranksight/shared";
 import { Public } from "../../common/decorators/public.decorator.js";
 import { CurrentUser, type AuthUser } from "../../common/decorators/current-user.decorator.js";
 import { ZodPipe } from "../../common/pipes/zod.pipe.js";
@@ -19,6 +20,7 @@ const ExchangeBody = z.object({ code: z.string().min(20) });
 const RefreshBody = z.object({ refreshToken: z.string().optional(), client: Client });
 const LogoutBody = z.object({ refreshToken: z.string().optional() }).default({});
 const VerifyEmailBody = z.object({ token: z.string().min(20).max(200) });
+const ChangeEmailBody = z.object({ email: Email, password: z.string().min(1).max(200) });
 
 enum ProviderParam {
   google = "google",
@@ -35,6 +37,8 @@ function refreshCookie(): CookieOptions {
   return { ...cookieBase(), sameSite: "strict", path: "/v1/auth" };
 }
 
+/** Connexion, session, confirmation de l'adresse email et double authentification : accessibles avant la confirmation */
+@AllowUnverified()
 @Controller("auth")
 export class AuthController {
   constructor(
@@ -220,6 +224,14 @@ export class AuthController {
   @Throttle({ default: { ttl: 3_600_000, limit: 5 } })
   resendVerification(@CurrentUser() user: AuthUser) {
     return this.auth.sendVerification(user.sub);
+  }
+
+  /** POST /v1/auth/email/change — { email, password } : corrige une adresse pas encore confirmée et renvoie le lien */
+  @Post("email/change")
+  @HttpCode(200)
+  @Throttle({ default: { ttl: 3_600_000, limit: 5 } })
+  changeEmail(@CurrentUser() user: AuthUser, @Body(new ZodPipe(ChangeEmailBody)) body: z.infer<typeof ChangeEmailBody>) {
+    return this.auth.changeUnverifiedEmail(user.sub, body.email, body.password);
   }
 
   // ---------- Double authentification ----------

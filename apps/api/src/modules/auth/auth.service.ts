@@ -167,10 +167,32 @@ export class AuthService {
     await this.mail.send({
       to: user.email,
       subject: "Confirme ton adresse email RankGuess",
-      text: `Bonjour ${user.displayName},\n\nBienvenue sur RankGuess ! Confirme ton adresse email en ouvrant ce lien (valable 48 heures) :\n${link}\n\nSi tu n'as pas créé de compte, ignore cet email.`,
-      html: `<p>Bonjour ${escapeHtml(user.displayName)},</p><p>Bienvenue sur RankGuess ! Confirme ton adresse email (lien valable 48 heures) :</p><p><a href="${link}">Confirmer mon adresse email</a></p><p>Si tu n'as pas créé de compte, ignore cet email.</p>`,
+      text: `Bonjour ${user.displayName},\n\nBienvenue sur RankGuess ! Pour activer ton compte, confirme ton adresse email en ouvrant ce lien (valable 48 heures) :\n${link}\n\nSi tu n'as pas créé de compte, ignore cet email.`,
+      html: `<p>Bonjour ${escapeHtml(user.displayName)},</p><p>Bienvenue sur RankGuess ! Pour activer ton compte, confirme ton adresse email (lien valable 48 heures) :</p><p><a href="${link}">Activer mon compte</a></p><p>Si tu n'as pas créé de compte, ignore cet email.</p>`,
     });
     return { sent: true };
+  }
+
+  /**
+   * Adresse mal saisie à l'inscription : tant qu'elle n'est pas confirmée, le joueur peut la corriger (avec son mot de
+   * passe) ; un nouveau lien part aussitôt vers la nouvelle adresse.
+   */
+  async changeUnverifiedEmail(userId: string, email: string, password: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { email: true, emailVerifiedAt: true, passwordHash: true } });
+    if (!user) throw new UnauthorizedException();
+    if (user.emailVerifiedAt) throw new BadRequestException({ code: "ALREADY_VERIFIED", message: "Ton adresse email est déjà confirmée." });
+    if (!(await this.passwords.verify(password, user.passwordHash))) {
+      throw new UnauthorizedException({ code: "INVALID_CREDENTIALS", message: "Mot de passe incorrect." });
+    }
+    if (email !== user.email) {
+      if (await this.prisma.user.findUnique({ where: { email }, select: { id: true } })) {
+        throw new ConflictException({ code: "EMAIL_IN_USE", message: "Cette adresse email est déjà utilisée par un autre compte." });
+      }
+      await this.prisma.user.update({ where: { id: userId }, data: { email } });
+      // Nouvelle adresse : le délai entre deux envois ne s'applique pas
+      await this.redis.del(`verify:cooldown:${userId}`);
+    }
+    return this.sendVerification(userId);
   }
 
   async verifyEmail(token: string) {

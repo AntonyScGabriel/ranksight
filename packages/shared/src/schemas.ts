@@ -183,20 +183,96 @@ export const LeaderboardEntryDto = z.object({
 });
 export type LeaderboardEntryDto = z.infer<typeof LeaderboardEntryDto>;
 
-/** Clé de saison : mois au format AAAA-MM */
-export const SeasonKey = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Saison invalide");
+/**
+ * Clé de saison : identifiant stable utilisé dans les classements, les archives et les adresses
+ * (« 2026-10 » pour les premières saisons mensuelles, « saison-1 », « saison-2 »… ensuite).
+ */
+export const SeasonKey = z.string().regex(/^[a-z0-9][a-z0-9-]{0,31}$/, "Saison invalide");
+
+/** Récompenses de fin de saison : nom et couleur de chaque titre ou badge créé à la clôture */
+export const SeasonRewardDef = z.object({
+  name: z.string().trim().min(2, "Nom de récompense trop court.").max(40, "40 caractères maximum."),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/, "Couleur au format #RRGGBB."),
+});
+export type SeasonRewardDef = z.infer<typeof SeasonRewardDef>;
+export const SEASON_REWARD_SLOTS = ["champion", "podium", "top10", "contributor"] as const;
+export type SeasonRewardSlot = (typeof SEASON_REWARD_SLOTS)[number];
+export const SEASON_REWARD_LABEL: Record<SeasonRewardSlot, string> = {
+  champion: "Titre du 1er",
+  podium: "Titre du top 3",
+  top10: "Badge du top 10",
+  contributor: "Titre du meilleur contributeur",
+};
+export const SeasonRewards = z.object({
+  champion: SeasonRewardDef,
+  podium: SeasonRewardDef,
+  top10: SeasonRewardDef,
+  contributor: SeasonRewardDef,
+});
+export type SeasonRewards = z.infer<typeof SeasonRewards>;
+
+/** Récompenses proposées par défaut pour une nouvelle saison, d'après son nom */
+export function defaultSeasonRewards(name: string): SeasonRewards {
+  // « Saison 1 » → « Champion saison 1 » ; « Tournoi d'été » → « Champion Tournoi d'été »
+  const label = name.trim().replace(/^saison\b/i, "saison");
+  return {
+    champion: { name: `Champion ${label}`.slice(0, 40), color: "#FACC15" },
+    podium: { name: `Podium ${label}`.slice(0, 40), color: "#E5E7EB" },
+    top10: { name: `Top 10 ${label}`.slice(0, 40), color: "#A78BFA" },
+    contributor: { name: `Contributeur ${label}`.slice(0, 40), color: "#34D399" },
+  };
+}
+
+export const SeasonStatus = z.enum(["upcoming", "current", "to_close", "closed"]);
+export type SeasonStatus = z.infer<typeof SeasonStatus>;
+export const SEASON_STATUS_LABEL: Record<SeasonStatus, string> = {
+  upcoming: "À venir",
+  current: "En cours",
+  to_close: "À clôturer",
+  closed: "Clôturée",
+};
 
 export const SeasonDto = z.object({
   key: z.string(),
-  /** Saison 1 = premier mois de RankGuess */
-  number: z.number().int(),
-  /** « Saison 1 · octobre 2026 » */
+  /** Numéro affiché (Saison 1, 2…) ; null = saison hors numérotation (bêta, événement) */
+  number: z.number().int().nullable(),
+  /** « Saison bêta », « Saison 1 »… */
+  name: z.string(),
+  /** Libellé affiché (le nom) */
   label: z.string(),
   startsAt: z.string(),
   endsAt: z.string(),
   current: z.boolean(),
+  upcoming: z.boolean(),
+  closed: z.boolean(),
+  /** Récompenses attribuées à la clôture ; null = saison sans récompense */
+  rewards: SeasonRewards.nullable(),
 });
 export type SeasonDto = z.infer<typeof SeasonDto>;
+
+/** Création ou modification d'une saison par l'équipe (dates en ISO 8601) */
+export const SeasonInput = z
+  .object({
+    name: z.string().trim().min(3, "Nom trop court.").max(60, "60 caractères maximum."),
+    number: z.number().int().min(1).max(999).nullable(),
+    startsAt: z.string().datetime({ offset: true, message: "Date de début invalide." }),
+    endsAt: z.string().datetime({ offset: true, message: "Date de fin invalide." }),
+    rewardsEnabled: z.boolean(),
+    rewards: SeasonRewards,
+  })
+  .refine((s) => new Date(s.startsAt) < new Date(s.endsAt), { message: "La fin doit être après le début.", path: ["endsAt"] });
+export type SeasonInput = z.input<typeof SeasonInput>;
+
+export const AdminSeasonDto = SeasonDto.extend({
+  status: SeasonStatus,
+  rewardsEnabled: z.boolean(),
+  /** Récompenses configurées (même désactivées) */
+  rewardsConfig: SeasonRewards,
+  players: z.number().int(),
+  top: z.array(z.object({ rank: z.number().int(), userId: z.string(), username: z.string(), score: z.number() })),
+  closedAt: z.string().nullable(),
+});
+export type AdminSeasonDto = z.infer<typeof AdminSeasonDto>;
 
 /** Classement des contributeurs : saison (AAAA-MM) ou "all" (depuis le lancement) */
 export const ContributorsPeriod = z.union([z.literal("all"), SeasonKey]);

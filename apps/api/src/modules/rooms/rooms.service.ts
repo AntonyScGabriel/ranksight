@@ -22,6 +22,7 @@ import { PlayTokenService } from "../clips/play-token.service.js";
 import { flairSelect, toFlair } from "../cosmetics/flair.js";
 import { PushService } from "../notifications/notifications.module.js";
 import { canHostVipGames, isVip, vipSelect } from "../shop/vip.js";
+import { TokensService } from "../tokens/tokens.module.js";
 
 const SEC = 1000;
 /** Marge accordée à une réponse envoyée juste avant la fin du chrono (latence réseau) */
@@ -72,6 +73,7 @@ export class RoomsService {
     private readonly playTokens: PlayTokenService,
     private readonly gateway: ChatGateway,
     private readonly push: PushService,
+    private readonly tokens: TokensService,
     @Inject(REDIS) private readonly redis: Redis,
   ) {}
 
@@ -93,6 +95,7 @@ export class RoomsService {
         const room = await tx.room.create({
           data: {
             code, createdById: userId, hostId: userId, gameId: game.id, rounds: input.rounds, roundSec: input.roundSec, suddenDeath: input.suddenDeath,
+            confidence: input.confidence,
             maxPlayers: ROOM_MAX_PLAYERS, expiresAt: later(ROOM_LOBBY_TTL_MIN * 60 * SEC),
             players: { create: { userId } },
           },
@@ -111,7 +114,7 @@ export class RoomsService {
     const players = room.players.filter((p) => !p.leftAt);
     return {
       id: room.id, code: room.code, host: room.host.displayName, game: room.game, rounds: room.rounds, roundSec: room.roundSec,
-      suddenDeath: room.suddenDeath, players: players.length, maxPlayers: room.maxPlayers, status: room.status,
+      suddenDeath: room.suddenDeath, confidence: room.confidence, players: players.length, maxPlayers: room.maxPlayers, status: room.status,
       member: room.players.some((p) => p.userId === userId),
     };
   }
@@ -225,7 +228,11 @@ export class RoomsService {
       if (current.hostId === userId) await tx.room.update({ where: { id: roomId }, data: { hostId: remaining[0]!.userId } });
     });
     this.gateway.emitToUser(userId, ROOM_EVENT, { id: roomId });
-    if (finish) await this.finish(roomId);
+    if (finish) {
+      const current = await this.loadRoom(roomId);
+      if (current) await this.settle(current, current.currentRound);
+      await this.finish(roomId);
+    }
     else if (room.status === "ACTIVE") await this.checkRoundComplete(roomId);
     await this.notifyRoom(roomId);
   }
@@ -310,6 +317,8 @@ export class RoomsService {
     if (Date.now() > room.roundEndsAt.getTime() + ANSWER_GRACE) {
       throw new ConflictException({ code: "ROUND_OVER", message: "Temps écoulé : ta réponse n'a pas été prise en compte." });
     }
+    // Mode Confiance : mise sur les manches prévues (pas sur les manches décisives)
+    return { round: room.currentRound, staked: room.confidence && !current.suddenDeath };
   }
 
   /** Après une réponse : total du joueur recalculé ; la manche se termine dès que tous les joueurs concernés ont répondu. */
@@ -346,6 +355,7 @@ export class RoomsService {
   private async advance(roomId: string, round: number) {
     const room = await this.loadRoom(roomId);
     if (!room || room.status !== "ACTIVE" || room.currentRound !== round) return;
+    await this.settle(room, round);
     if (round < room.rounds) {
       const next = room.roundList[round];
       const startsAt = later(ROOM_REVEAL_SEC * SEC);
@@ -360,6 +370,12 @@ export class RoomsService {
       return;
     }
     await this.decide(room, round);
+  }
+
+  /** Mode Confiance : mises de la manche réglées (une seule fois, même si la fin de manche est traitée deux fois) */
+  private async settle(room: { id: string; confidence: boolean; roundList: { clipId: string; suddenDeath: boolean }[] }, round: number) {
+    const current = room.roundList[round - 1];
+    if (room.confidence && current && !current.suddenDeath) await this.tokens.settleRound(room.id, round, current.clipId);
   }
 
   /** Après la dernière manche prévue ou une manche décisive : vainqueur, nouvelle manche décisive ou victoire partagée. */
@@ -522,13 +538,21 @@ export class RoomsService {
       where: { roomId },
       select: { userId: true, clipId: true, score: true, guessedRank: { select: rankSelect } },
     });
+    const [stakes, me_] = await Promise.all([
+      room.confidence ? this.prisma.roomStake.findMany({ where: { roomId }, select: { round: true, userId: true, stake: true, payout: true } }) : [],
+      this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { tokenBalance: true } }),
+    ]);
+    const stakeOf = (round: number, uid: string) => stakes.find((x) => x.round === round && x.userId === uid);
     // Manches dévoilées : celles déjà terminées (toutes une fois la partie finie). Jamais le rang de la manche en cours.
     const resolved = room.status === "ACTIVE" ? room.currentRound - 1 : room.status === "FINISHED" ? rounds.length : 0;
     const details: RoomRoundDto[] = rounds.slice(0, resolved).map((r) => ({
       position: r.position + 1,
       suddenDeath: r.suddenDeath,
       correctRank: r.clip.rank,
-      answers: answers.filter((a) => a.clipId === r.clipId).map((a) => ({ userId: a.userId, rank: a.guessedRank, score: a.score })),
+      answers: answers.filter((a) => a.clipId === r.clipId).map((a) => {
+        const st = stakeOf(r.position + 1, a.userId);
+        return { userId: a.userId, rank: a.guessedRank, score: a.score, stake: st?.stake ?? null, payout: st?.payout ?? null };
+      }),
     }));
     const currentClip = current?.clipId;
     const answeredNow = new Set(currentClip ? answers.filter((a) => a.clipId === currentClip).map((a) => a.userId) : []);
@@ -546,6 +570,9 @@ export class RoomsService {
       roundSec: room.roundSec,
       maxPlayers: room.maxPlayers,
       suddenDeath: room.suddenDeath,
+      confidence: room.confidence,
+      myTokens: me_.tokenBalance,
+      myStake: room.status === "ACTIVE" ? (stakeOf(room.currentRound, userId)?.stake ?? null) : null,
       suddenDeathRounds: room.suddenDeathRounds,
       decidedBy: room.status === "FINISHED" ? (room.decidedBy as DecidedBy | null) : null,
       isHost: room.hostId === userId,
@@ -563,6 +590,10 @@ export class RoomsService {
         answered: answeredNow.has(p.userId),
         placement: p.placement,
         finalist: p.finalist,
+        // Bénéfice net sur les manches déjà réglées : les mises de la manche en cours restent cachées
+        tokensNet: room.confidence
+          ? stakes.filter((x) => x.userId === p.userId && x.payout !== null).reduce((sum, x) => sum + x.payout! - x.stake, 0)
+          : null,
       })),
       live: room.status === "ACTIVE" && room.roundStartsAt && room.roundEndsAt
         ? {

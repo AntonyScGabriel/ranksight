@@ -89,3 +89,40 @@ export function finalPlacements(
   placements(left).forEach((place, id) => out.set(id, stayed.length + place));
   return out;
 }
+
+// ---------- Mode Confiance (jetons virtuels) ----------
+
+/** Solde de départ, recharge quotidienne gratuite (jusqu'à ce seuil) et plafond de bénéfice net par jour */
+export const TOKENS_START = 20;
+export const TOKENS_DAILY_REFILL_TO = 10;
+export const TOKENS_DAILY_PROFIT_CAP = 100;
+export const CONFIDENCE_STAKES = [1, 2, 3] as const;
+export const CONFIDENCE_STAKE_LABEL: Record<number, string> = { 1: "Prudence", 2: "Confiance", 3: "Certitude" };
+
+export const CONFIDENCE_RULES = [
+  "Avant de valider, engage 1, 2 ou 3 jetons selon ta confiance ; ta mise et ta réponse sont alors verrouillées.",
+  "Rang exact : ta mise est rendue et tu gagnes 2 fois ta mise (bénéfice net : 2 × la mise).",
+  "Un rang d'écart : ta mise est rendue (bénéfice net : 0).",
+  "Deux rangs d'écart ou plus : tu perds seulement les jetons engagés.",
+  `Les jetons sont virtuels : ni achat, ni retrait, ni échange. Recharge gratuite chaque jour jusqu'à ${TOKENS_DAILY_REFILL_TO} jetons ; bénéfice plafonné à ${TOKENS_DAILY_PROFIT_CAP} jetons par jour.`,
+] as const;
+
+/**
+ * Jetons rendus à la fin de la manche (mise comprise) : exact → 3 × la mise, 1 rang d'écart → la mise, sinon 0.
+ * Bénéfice net = versement − mise. Une réponse au hasard fait perdre des jetons en moyenne.
+ */
+export function confidencePayout(stake: number, distance: number): number {
+  if (stake <= 0) return 0;
+  const d = Math.abs(distance);
+  return d === 0 ? stake * 3 : d === 1 ? stake : 0;
+}
+
+/**
+ * Plafond quotidien : le bénéfice net du jour (`profitToday`, mises déjà débitées comprises) ne dépasse pas `cap`.
+ * La mise d'une bonne réponse est toujours rendue, même plafond atteint.
+ */
+export function cappedPayout(payout: number, stake: number, profitToday: number, cap = TOKENS_DAILY_PROFIT_CAP): number {
+  if (payout <= stake) return payout;
+  const allowed = Math.max(0, cap - profitToday);
+  return Math.max(Math.min(payout, allowed), stake);
+}

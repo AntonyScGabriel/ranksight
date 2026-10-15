@@ -86,6 +86,8 @@ model User {
   totpRecovery    String[]   @default([]) @map("totp_recovery")
 
   notifyDaily     Boolean    @default(true) @map("notify_daily")
+  /// Jetons virtuels du mode Confiance : jamais achetables, transférables ni convertibles ; ne descend jamais sous 0
+  tokenBalance    Int        @default(20) @map("token_balance")
   createdAt       DateTime   @default(now()) @map("created_at")
   updatedAt       DateTime   @updatedAt @map("updated_at")
   deletedAt       DateTime?  @map("deleted_at")
@@ -114,6 +116,8 @@ model User {
   roomInvites      RoomInvite[]       @relation("roomInvitee")
   roomInvitesSent  RoomInvite[]       @relation("roomInviter")
   higherLowerRuns  HigherLowerRun[]
+  tokenTransactions TokenTransaction[]
+  roomStakes       RoomStake[]
   grantedPurchases Purchase[]         @relation("granter")
   giftsReceived    Purchase[]         @relation("giftRecipient")
   giftCodesCreated GiftCode[]         @relation("giftCodeCreator")
@@ -1126,6 +1130,8 @@ model Room {
   maxPlayers    Int        @default(8) @map("max_players")
   /// Option mort subite : en cas d'égalité en tête à la fin des manches prévues, manches décisives entre les ex aequo
   suddenDeath   Boolean    @default(false) @map("sudden_death")
+  /// Option Confiance : chaque réponse engage 1 à 3 jetons virtuels
+  confidence    Boolean    @default(false)
   /// Manches de mort subite déjà lancées (3 au maximum)
   suddenDeathRounds Int    @default(0) @map("sudden_death_rounds")
   /// Comment la première place a été attribuée : POINTS, SUDDEN_DEATH, SPEED (réponse la plus rapide), SHARED (égalité conservée)
@@ -1147,6 +1153,8 @@ model Room {
   roundList RoomRound[]
   invites   RoomInvite[]
   guesses   Guess[]
+  stakes    RoomStake[]
+  tokenTransactions TokenTransaction[]
 
   @@index([status, expiresAt])
   @@index([status, roundEndsAt])
@@ -1236,4 +1244,56 @@ model HigherLowerRun {
   @@index([userId, startedAt(sort: Desc)])
   @@index([userId, score(sort: Desc)])
   @@map("higher_lower_runs")
+}
+
+// ----------------------------------------------------------------------------
+// Jetons virtuels (mode Confiance). Ce ne sont pas de l'argent : ni achat, ni retrait, ni transfert entre comptes.
+// Le solde (users.token_balance) ne bouge que par des mouvements inscrits ici, chacun avec une clé unique.
+// ----------------------------------------------------------------------------
+
+enum TokenReason {
+  WELCOME      // solde de départ
+  DAILY_REFILL // recharge quotidienne gratuite (jusqu'à 10 jetons)
+  STAKE        // mise engagée sur une réponse
+  PAYOUT       // gain versé à la fin de la manche
+}
+
+model TokenTransaction {
+  id           String      @id @default(uuid(7)) @db.Uuid
+  userId       String      @map("user_id") @db.Uuid
+  /// Variation du solde (négative pour une mise)
+  delta        Int
+  balanceAfter Int         @map("balance_after")
+  reason       TokenReason
+  roomId       String?     @map("room_id") @db.Uuid
+  /// Manche du salon (1 = première)
+  round        Int?
+  /// Clé d'unicité : un même mouvement ne peut jamais être inscrit deux fois
+  key          String      @unique @db.VarChar(120)
+  createdAt    DateTime    @default(now()) @map("created_at")
+
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  room Room? @relation(fields: [roomId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("token_transactions")
+}
+
+/// Mise d'un joueur sur une manche d'un salon en mode Confiance (réglée à la fin de la manche)
+model RoomStake {
+  roomId    String    @map("room_id") @db.Uuid
+  round     Int
+  userId    String    @map("user_id") @db.Uuid
+  stake     Int
+  /// Jetons rendus à la fin de la manche (mise comprise) ; NULL tant que la manche n'est pas réglée
+  payout    Int?
+  settledAt DateTime? @map("settled_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([roomId, round, userId])
+  @@index([roomId, round, settledAt])
+  @@map("room_stakes")
 }

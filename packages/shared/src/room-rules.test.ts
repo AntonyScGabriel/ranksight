@@ -34,3 +34,19 @@ test("places finales", () => {
   const shared = finalPlacements(players, { sharedWinners: ["a", "b"], finalists: ["a", "b"] });
   assert.deepEqual(["a", "b", "c"].map((id) => shared.get(id)), [1, 1, 3]);
 });
+
+test("Confiance : versements", async () => {
+  const { confidencePayout, cappedPayout } = await import("./room-rules.js");
+  assert.deepEqual([1, 2, 3].map((s) => confidencePayout(s, 0)), [3, 6, 9], "exact : mise rendue + 2 × la mise");
+  assert.deepEqual([1, 2, 3].map((s) => confidencePayout(s, 1)), [1, 2, 3], "un rang d'écart : mise rendue");
+  assert.deepEqual([1, 2, 3].map((s) => confidencePayout(s, -2)), [0, 0, 0], "deux rangs ou plus : mise perdue");
+  assert.equal(confidencePayout(0, 0), 0);
+  // Espérance d'une réponse au hasard sur 9 rangs (milieu de l'échelle) : négative
+  const ev = [0, 1, 1, 2, 2, 3, 3, 4, 4].reduce((s, d) => s + confidencePayout(3, d) - 3, 0) / 9;
+  assert.ok(ev < 0, `espérance au hasard négative (${ev})`);
+  assert.equal(cappedPayout(9, 3, 95), 5, "plafond : bénéfice limité à ce qui reste");
+  assert.equal(cappedPayout(9, 3, 100), 3, "plafond atteint : mise rendue seulement");
+  assert.equal(cappedPayout(9, 3, 20), 9);
+  assert.equal(cappedPayout(2, 2, 200), 2, "un rang d'écart : toujours la mise");
+  assert.equal(cappedPayout(0, 2, 0), 0);
+});

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Pressable, ScrollView, Share, Text, View } from "react-native";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import {
-  DECIDED_BY_LABEL, ROOM_MIN_PLAYERS, ROOM_RULES, SUDDEN_DEATH_RULES, formatRoomCode, type RoomDto, type RoomPlayerDto, type RoomRoundDto, type UserSummaryDto,
+  CONFIDENCE_RULES, DECIDED_BY_LABEL, ROOM_MIN_PLAYERS, ROOM_RULES, SUDDEN_DEATH_RULES, formatRoomCode, type RoomDto, type RoomPlayerDto, type RoomRoundDto, type UserSummaryDto,
 } from "@ranksight/shared";
 import { api, WEB_URL } from "@/lib/api";
 import { useConfirm } from "@/lib/confirm";
@@ -82,6 +82,7 @@ export default function RoomScreen() {
             onSubmitted={() => live.markSubmitted(live.clip!.position)}
             onClosed={live.load}
             label={room.live?.suddenDeath ? "Mort subite" : undefined}
+            tokens={room.confidence && !room.live?.suddenDeath ? room.myTokens : undefined}
           />
         ) : (
           <Loading />
@@ -119,6 +120,7 @@ export default function RoomScreen() {
           <Muted center>
             {room.players.filter((p) => !p.left && p.answered).length}/{room.players.filter((p) => !p.left).length} joueurs ont répondu.
           </Muted>
+          {room.myStake !== null && <Text style={{ color: colors.warn, textAlign: "center" }}>Mise engagée : {room.myStake} jeton{room.myStake > 1 ? "s" : ""}</Text>}
           <TimerBar progress={live.roundProgress} />
         </Card>
       )}
@@ -154,6 +156,10 @@ function PlayerName({ p, meId }: { p: RoomPlayerDto; meId: string }) {
   );
 }
 
+function TokensNet({ n }: { n: number }) {
+  return <Text style={{ color: n > 0 ? colors.success : n < 0 ? colors.danger : colors.muted, fontSize: 12, fontWeight: "700" }}>{n > 0 ? `+${n}` : n} j.</Text>;
+}
+
 function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () => Promise<unknown>) => Promise<void> }) {
   const [friends, setFriends] = useState<UserSummaryDto[]>([]);
   const [invited, setInvited] = useState<Set<string>>(new Set());
@@ -171,7 +177,7 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
       <Card style={{ alignItems: "center", gap: 8 }}>
         <Hud>Code du salon</Hud>
         <Text selectable style={{ color: colors.neon, fontSize: 34, fontWeight: "700", letterSpacing: 5 }}>{code}</Text>
-        <Muted center>{room.game.name} · {room.rounds} manches · {room.roundSec} s{room.suddenDeath ? " · mort subite" : ""} · rejoindre est gratuit</Muted>
+        <Muted center>{room.game.name} · {room.rounds} manches · {room.roundSec} s{room.suddenDeath ? " · mort subite" : ""}{room.confidence ? " · Confiance" : ""} · rejoindre est gratuit</Muted>
         <View style={{ alignSelf: "stretch" }}>
           <GhostButton
             label="Partager l'invitation"
@@ -231,7 +237,7 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
 
       <Card style={{ gap: 6 }}>
         <Text style={{ color: colors.ink, fontSize: 16, fontWeight: "700" }}>Règles</Text>
-        {[...ROOM_RULES, ...(room.suddenDeath ? SUDDEN_DEATH_RULES : [])].map((r) => <Muted key={r}>• {r}</Muted>)}
+        {[...ROOM_RULES, ...(room.suddenDeath ? SUDDEN_DEATH_RULES : []), ...(room.confidence ? CONFIDENCE_RULES : [])].map((r) => <Muted key={r}>• {r}</Muted>)}
       </Card>
     </>
   );
@@ -247,6 +253,7 @@ function Scoreboard({ room, meId }: { room: RoomDto; meId: string }) {
           <Avatar name={p.displayName} url={p.avatarUrl} size={26} frame={p.flair.frame} />
           <PlayerName p={p} meId={meId} />
           {p.left ? <Text style={{ color: colors.muted, fontSize: 12 }}>parti</Text> : p.answered ? <Text style={{ color: colors.success }}>✓</Text> : null}
+          {p.tokensNet !== null && <TokensNet n={p.tokensNet} />}
           <Text style={{ width: 44, textAlign: "right", color: colors.ink, ...font.display }}>{p.score}</Text>
         </View>
       ))}
@@ -268,6 +275,7 @@ function RoundReveal({ round, players, meId }: { round: RoomRoundDto; players: R
           <View key={p.id} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <PlayerName p={p} meId={meId} />
             <Text style={{ color: colors.muted }} numberOfLines={1}>{a ? a.rank.name : "—"}</Text>
+            {a?.stake != null && <TokensNet n={(a.payout ?? 0) - a.stake} />}
             <Text style={{ width: 44, textAlign: "right", color: a && a.score > 0 ? colors.success : colors.muted, fontWeight: "700" }}>+{a?.score ?? 0}</Text>
           </View>
         );
@@ -306,6 +314,7 @@ function FinalResult({ room, meId }: { room: RoomDto; meId: string }) {
             <Text style={{ width: 22, textAlign: "center", color: p.placement === 1 ? colors.neon : colors.muted, ...font.display }}>{p.placement ?? "—"}</Text>
             <Avatar name={p.displayName} url={p.avatarUrl} size={30} frame={p.flair.frame} />
             <PlayerName p={p} meId={meId} />
+            {p.tokensNet !== null && <TokensNet n={p.tokensNet} />}
             <Text style={{ color: colors.ink, fontSize: 18, ...font.display }}>{p.score}</Text>
           </Pressable>
         ))}

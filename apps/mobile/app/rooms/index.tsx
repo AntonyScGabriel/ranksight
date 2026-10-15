@@ -3,7 +3,7 @@ import { Platform, Pressable, ScrollView, Switch, Text, TextInput, View } from "
 import { router, useFocusEffect } from "expo-router";
 import {
   GAME_NAMES, GAME_SLUGS, ROOM_DEFAULT_ROUNDS, ROOM_DEFAULT_TIME, ROOM_MAX_PLAYERS, ROOM_ROUND_CHOICES, ROOM_RULES, ROOM_STATUS_LABEL,
-  ROOM_TIME_CHOICES, normalizeRoomCode, type GameSlug, type RoomsOverviewDto,
+  ROOM_TIME_CHOICES, TOKEN_REASON_LABEL, normalizeRoomCode, type GameSlug, type RoomsOverviewDto, type TokensDto,
 } from "@ranksight/shared";
 import { api } from "@/lib/api";
 import { useChat } from "@/lib/chat";
@@ -43,6 +43,8 @@ export default function RoomsScreen() {
   const [rounds, setRounds] = useState<number>(ROOM_DEFAULT_ROUNDS);
   const [roundSec, setRoundSec] = useState<number>(ROOM_DEFAULT_TIME);
   const [suddenDeath, setSuddenDeath] = useState(true);
+  const [confidence, setConfidence] = useState(false);
+  const [tokens, setTokens] = useState<TokensDto | null>(null);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,6 +53,7 @@ export default function RoomsScreen() {
   const load = useCallback(() => {
     if (!me) return;
     api.rooms().then(setData, () => setData((d) => d ?? { canHost: false, current: null, invites: [], recent: [] }));
+    api.tokens().then(setTokens, () => undefined);
   }, [me]);
   useFocusEffect(load);
   useEffect(() => onRoom(load), [onRoom, load]);
@@ -78,7 +81,7 @@ export default function RoomsScreen() {
     setBusy(true);
     setError(null);
     try {
-      open((await api.createRoom({ game, rounds, roundSec, suddenDeath })).id);
+      open((await api.createRoom({ game, rounds, roundSec, suddenDeath, confidence })).id);
     } catch (e) {
       setError(errorMessage(e, "Le salon n'a pas pu être créé."));
     } finally {
@@ -163,6 +166,13 @@ export default function RoomsScreen() {
           </View>
           <Switch value={suddenDeath} onValueChange={setSuddenDeath} trackColor={{ true: colors.violet, false: colors.line }} accessibilityLabel="Mort subite" />
         </View>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: colors.ink, fontWeight: "700" }}>Mode Confiance</Text>
+            <Muted>Chaque réponse engage 1 à 3 jetons virtuels, jamais achetables.</Muted>
+          </View>
+          <Switch value={confidence} onValueChange={setConfidence} trackColor={{ true: colors.violet, false: colors.line }} accessibilityLabel="Mode Confiance" />
+        </View>
         {data.canHost ? (
           <PrimaryButton label="Créer le salon" disabled={busy} onPress={create} />
         ) : (
@@ -175,6 +185,30 @@ export default function RoomsScreen() {
         )}
         {error && <Text style={{ color: colors.danger }}>{error}</Text>}
       </Card>
+
+      {tokens && (
+        <Card style={{ gap: 8 }}>
+          <View style={{ flexDirection: "row", alignItems: "center" }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: colors.ink, fontSize: 16, fontWeight: "700" }}>Mes jetons</Text>
+              <Muted>Virtuels : ni achat, ni retrait, ni échange.</Muted>
+            </View>
+            <Text style={{ color: colors.warn, fontSize: 28, fontWeight: "800" }}>{tokens.balance}</Text>
+          </View>
+          {tokens.canRefill && (
+            <GhostButton
+              label={`Recharge gratuite du jour (jusqu'à ${tokens.refillTo})`}
+              onPress={() => void api.refillTokens().then(setTokens, (e) => setError(errorMessage(e)))}
+            />
+          )}
+          {tokens.history.slice(0, 5).map((t) => (
+            <View key={t.id} style={{ flexDirection: "row", justifyContent: "space-between" }}>
+              <Text style={{ color: colors.muted, flex: 1 }} numberOfLines={1}>{TOKEN_REASON_LABEL[t.reason]}{t.round ? ` · manche ${t.round}` : ""}</Text>
+              <Text style={{ color: t.delta >= 0 ? colors.success : colors.danger, fontWeight: "700" }}>{t.delta >= 0 ? `+${t.delta}` : t.delta}</Text>
+            </View>
+          ))}
+        </Card>
+      )}
 
       <Card style={{ gap: 6 }}>
         <Text style={{ color: colors.ink, fontSize: 16, fontWeight: "700" }}>Règles</Text>

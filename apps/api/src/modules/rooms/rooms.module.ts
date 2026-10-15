@@ -7,6 +7,7 @@ import { ZodPipe } from "../../common/pipes/zod.pipe.js";
 import { ChatModule } from "../chat/chat.module.js";
 import { ClipsModule } from "../clips/clips.module.js";
 import { RoomsService } from "./rooms.service.js";
+import { TokensModule } from "../tokens/tokens.module.js";
 
 @Controller("rooms")
 export class RoomsController {
@@ -92,7 +93,7 @@ export class RoomsController {
 }
 
 @Module({
-  imports: [ClipsModule, ChatModule],
+  imports: [ClipsModule, ChatModule, TokensModule],
   controllers: [RoomsController],
   providers: [RoomsService],
   exports: [RoomsService],

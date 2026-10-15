@@ -62,6 +62,8 @@ export const CreateRoomInput = z
     roundSec: z.coerce.number().int().refine((n) => (ROOM_TIME_CHOICES as readonly number[]).includes(n), "Temps de réponse non proposé.").default(ROOM_DEFAULT_TIME),
     /** Mort subite en cas d'égalité en tête */
     suddenDeath: z.boolean().default(false),
+    /** Mode Confiance : chaque réponse engage 1 à 3 jetons virtuels */
+    confidence: z.boolean().default(false),
   })
   .strict();
 export type CreateRoomInput = z.input<typeof CreateRoomInput>;
@@ -111,6 +113,8 @@ export const RoomPlayerDto = z.object({
   placement: z.number().int().nullable(),
   /** Dispute la mort subite (à égalité en tête) */
   finalist: z.boolean(),
+  /** Mode Confiance : bénéfice net en jetons sur les manches terminées (null hors mode Confiance) */
+  tokensNet: z.number().int().nullable(),
 });
 export type RoomPlayerDto = z.infer<typeof RoomPlayerDto>;
 
@@ -120,7 +124,11 @@ export const RoomRoundDto = z.object({
   /** Manche décisive (mort subite) */
   suddenDeath: z.boolean(),
   correctRank: RoomRankRef,
-  answers: z.array(z.object({ userId: z.string().uuid(), rank: RoomRankRef, score: z.number().int() })),
+  answers: z.array(z.object({
+    userId: z.string().uuid(), rank: RoomRankRef, score: z.number().int(),
+    /** Mode Confiance : jetons engagés et rendus (null sans mise) */
+    stake: z.number().int().nullable(), payout: z.number().int().nullable(),
+  })),
 });
 export type RoomRoundDto = z.infer<typeof RoomRoundDto>;
 
@@ -146,6 +154,11 @@ export const RoomDto = z.object({
   roundSec: z.number().int(),
   maxPlayers: z.number().int(),
   suddenDeath: z.boolean(),
+  confidence: z.boolean(),
+  /** Solde de jetons du joueur connecté (mode Confiance) */
+  myTokens: z.number().int(),
+  /** Mise du joueur connecté sur la manche en cours, une fois sa réponse envoyée */
+  myStake: z.number().int().nullable(),
   /** Manches de mort subite jouées */
   suddenDeathRounds: z.number().int(),
   /** Comment la première place a été attribuée (partie terminée) */
@@ -174,6 +187,7 @@ export const RoomPreviewDto = z.object({
   rounds: z.number().int(),
   roundSec: z.number().int(),
   suddenDeath: z.boolean(),
+  confidence: z.boolean(),
   players: z.number().int(),
   maxPlayers: z.number().int(),
   status: RoomStatus,
@@ -228,3 +242,34 @@ export const ROOM_RULES = [
   "Les réponses et le rang réel sont dévoilés à la fin de chaque manche.",
   "Le total le plus élevé gagne ; en cas d'égalité, la place est partagée.",
 ] as const;
+
+// ---------- Jetons virtuels ----------
+
+export const TokenReason = z.enum(["WELCOME", "DAILY_REFILL", "STAKE", "PAYOUT"]);
+export type TokenReason = z.infer<typeof TokenReason>;
+export const TOKEN_REASON_LABEL: Record<TokenReason, string> = {
+  WELCOME: "Solde de départ",
+  DAILY_REFILL: "Recharge quotidienne",
+  STAKE: "Mise",
+  PAYOUT: "Gain",
+};
+
+export const TokensDto = z.object({
+  balance: z.number().int(),
+  /** La recharge quotidienne est disponible (solde sous le seuil, pas encore utilisée aujourd'hui) */
+  canRefill: z.boolean(),
+  refillTo: z.number().int(),
+  /** Bénéfice net du jour et plafond */
+  profitToday: z.number().int(),
+  dailyProfitCap: z.number().int(),
+  history: z.array(z.object({
+    id: z.string().uuid(),
+    delta: z.number().int(),
+    balanceAfter: z.number().int(),
+    reason: TokenReason,
+    roomCode: z.string().nullable(),
+    round: z.number().int().nullable(),
+    createdAt: z.string(),
+  })),
+});
+export type TokensDto = z.infer<typeof TokensDto>;

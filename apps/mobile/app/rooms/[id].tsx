@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Pressable, ScrollView, Share, Text, View } from "react-native";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import {
-  CONFIDENCE_RULES, DECIDED_BY_LABEL, ROOM_MIN_PLAYERS, ROOM_RULES, SUDDEN_DEATH_RULES, formatRoomCode, type RoomDto, type RoomPlayerDto, type RoomRoundDto, type UserSummaryDto,
+  CONFIDENCE_RULES, DECIDED_BY_LABEL, ROOM_MIN_PLAYERS, ROOM_RULES, SUDDEN_DEATH_RULES, TEAM_COLORS, TEAM_NAMES, TEAM_RULES, formatRoomCode, type RoomDto, type RoomPlayerDto, type RoomRoundDto, type UserSummaryDto,
 } from "@ranksight/shared";
 import { api, WEB_URL } from "@/lib/api";
 import { useConfirm } from "@/lib/confirm";
@@ -147,11 +147,25 @@ export default function RoomScreen() {
 function PlayerName({ p, meId }: { p: RoomPlayerDto; meId: string }) {
   return (
     <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 5, minWidth: 0 }}>
+      {p.team ? <View accessibilityLabel={TEAM_NAMES[p.team]} style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: TEAM_COLORS[p.team] }} /> : null}
       <Text style={{ flexShrink: 1, color: colors.ink, fontWeight: "600" }} numberOfLines={1}>{p.id === meId ? "Toi" : p.displayName}</Text>
       <FlairBadge flair={p.flair} size={10} />
       {p.vip && <Text style={{ color: "black", backgroundColor: colors.warn, borderRadius: 3, paddingHorizontal: 4, fontSize: 9, fontWeight: "800", overflow: "hidden" }}>VIP</Text>}
       {p.isHost && <Text style={{ color: colors.warn, fontSize: 12 }} accessibilityLabel="Hôte du salon">★</Text>}
       {p.finalist && <Text style={{ color: colors.warn, fontSize: 10, fontWeight: "800" }} accessibilityLabel="Dispute la mort subite">MS</Text>}
+    </View>
+  );
+}
+
+function TeamTotals({ room }: { room: RoomDto }) {
+  return (
+    <View style={{ flexDirection: "row", gap: 8, alignSelf: "stretch" }}>
+      {room.teams.map((t) => (
+        <View key={t.team} style={{ flex: 1, alignItems: "center", borderWidth: 1, borderColor: `${TEAM_COLORS[t.team]}88`, borderRadius: 10, padding: 8 }}>
+          <Text style={{ color: TEAM_COLORS[t.team], fontSize: 12, fontWeight: "700" }}>{t.name}{t.placement === 1 && room.status === "FINISHED" ? " 🏆" : ""}</Text>
+          <Text style={{ color: colors.ink, fontSize: 20, fontWeight: "800" }}>{t.score}</Text>
+        </View>
+      ))}
     </View>
   );
 }
@@ -177,7 +191,7 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
       <Card style={{ alignItems: "center", gap: 8 }}>
         <Hud>Code du salon</Hud>
         <Text selectable style={{ color: colors.neon, fontSize: 34, fontWeight: "700", letterSpacing: 5 }}>{code}</Text>
-        <Muted center>{room.game.name} · {room.rounds} manches · {room.roundSec} s{room.suddenDeath ? " · mort subite" : ""}{room.confidence ? " · Confiance" : ""} · rejoindre est gratuit</Muted>
+        <Muted center>{room.game.name} · {room.rounds} manches · {room.roundSec} s{room.suddenDeath ? " · mort subite" : ""}{room.confidence ? " · Confiance" : ""}{room.teamSize ? ` · ${room.teamSize} contre ${room.teamSize}` : ""} · rejoindre est gratuit</Muted>
         <View style={{ alignSelf: "stretch" }}>
           <GhostButton
             label="Partager l'invitation"
@@ -191,7 +205,29 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
           <Text style={{ color: colors.ink, fontSize: 17, fontWeight: "700" }}>Joueurs</Text>
           <Text style={{ color: colors.muted }}>{active.length}/{room.maxPlayers} · {free > 0 ? `${free} libre${free > 1 ? "s" : ""}` : "complet"}</Text>
         </View>
-        {active.map((p) => (
+        {room.teamSize ? ([1, 2] as const).map((t) => {
+          const members = active.filter((p) => p.team === t);
+          const mine = room.players.find((p) => p.id === meId)?.team;
+          return (
+            <View key={t} style={{ gap: 6, borderWidth: 1, borderColor: `${TEAM_COLORS[t]}88`, borderRadius: 12, padding: 10 }}>
+              <Text style={{ color: TEAM_COLORS[t], fontWeight: "800" }}>{TEAM_NAMES[t]} · {members.length}/{room.teamSize}</Text>
+              {members.map((p) => (
+                <View key={p.id} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <Avatar name={p.displayName} url={p.avatarUrl} size={28} frame={p.flair.frame} />
+                  <PlayerName p={p} meId={meId} />
+                  {room.isHost && p.id !== meId && (
+                    <Pressable onPress={() => act(() => api.setRoomTeam(room.id, t === 1 ? 2 : 1, p.id))} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Changer ${p.displayName} d'équipe`}>
+                      <Text style={{ color: colors.muted }}>⇄</Text>
+                    </Pressable>
+                  )}
+                </View>
+              ))}
+              {mine !== t && members.length < room.teamSize! && (
+                <GhostButton label={`Rejoindre ${TEAM_NAMES[t]?.toLowerCase()}`} onPress={() => void act(() => api.setRoomTeam(room.id, t))} />
+              )}
+            </View>
+          );
+        }) : active.map((p) => (
           <View key={p.id} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
             <Avatar name={p.displayName} url={p.avatarUrl} size={34} frame={p.flair.frame} />
             <PlayerName p={p} meId={meId} />
@@ -205,7 +241,11 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
         {room.isHost ? (
           <>
             <PrimaryButton label="Lancer la partie" disabled={!room.canStart} onPress={() => act(() => api.startRoom(room.id))} />
-            {!room.canStart && <Muted center>Il faut au moins {ROOM_MIN_PLAYERS} joueurs pour lancer la partie.</Muted>}
+            {!room.canStart && (
+              <Muted center>
+                {room.teamSize ? `Il faut ${room.teamSize} joueurs dans chaque équipe pour lancer la partie.` : `Il faut au moins ${ROOM_MIN_PLAYERS} joueurs pour lancer la partie.`}
+              </Muted>
+            )}
           </>
         ) : (
           <Muted center>En attente du lancement par {host?.displayName ?? "l'hôte"}…</Muted>
@@ -237,7 +277,7 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
 
       <Card style={{ gap: 6 }}>
         <Text style={{ color: colors.ink, fontSize: 16, fontWeight: "700" }}>Règles</Text>
-        {[...ROOM_RULES, ...(room.suddenDeath ? SUDDEN_DEATH_RULES : []), ...(room.confidence ? CONFIDENCE_RULES : [])].map((r) => <Muted key={r}>• {r}</Muted>)}
+        {[...ROOM_RULES, ...(room.teamSize ? TEAM_RULES : []), ...(room.suddenDeath ? SUDDEN_DEATH_RULES : []), ...(room.confidence ? CONFIDENCE_RULES : [])].map((r) => <Muted key={r}>• {r}</Muted>)}
       </Card>
     </>
   );
@@ -247,6 +287,7 @@ function Scoreboard({ room, meId }: { room: RoomDto; meId: string }) {
   return (
     <Card style={{ gap: 8 }}>
       <Hud>{room.game.name} · classement en direct</Hud>
+      {room.teamSize ? <TeamTotals room={room} /> : null}
       {room.players.map((p, i) => (
         <View key={p.id} style={{ flexDirection: "row", alignItems: "center", gap: 8, opacity: p.left ? 0.5 : 1 }}>
           <Text style={{ width: 18, color: colors.muted, textAlign: "right" }}>{i + 1}</Text>
@@ -299,8 +340,11 @@ function FinalResult({ room, meId }: { room: RoomDto; meId: string }) {
       <Card style={{ alignItems: "center", gap: 4 }}>
         <Hud>Partie terminée · {room.game.name}</Hud>
         <Text style={{ color: me?.placement === 1 ? colors.success : colors.ink, fontSize: 26, ...font.display }}>
-          {me?.placement === 1 ? (winners.length > 1 ? "Victoire partagée !" : "Victoire !") : me?.placement ? `${me.placement}e place` : "Partie terminée"}
+          {room.teamSize
+            ? room.teams.every((t) => t.placement === 1) ? "Match nul" : me?.placement === 1 ? "Victoire de ton équipe !" : "Défaite de ton équipe"
+            : me?.placement === 1 ? (winners.length > 1 ? "Victoire partagée !" : "Victoire !") : me?.placement ? `${me.placement}e place` : "Partie terminée"}
         </Text>
+        {room.teamSize ? <TeamTotals room={room} /> : null}
         <Muted center>{winners.length > 1 ? `Égalité en tête : ${winners.map((w) => w.displayName).join(", ")}` : `Vainqueur : ${winners[0]?.displayName ?? "—"}`}</Muted>
         {room.decidedBy && room.decidedBy !== "POINTS" && <Text style={{ color: colors.warn, textAlign: "center" }}>{DECIDED_BY_LABEL[room.decidedBy]}</Text>}
       </Card>

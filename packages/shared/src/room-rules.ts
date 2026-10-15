@@ -9,12 +9,13 @@ import { placements } from "./rooms.js";
 /** Nombre maximal de manches de mort subite ; au-delà, la réponse la plus rapide départage */
 export const SUDDEN_DEATH_MAX_ROUNDS = 3;
 
-export type DecidedBy = "POINTS" | "SUDDEN_DEATH" | "SPEED" | "SHARED";
+export type DecidedBy = "POINTS" | "SUDDEN_DEATH" | "SPEED" | "SHARED" | "FORFEIT";
 export const DECIDED_BY_LABEL: Record<DecidedBy, string> = {
   POINTS: "Victoire aux points",
   SUDDEN_DEATH: "Victoire en mort subite",
   SPEED: "Victoire à la rapidité (mort subite toujours à égalité)",
   SHARED: "Victoire partagée",
+  FORFEIT: "Victoire par abandon de l'équipe adverse",
 };
 
 export const SUDDEN_DEATH_RULES = [
@@ -125,4 +126,42 @@ export function cappedPayout(payout: number, stake: number, profitToday: number,
   if (payout <= stake) return payout;
   const allowed = Math.max(0, cap - profitToday);
   return Math.max(Math.min(payout, allowed), stake);
+}
+
+// ---------- Duels par équipes ----------
+
+export const TEAM_SIZES = [2, 3] as const;
+export const TEAM_NAMES: Record<number, string> = { 1: "Équipe bleue", 2: "Équipe rouge" };
+export const TEAM_COLORS: Record<number, string> = { 1: "#3B82F6", 2: "#F43F5E" };
+
+export const TEAM_RULES = [
+  "Deux équipes de même taille ; tout le monde voit le même clip en même temps et répond seul.",
+  "Score d'une équipe : somme des points de ses joueurs (les joueurs partis gardent les points déjà marqués).",
+  "L'équipe au plus haut total gagne ; en cas d'égalité, mort subite entre les deux équipes si l'option est active, sinon match nul.",
+  "En mort subite : somme des points de la manche décisive, puis réponse moyenne la plus rapide.",
+] as const;
+
+/** Total de chaque équipe (1 et 2) à partir des points des joueurs */
+export function teamTotals(players: { team: number | null; score: number }[]): { id: string; score: number }[] {
+  return [1, 2].map((t) => ({ id: String(t), score: players.filter((p) => p.team === t).reduce((s, p) => s + p.score, 0) }));
+}
+
+/**
+ * Manche décisive par équipes : points des joueurs de l'équipe qui ont répondu (null si aucun),
+ * temps moyen de ceux qui ont répondu.
+ */
+export function teamSuddenDeathEntry(team: string, answers: { score: number; responseMs: number }[]): SuddenDeathEntry {
+  if (!answers.length) return { id: team, score: null, responseMs: null };
+  return {
+    id: team,
+    score: answers.reduce((s, a) => s + a.score, 0),
+    responseMs: Math.round(answers.reduce((s, a) => s + a.responseMs, 0) / answers.length),
+  };
+}
+
+/** Place de chaque équipe : vainqueur désigné, places partagées, ou selon les totaux */
+export function teamPlacements(totals: { id: string; score: number }[], decision: { winnerId?: string; sharedWinners?: string[] } = {}): Map<string, number> {
+  if (decision.winnerId) return new Map(totals.map((t) => [t.id, t.id === decision.winnerId ? 1 : 2]));
+  if (decision.sharedWinners?.length) return new Map(totals.map((t) => [t.id, 1]));
+  return placements(totals);
 }

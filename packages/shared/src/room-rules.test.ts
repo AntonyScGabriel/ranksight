@@ -50,3 +50,17 @@ test("Confiance : versements", async () => {
   assert.equal(cappedPayout(2, 2, 200), 2, "un rang d'écart : toujours la mise");
   assert.equal(cappedPayout(0, 2, 0), 0);
 });
+
+test("équipes : totaux, mort subite et places", async () => {
+  const { teamTotals, teamSuddenDeathEntry, teamPlacements, suddenDeathOutcome } = await import("./room-rules.js");
+  const totals = teamTotals([{ team: 1, score: 100 }, { team: 1, score: 20 }, { team: 2, score: 100 }, { team: 2, score: 5 }, { team: null, score: 999 }]);
+  assert.deepEqual(totals, [{ id: "1", score: 120 }, { id: "2", score: 105 }]);
+  assert.deepEqual([...teamPlacements(totals)], [["1", 1], ["2", 2]]);
+  assert.deepEqual([...teamPlacements([{ id: "1", score: 50 }, { id: "2", score: 50 }])], [["1", 1], ["2", 1]], "égalité : match nul");
+  assert.deepEqual([...teamPlacements(totals, { winnerId: "2" })], [["1", 2], ["2", 1]]);
+  const a = teamSuddenDeathEntry("1", [{ score: 100, responseMs: 2000 }, { score: 0, responseMs: 4000 }]);
+  const b = teamSuddenDeathEntry("2", [{ score: 20, responseMs: 1000 }, { score: 80, responseMs: 1000 }]);
+  assert.deepEqual(a, { id: "1", score: 100, responseMs: 3000 });
+  assert.equal(teamSuddenDeathEntry("2", []).score, null);
+  assert.deepEqual(suddenDeathOutcome([a, { ...b, score: 100 }], 3), { kind: "winner", winnerId: "2", decidedBy: "SPEED" }, "égalité : temps moyen le plus court");
+});

@@ -1132,6 +1132,8 @@ model Room {
   suddenDeath   Boolean    @default(false) @map("sudden_death")
   /// Option Confiance : chaque réponse engage 1 à 3 jetons virtuels
   confidence    Boolean    @default(false)
+  /// Duel par équipes : 2 (2 contre 2) ou 3 (3 contre 3) joueurs par équipe ; NULL = chacun pour soi
+  teamSize      Int?       @map("team_size")
   /// Manches de mort subite déjà lancées (3 au maximum)
   suddenDeathRounds Int    @default(0) @map("sudden_death_rounds")
   /// Comment la première place a été attribuée : POINTS, SUDDEN_DEATH, SPEED (réponse la plus rapide), SHARED (égalité conservée)
@@ -1174,6 +1176,8 @@ model RoomPlayer {
   placement Int?
   /// Joueur à égalité en tête qui dispute la mort subite
   finalist  Boolean   @default(false)
+  /// Duel par équipes : équipe 1 (bleue) ou 2 (rouge)
+  team      Int?
 
   room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

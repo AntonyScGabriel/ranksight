@@ -4,7 +4,7 @@ import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  CONFIDENCE_RULES, DECIDED_BY_LABEL, ROOM_MIN_PLAYERS, ROOM_RULES, SUDDEN_DEATH_RULES, formatRoomCode, type RoomDto, type RoomPlayerDto, type RoomRoundDto, type UserSummaryDto,
+  CONFIDENCE_RULES, DECIDED_BY_LABEL, ROOM_MIN_PLAYERS, ROOM_RULES, SUDDEN_DEATH_RULES, TEAM_COLORS, TEAM_NAMES, TEAM_RULES, formatRoomCode, type RoomDto, type RoomPlayerDto, type RoomRoundDto, type UserSummaryDto,
 } from "@ranksight/shared";
 import { api } from "@/lib/api";
 import { useConfirm } from "@/lib/confirm";
@@ -146,12 +146,68 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
 function PlayerName({ p, meId }: { p: RoomPlayerDto; meId: string }) {
   return (
     <span className="flex min-w-0 items-center gap-1.5">
+      {p.team && <span aria-label={TEAM_NAMES[p.team]} title={TEAM_NAMES[p.team]} className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: TEAM_COLORS[p.team] }} />}
       <span className="truncate">{p.id === meId ? "Toi" : p.displayName}</span>
       <FlairBadge flair={p.flair} size={11} />
       {p.vip && <VipBadge />}
       {p.isHost && <span title="Hôte du salon" className="text-xs text-warn">★</span>}
       {p.finalist && <span title="Dispute la mort subite" className="rounded bg-warn/15 px-1 text-[10px] font-bold text-warn">MS</span>}
     </span>
+  );
+}
+
+/** Duel par équipes : total de chaque équipe */
+function TeamTotals({ room }: { room: RoomDto }) {
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {room.teams.map((t) => (
+        <div key={t.team} className="rounded-xl border p-3 text-center" style={{ borderColor: `${TEAM_COLORS[t.team]}88`, background: `${TEAM_COLORS[t.team]}14` }}>
+          <p className="text-xs font-semibold" style={{ color: TEAM_COLORS[t.team] }}>{t.name}{t.placement === 1 && room.status === "FINISHED" ? " 🏆" : ""}</p>
+          <p className="font-display text-2xl font-bold">{t.score}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Salle d'attente d'un duel par équipes : une colonne par équipe, changement d'équipe, placement par l'hôte */
+function TeamsLobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () => Promise<unknown>) => Promise<void> }) {
+  const mine = room.players.find((p) => p.id === meId)?.team;
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      {([1, 2] as const).map((t) => {
+        const members = room.players.filter((p) => !p.left && p.team === t);
+        const freeSeats = room.teamSize! - members.length;
+        return (
+          <div key={t} className="space-y-2 rounded-xl border p-3" style={{ borderColor: `${TEAM_COLORS[t]}66` }}>
+            <div className="flex items-center justify-between">
+              <p className="font-semibold" style={{ color: TEAM_COLORS[t] }}>{TEAM_NAMES[t]}</p>
+              <p className="text-xs text-muted">{members.length}/{room.teamSize}</p>
+            </div>
+            <ul className="space-y-2">
+              {members.map((p) => (
+                <li key={p.id} className="flex items-center gap-2 text-sm">
+                  <Avatar name={p.displayName} url={p.avatarUrl} size={28} frame={p.flair.frame} />
+                  <div className="min-w-0 flex-1"><PlayerName p={p} meId={meId} /></div>
+                  {room.isHost && p.id !== meId && (
+                    <>
+                      <button onClick={() => act(() => api.setRoomTeam(room.id, t === 1 ? 2 : 1, p.id))} className="text-xs text-muted hover:text-ink" aria-label={`Changer ${p.displayName} d'équipe`}>⇄</button>
+                      <button onClick={() => act(() => api.kickFromRoom(room.id, p.id))} className="text-xs text-muted hover:text-danger" aria-label={`Retirer ${p.displayName}`}>Retirer</button>
+                    </>
+                  )}
+                </li>
+              ))}
+              {Array.from({ length: freeSeats }, (_, i) => (
+                <li key={i} className="rounded-lg border border-dashed border-line/60 p-2 text-center text-xs text-muted">Place libre</li>
+              ))}
+            </ul>
+            {mine !== t && freeSeats > 0 && (
+              <button onClick={() => act(() => api.setRoomTeam(room.id, t))} className="btn-ghost w-full !py-1.5 text-sm">Rejoindre {TEAM_NAMES[t]?.toLowerCase()}</button>
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -200,7 +256,7 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
         </div>
         <p className="text-sm text-muted">
           {room.game.name} · {room.rounds} manches · {room.roundSec} s par manche{room.suddenDeath ? " · mort subite" : ""}
-          {room.confidence ? " · mode Confiance" : ""} · rejoindre est gratuit
+          {room.confidence ? " · mode Confiance" : ""}{room.teamSize ? ` · ${room.teamSize} contre ${room.teamSize}` : ""} · rejoindre est gratuit
         </p>
       </div>
 
@@ -210,6 +266,9 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
             <h2 className="font-display text-lg font-semibold">Joueurs</h2>
             <p className="text-sm text-muted">{active.length}/{room.maxPlayers} · {free > 0 ? `${free} place${free > 1 ? "s" : ""} libre${free > 1 ? "s" : ""}` : "complet"}</p>
           </div>
+          {room.teamSize ? (
+            <TeamsLobby room={room} meId={meId} act={act} />
+          ) : (
           <ul className="grid gap-2 sm:grid-cols-2">
             {active.map((p) => (
               <li key={p.id} className="flex items-center gap-3 rounded-xl border border-line/60 bg-surface/60 p-3">
@@ -226,10 +285,15 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
               <li key={`free-${i}`} className="rounded-xl border border-dashed border-line/60 p-3 text-center text-sm text-muted">Place libre</li>
             ))}
           </ul>
+          )}
           {room.isHost ? (
             <div className="space-y-2">
               <button disabled={!room.canStart} onClick={() => act(() => api.startRoom(room.id))} className="btn-primary w-full sm:w-auto">Lancer la partie</button>
-              {!room.canStart && <p className="text-sm text-muted">Il faut au moins {ROOM_MIN_PLAYERS} joueurs pour lancer la partie.</p>}
+              {!room.canStart && (
+                <p className="text-sm text-muted">
+                  {room.teamSize ? `Il faut ${room.teamSize} joueurs dans chaque équipe pour lancer la partie.` : `Il faut au moins ${ROOM_MIN_PLAYERS} joueurs pour lancer la partie.`}
+                </p>
+              )}
             </div>
           ) : (
             <p className="text-sm text-muted">En attente du lancement par {host?.displayName ?? "l'hôte"}…</p>
@@ -265,7 +329,7 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
           <div className="glass space-y-2 p-6">
             <h2 className="font-display text-lg font-semibold">Règles</h2>
             <ul className="list-disc space-y-1 pl-5 text-sm text-muted">
-              {[...ROOM_RULES, ...(room.suddenDeath ? SUDDEN_DEATH_RULES : []), ...(room.confidence ? CONFIDENCE_RULES : [])].map((r) => <li key={r}>{r}</li>)}
+              {[...ROOM_RULES, ...(room.teamSize ? TEAM_RULES : []), ...(room.suddenDeath ? SUDDEN_DEATH_RULES : []), ...(room.confidence ? CONFIDENCE_RULES : [])].map((r) => <li key={r}>{r}</li>)}
             </ul>
           </div>
         </div>
@@ -279,6 +343,7 @@ function Scoreboard({ room, meId }: { room: RoomDto; meId: string }) {
   return (
     <aside className="glass h-fit space-y-3 p-5">
       <p className="hud-label">{room.game.name} · {room.live?.suddenDeath ? "mort subite" : `manche ${room.live?.round ?? room.rounds}/${room.rounds}`}</p>
+      {room.teamSize && <TeamTotals room={room} />}
       <ol className="space-y-2">
         {room.players.map((p, i) => (
           <li key={p.id} className={`flex items-center gap-2 text-sm ${p.left ? "opacity-50" : ""}`}>
@@ -338,12 +403,23 @@ function FinalResult({ room, meId }: { room: RoomDto; meId: string }) {
     <div className="space-y-6">
       <div className="glass space-y-2 p-8 text-center">
         <p className="hud-label">Partie terminée · {room.game.name}</p>
-        <p className="font-display text-3xl font-bold">
-          {me?.placement === 1 ? (winners.length > 1 ? "Victoire partagée !" : "Victoire !") : me?.placement ? `${me.placement}e place` : "Partie terminée"}
-        </p>
-        <p className="text-sm text-muted">
-          {winners.length > 1 ? `Égalité en tête : ${winners.map((w) => w.displayName).join(", ")}` : `Vainqueur : ${winners[0]?.displayName ?? "—"}`}
-        </p>
+        {room.teamSize ? (
+          <>
+            <p className="font-display text-3xl font-bold">
+              {room.teams.every((t) => t.placement === 1) ? "Match nul" : me?.placement === 1 ? "Victoire de ton équipe !" : "Défaite de ton équipe"}
+            </p>
+            <TeamTotals room={room} />
+          </>
+        ) : (
+          <>
+            <p className="font-display text-3xl font-bold">
+              {me?.placement === 1 ? (winners.length > 1 ? "Victoire partagée !" : "Victoire !") : me?.placement ? `${me.placement}e place` : "Partie terminée"}
+            </p>
+            <p className="text-sm text-muted">
+              {winners.length > 1 ? `Égalité en tête : ${winners.map((w) => w.displayName).join(", ")}` : `Vainqueur : ${winners[0]?.displayName ?? "—"}`}
+            </p>
+          </>
+        )}
         {room.decidedBy && room.decidedBy !== "POINTS" && <p className="text-sm text-warn">{DECIDED_BY_LABEL[room.decidedBy]}</p>}
       </div>
 

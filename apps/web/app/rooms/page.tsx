@@ -26,6 +26,7 @@ export default function RoomsPage() {
   const [roundSec, setRoundSec] = useState<number>(ROOM_DEFAULT_TIME);
   const [suddenDeath, setSuddenDeath] = useState(true);
   const [confidence, setConfidence] = useState(false);
+  const [teamSize, setTeamSize] = useState<0 | 2 | 3>(0);
   const [tokens, setTokens] = useState<TokensDto | null>(null);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
@@ -46,7 +47,7 @@ export default function RoomsPage() {
     setBusy(true);
     setError(null);
     try {
-      const room = await api.createRoom({ game, rounds, roundSec, suddenDeath, confidence });
+      const room = await api.createRoom({ game, rounds, roundSec, suddenDeath, confidence, teamSize });
       router.push(`/rooms/${room.id}`);
     } catch (e) {
       setError(errorMessage(e, "Le salon n'a pas pu être créé."));
@@ -158,7 +159,15 @@ export default function RoomsPage() {
             <h2 className="font-display text-xl font-semibold">Créer un salon</h2>
             <VipBadge />
           </div>
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <label className="space-y-1 text-sm">
+              <span className="hud-label">Format</span>
+              <select value={teamSize} onChange={(e) => setTeamSize(Number(e.target.value) as 0 | 2 | 3)} className="input">
+                <option value={0}>Chacun pour soi (2 à 8)</option>
+                <option value={2}>Équipes 2 contre 2</option>
+                <option value={3}>Équipes 3 contre 3</option>
+              </select>
+            </label>
             <label className="space-y-1 text-sm">
               <span className="hud-label">Jeu</span>
               <select value={game} onChange={(e) => setGame(e.target.value as GameSlug)} className="input">

@@ -108,6 +108,11 @@ model User {
   versusCreated    VersusMatch[]      @relation("versusCreator")
   versusJoined     VersusMatch[]      @relation("versusOpponent")
   versusWon        VersusMatch[]      @relation("versusWinner")
+  roomsHosted      Room[]             @relation("roomHost")
+  roomsCreated     Room[]             @relation("roomCreator")
+  roomSeats        RoomPlayer[]
+  roomInvites      RoomInvite[]       @relation("roomInvitee")
+  roomInvitesSent  RoomInvite[]       @relation("roomInviter")
   grantedPurchases Purchase[]         @relation("granter")
   giftsReceived    Purchase[]         @relation("giftRecipient")
   giftCodesCreated GiftCode[]         @relation("giftCodeCreator")
@@ -260,6 +265,7 @@ model Game {
   achievements Achievement[]
   dailies     DailyChallenge[]
   versus      VersusMatch[]
+  rooms       Room[]
 
   @@map("games")
 }
@@ -377,6 +383,7 @@ model Clip {
   reports   Report[]
   dailies   DailyChallenge[]
   versus    VersusClip[]
+  roomRounds RoomRound[]
 
   @@unique([id, gameId])
   @@index([status, gameId, difficulty])
@@ -415,6 +422,7 @@ enum GameMode {
   INFINITE
   VERSUS
   EXCLUSIVE // modes Premium (ex. "Pro scene", "Blind 10s")
+  ROOM      // salon privé (jusqu'à 8 joueurs)
 }
 
 model Guess {
@@ -426,6 +434,7 @@ model Guess {
   dailyChallengeId String?   @map("daily_challenge_id") @db.Uuid
   infiniteRunId    String?   @map("infinite_run_id") @db.Uuid
   versusMatchId    String?   @map("versus_match_id") @db.Uuid
+  roomId           String?   @map("room_id") @db.Uuid
   distance         Int
   score            Int
   xpGained         Int       @map("xp_gained")
@@ -440,12 +449,15 @@ model Guess {
   dailyChallenge DailyChallenge? @relation(fields: [dailyChallengeId], references: [id])
   infiniteRun    InfiniteRun?    @relation(fields: [infiniteRunId], references: [id])
   versusMatch    VersusMatch?    @relation(fields: [versusMatchId], references: [id], onDelete: Cascade)
+  room           Room?           @relation(fields: [roomId], references: [id], onDelete: Cascade)
 
   /// Une seule réponse par joueur et par défi quotidien, donc par jeu et par jour (NULL autorisés pour le mode Infini)
   @@unique([userId, dailyChallengeId])
   @@unique([userId, clipId, infiniteRunId])
   /// Une seule réponse par joueur et par clip d'un duel
   @@unique([userId, versusMatchId, clipId])
+  /// Une seule réponse par joueur et par clip d'un salon
+  @@unique([userId, roomId, clipId])
   @@index([userId, createdAt(sort: Desc)])
   @@index([clipId])
   @@map("guesses")
@@ -1079,4 +1091,102 @@ model Season {
 
   @@index([startsAt])
   @@map("seasons")
+}
+
+// ----------------------------------------------------------------------------
+// Salons privés : partie entre amis jusqu'à 8 joueurs, créée par un joueur VIP.
+// Seul le créateur doit être VIP ; rejoindre, jouer et voir les résultats est gratuit.
+// ----------------------------------------------------------------------------
+
+enum RoomStatus {
+  LOBBY    // salle d'attente : les joueurs rejoignent avec le code
+  ACTIVE   // partie en cours
+  FINISHED // partie terminée (résultats consultables)
+  CLOSED   // salon fermé avant le lancement (hôte parti, inactivité)
+}
+
+model Room {
+  id            String     @id @default(uuid(7)) @db.Uuid
+  /// Code d'invitation (8 caractères sans caractères ambigus), unique
+  code          String     @unique @db.VarChar(8)
+  /// Joueur VIP qui a créé le salon (droit vérifié en base à la création)
+  createdById   String     @map("created_by_id") @db.Uuid
+  /// Hôte actuel : le créateur, ou le joueur arrivé le plus tôt s'il est parti
+  hostId        String     @map("host_id") @db.Uuid
+  gameId        String     @map("game_id") @db.Uuid
+  status        RoomStatus @default(LOBBY)
+  rounds        Int
+  /// Temps de réponse par manche (secondes) ; allongé pour un clip plus long
+  roundSec      Int        @map("round_sec")
+  maxPlayers    Int        @default(8) @map("max_players")
+  /// Manche en cours (0 = pas commencé), début (après le compte à rebours) et fin de la manche
+  currentRound  Int        @default(0) @map("current_round")
+  roundStartsAt DateTime?  @map("round_starts_at")
+  roundEndsAt   DateTime?  @map("round_ends_at")
+  /// Salle d'attente fermée automatiquement à cette date si la partie n'a pas été lancée
+  expiresAt     DateTime   @map("expires_at")
+  createdAt     DateTime   @default(now()) @map("created_at")
+  startedAt     DateTime?  @map("started_at")
+  finishedAt    DateTime?  @map("finished_at")
+
+  createdBy User         @relation("roomCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  host      User         @relation("roomHost", fields: [hostId], references: [id], onDelete: Cascade)
+  game      Game         @relation(fields: [gameId], references: [id])
+  players   RoomPlayer[]
+  roundList RoomRound[]
+  invites   RoomInvite[]
+  guesses   Guess[]
+
+  @@index([status, expiresAt])
+  @@index([status, roundEndsAt])
+  @@index([createdById, createdAt(sort: Desc)])
+  @@map("rooms")
+}
+
+model RoomPlayer {
+  roomId    String    @map("room_id") @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  joinedAt  DateTime  @default(now()) @map("joined_at")
+  /// Départ pendant la partie : le joueur garde ses points mais ne répond plus
+  leftAt    DateTime? @map("left_at")
+  /// Total recalculé par le serveur à partir des réponses
+  score     Int       @default(0)
+  /// Place finale (1 = vainqueur, places partagées en cas d'égalité)
+  placement Int?
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([roomId, userId])
+  @@index([userId, joinedAt(sort: Desc)])
+  @@map("room_players")
+}
+
+model RoomRound {
+  roomId   String @map("room_id") @db.Uuid
+  position Int
+  clipId   String @map("clip_id") @db.Uuid
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  clip Clip @relation(fields: [clipId], references: [id])
+
+  @@id([roomId, position])
+  @@unique([roomId, clipId])
+  @@map("room_rounds")
+}
+
+/// Invitation d'un ami dans un salon (valable tant que le salon est en salle d'attente)
+model RoomInvite {
+  roomId      String   @map("room_id") @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  invitedById String   @map("invited_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  room      Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user      User @relation("roomInvitee", fields: [userId], references: [id], onDelete: Cascade)
+  invitedBy User @relation("roomInviter", fields: [invitedById], references: [id], onDelete: Cascade)
+
+  @@id([roomId, userId])
+  @@index([userId])
+  @@map("room_invites")
 }

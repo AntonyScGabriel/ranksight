@@ -70,7 +70,7 @@ export const PlayableClipDto = z.object({
   videoUrl: z.string(),
   posterUrl: z.string().nullable(),
   durationSec: z.number(),
-  mode: z.enum(["DAILY", "INFINITE", "VERSUS"]),
+  mode: z.enum(["DAILY", "INFINITE", "VERSUS", "ROOM"]),
   dailyDate: z.string().nullable(),
   difficulty: z.number().int().min(1).max(5),
 });
@@ -104,6 +104,14 @@ export const GuessResultDto = z.object({
   unlockedRewards: z.array(CosmeticRefDto),
 });
 export type GuessResultDto = z.infer<typeof GuessResultDto>;
+
+/** Réponse enregistrée pendant un duel ou un salon : rien n'est dévoilé (rang réel, score) avant la fin de la manche */
+export const LiveGuessAckDto = z.object({
+  guessId: z.string().uuid(),
+  pending: z.literal(true),
+  live: z.object({ position: z.number().int(), rounds: z.number().int() }),
+});
+export type LiveGuessAckDto = z.infer<typeof LiveGuessAckDto>;
 
 // ---------- Défis du jour (3 par jeu) ----------
 
@@ -729,6 +737,7 @@ export type ShopCatalogDto = z.infer<typeof ShopCatalogDto>;
 export const VIP_PERKS = [
   "+50 % d'XP sur chaque réponse (défis du jour et mode Infini)",
   "Badge VIP à côté de ton pseudo (classements, chat, profil)",
+  "Création de salons privés jusqu'à 8 joueurs : tes amis rejoignent et jouent gratuitement",
   "Soutien direct au développement de RankGuess",
 ] as const;
 

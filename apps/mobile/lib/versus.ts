@@ -1,10 +1,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { VERSUS_HEARTBEAT_SEC, type PlayableClipDto, type VersusMatchDto } from "@ranksight/shared";
+import { VERSUS_HEARTBEAT_SEC, type VersusMatchDto } from "@ranksight/shared";
+import type { LiveClip } from "@/components/LiveRound";
 import { api } from "./api";
 import { useChat } from "./chat";
 
-export type VersusClip = PlayableClipDto & { position: number; rounds: number; endsAt: string; serverNow: string };
+export type VersusClip = LiveClip;
 export type DuelPhase = "waiting" | "invited" | "countdown" | "playing" | "answered" | "timeout" | "over";
 
 /**

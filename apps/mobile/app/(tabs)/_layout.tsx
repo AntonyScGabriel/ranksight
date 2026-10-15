@@ -7,7 +7,7 @@ import { colors } from "@/lib/theme";
 const icon = (glyph: string) => ({ color }: { color: ColorValue }) => <Text style={{ color, fontSize: 18 }}>{glyph}</Text>;
 
 export default function TabsLayout() {
-  const { unread, versusPending } = useChat();
+  const { unread, versusPending, roomInvites } = useChat();
   const { me } = useSession();
   const newRewards = me?.newRewards ?? 0;
   return (
@@ -28,7 +28,7 @@ export default function TabsLayout() {
       <Tabs.Screen name="infinite" options={{ title: "Infini", tabBarIcon: icon("∞") }} />
       <Tabs.Screen
         name="versus"
-        options={{ title: "Duels", tabBarIcon: icon("⚔"), tabBarBadge: versusPending > 0 ? versusPending : undefined }}
+        options={{ title: "Duels", tabBarIcon: icon("⚔"), tabBarBadge: versusPending + roomInvites > 0 ? versusPending + roomInvites : undefined }}
       />
       <Tabs.Screen name="leaderboard" options={{ title: "Classements", tabBarLabel: "Top", tabBarIcon: icon("▲") }} />
       <Tabs.Screen name="chat" options={{ title: "Chat global", tabBarLabel: "Chat", tabBarIcon: icon("✉") }} />

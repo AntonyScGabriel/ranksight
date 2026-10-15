@@ -1,20 +1,19 @@
 "use client";
 
-import { use, useCallback, useRef, useState } from "react";
+import { use, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { VERSUS_STATUS_LABEL, type FlairDto, type VersusMatchDto, type VersusRoundDto } from "@ranksight/shared";
-import { api, ApiError, media } from "@/lib/api";
+import { api } from "@/lib/api";
 import { useConfirm } from "@/lib/confirm";
 import { useSession } from "@/lib/session";
-import { useLiveDuel, type VersusClip } from "@/lib/versus";
+import { useLiveDuel } from "@/lib/versus";
 import { Avatar } from "@/components/Header";
 import { FlairBadge, TitleText } from "@/components/Flair";
 import { errorMessage } from "@/components/AuthForm";
-import { ClipPlayer } from "@/components/ClipPlayer";
+import { LiveRound, TimerBar } from "@/components/LiveRound";
 import { PlayerLink } from "@/components/PlayerLink";
 import { RankEmblem } from "@/components/RankEmblem";
-import { RankPicker } from "@/components/RankPicker";
 import { LoginRequired, Panel, Skeleton } from "@/components/States";
 
 /** Duel en direct : attente de l'adversaire, manches synchronisées avec chrono, révélation des réponses, résultat. */
@@ -136,14 +135,6 @@ export default function VersusMatchPage({ params }: { params: Promise<{ id: stri
   );
 }
 
-function TimerBar({ progress }: { progress: number }) {
-  return (
-    <div className="h-2 overflow-hidden rounded-full bg-surface-2" aria-hidden>
-      <div className={`h-full transition-[width] duration-200 ${progress < 0.25 ? "bg-danger" : "bg-neon"}`} style={{ width: `${progress * 100}%` }} />
-    </div>
-  );
-}
-
 /** Tableau des scores : les deux joueurs, la manche en cours ou le statut. */
 function Scoreboard({ match }: { match: VersusMatchDto }) {
   const opp = match.opponent;
@@ -177,50 +168,6 @@ function Side({
     </div>
   );
   return id ? <PlayerLink id={id}>{content}</PlayerLink> : content;
-}
-
-/** Manche en cours : clip, choix du rang et chrono. Le résultat n'est dévoilé qu'à la fin de la manche, pour les deux joueurs. */
-function LiveRound({
-  clip, secondsLeft, progress, onSubmitted, onClosed,
-}: { clip: VersusClip; secondsLeft: number; progress: number; onSubmitted: () => void; onClosed: () => void }) {
-  const [rankId, setRankId] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const watchedMs = useRef(0);
-  const onWatched = useCallback((ms: number) => { watchedMs.current = ms; }, []);
-
-  const submit = async () => {
-    if (!rankId) return;
-    setPending(true);
-    setError(null);
-    try {
-      await api.guess({ playToken: clip.playToken, rankId, watchedMs: watchedMs.current });
-      onSubmitted();
-    } catch (e) {
-      if (e instanceof ApiError && (e.code === "ROUND_OVER" || e.code === "ALREADY_ANSWERED")) onClosed();
-      setError(errorMessage(e, "Ta réponse n'a pas pu être envoyée, réessaie."));
-      setPending(false);
-    }
-  };
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <p className="hud-label">Manche {clip.position}/{clip.rounds} · {clip.game.name}</p>
-        <p className={`font-display text-2xl font-bold ${secondsLeft <= 5 ? "text-danger" : ""}`} aria-live="polite">{secondsLeft} s</p>
-      </div>
-      <TimerBar progress={progress} />
-      <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
-        <ClipPlayer src={media(clip.videoUrl)} poster={clip.posterUrl ? media(clip.posterUrl) : null} onWatched={onWatched} />
-        <div className="glass space-y-5 p-6">
-          <h2 className="font-display text-2xl font-bold">Quel est son rang&nbsp;?</h2>
-          <RankPicker ranks={clip.ranks} value={rankId} onChange={setRankId} disabled={pending} />
-          {error && <p className="text-sm text-danger">{error}</p>}
-          <button onClick={submit} disabled={!rankId || pending} className="btn-primary w-full">{pending ? "Envoi…" : "Valider"}</button>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 /** Révélation de la manche qui vient de se terminer : rang réel et réponses des deux joueurs. */

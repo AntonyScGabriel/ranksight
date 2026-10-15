@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { GAME_NAMES, GAME_SLUGS, type UserSummaryDto, type VersusMatchDto, type VersusStatsDto } from "@ranksight/shared";
 import { api } from "@/lib/api";
@@ -81,6 +82,14 @@ export default function VersusPage() {
           <div><p className="font-display text-xl font-bold text-danger">{data.stats.losses}</p><p className="hud-label">Défaites</p></div>
         </div>
       </header>
+
+      <Link href="/rooms" className="glass flex flex-wrap items-center justify-between gap-3 p-5 transition hover:border-violet">
+        <div>
+          <p className="font-display text-lg font-semibold">Salons privés <span className="text-sm font-normal text-muted">· jusqu&apos;à 8 joueurs</span></p>
+          <p className="text-sm text-muted">Joue avec tes amis grâce à un code. Seul le créateur du salon doit être VIP.</p>
+        </div>
+        <span className="btn-ghost">Ouvrir</span>
+      </Link>
 
       <div className="glass space-y-4 p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">

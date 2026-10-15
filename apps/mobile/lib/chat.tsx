@@ -1,7 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
 import { io, type Socket } from "socket.io-client";
-import { CHAT_EVENTS, GLOBAL_CHAT_EVENTS, VERSUS_EVENT, type ChatMessageDto, type GlobalMessageDto, type VersusMatchDto } from "@ranksight/shared";
+import {
+  CHAT_EVENTS, GLOBAL_CHAT_EVENTS, ROOM_EVENT, ROOM_INVITE_EVENT, VERSUS_EVENT,
+  type ChatMessageDto, type GlobalMessageDto, type RoomInviteDto, type VersusMatchDto,
+} from "@ranksight/shared";
 import { api, API_ORIGIN, tokens } from "./api";
 import { useSession } from "./session";
 
@@ -27,10 +30,18 @@ interface ChatValue {
   /** Dernière invitation reçue à un duel en direct (bandeau « Rejoindre ») */
   invite: VersusMatchDto | null;
   dismissInvite: () => void;
+  /** Salons privés : un salon du joueur a changé (arrivée, départ, manche, fin) ou une invitation est arrivée */
+  onRoom: (fn: (e: { id: string }) => void) => () => void;
+  /** Invitations dans un salon privé (badge de l'onglet Duels) */
+  roomInvites: number;
+  /** Dernière invitation reçue dans un salon privé (bandeau « Voir ») */
+  roomInvite: RoomInviteDto | null;
+  dismissRoomInvite: () => void;
 }
 
 const ChatContext = createContext<ChatValue>({
   unread: 0, refreshUnread: () => {}, onMessage: () => () => {}, joinGlobal: () => () => {}, socket: null, onVersus: () => () => {}, versusPending: 0, invite: null, dismissInvite: () => {},
+  onRoom: () => () => {}, roomInvites: 0, roomInvite: null, dismissRoomInvite: () => {},
 });
 
 /**
@@ -48,6 +59,19 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [versusPending, setVersusPending] = useState(0);
   const [invite, setInvite] = useState<VersusMatchDto | null>(null);
   const seenInvites = useRef(new Set<string>());
+
+  const roomListeners = useRef(new Set<(e: { id: string }) => void>());
+  const [roomInvites, setRoomInvites] = useState(0);
+  const [roomInvite, setRoomInvite] = useState<RoomInviteDto | null>(null);
+  const seenRoomInvites = useRef(new Set<string>());
+  const refreshRooms = useCallback(() => {
+    api.rooms().then((r) => {
+      setRoomInvites(r.invites.length);
+      const fresh = r.invites.find((i) => !seenRoomInvites.current.has(i.roomId));
+      r.invites.forEach((i) => seenRoomInvites.current.add(i.roomId));
+      setRoomInvite((current) => fresh ?? (current && r.invites.some((i) => i.roomId === current.roomId) ? current : null));
+    }, () => undefined);
+  }, []);
 
   const refreshUnread = useCallback(() => {
     api.unread().then((r) => setUnread(r.unread)).catch(() => undefined);
@@ -67,6 +91,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     if (!me) return;
     refreshUnread();
     refreshVersus();
+    refreshRooms();
     // Le jeton est relu à chaque (re)connexion : il peut avoir été renouvelé entre-temps
     const s = io(`${API_ORIGIN}/ws/chat`, {
       transports: ["websocket"],
@@ -83,6 +108,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       versusListeners.current.forEach((fn) => fn(e));
       refreshVersus();
     });
+    s.on(ROOM_EVENT, (e: { id: string }) => roomListeners.current.forEach((fn) => fn(e)));
+    s.on(ROOM_INVITE_EVENT, (e: { id: string }) => {
+      roomListeners.current.forEach((fn) => fn(e));
+      refreshRooms();
+    });
     s.on(GLOBAL_CHAT_EVENTS.message, (m: GlobalMessageDto) => globalHandlers.current.forEach((h) => h.onMessage(m)));
     s.on(GLOBAL_CHAT_EVENTS.deleted, (p: { id: string }) => globalHandlers.current.forEach((h) => h.onDeleted(p)));
     s.on(GLOBAL_CHAT_EVENTS.settings, (p: { slowModeSec: number }) => globalHandlers.current.forEach((h) => h.onSettings?.(p)));
@@ -95,6 +125,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       if (state !== "active") return;
       refreshUnread();
       refreshVersus();
+      refreshRooms();
     });
     return () => {
       sub.remove();
@@ -102,7 +133,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       socketRef.current = null;
       setSocket(null);
     };
-  }, [me, refreshUnread, refreshVersus]);
+  }, [me, refreshUnread, refreshVersus, refreshRooms]);
 
   const onMessage = useCallback((fn: Listener) => {
     listeners.current.add(fn);
@@ -127,10 +158,18 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  const onRoom = useCallback((fn: (e: { id: string }) => void) => {
+    roomListeners.current.add(fn);
+    return () => {
+      roomListeners.current.delete(fn);
+    };
+  }, []);
+
   return (
     <ChatContext.Provider
       value={{ unread: me ? unread : 0, refreshUnread, onMessage, joinGlobal, socket, onVersus, versusPending: me ? versusPending : 0,
         invite: me ? invite : null, dismissInvite: () => setInvite(null),
+        onRoom, roomInvites: me ? roomInvites : 0, roomInvite: me ? roomInvite : null, dismissRoomInvite: () => setRoomInvite(null),
       }}
     >{children}</ChatContext.Provider>
   );

@@ -27,8 +27,8 @@ export function TimerBar({ progress }: { progress: number }) {
 
 /** Manche en direct (duel ou salon) : clip (avec le son), choix du rang, chrono. Le résultat est dévoilé à la fin de la manche. */
 export function LiveRound({
-  clip, secondsLeft, progress, onSubmitted, onClosed,
-}: { clip: LiveClip; secondsLeft: number; progress: number; onSubmitted: () => void; onClosed: () => void }) {
+  clip, secondsLeft, progress, onSubmitted, onClosed, label,
+}: { clip: LiveClip; secondsLeft: number; progress: number; onSubmitted: () => void; onClosed: () => void; label?: string }) {
   const [rankId, setRankId] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,7 +65,7 @@ export function LiveRound({
   return (
     <ScrollView contentContainerStyle={{ gap: 12, paddingBottom: 40 }}>
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-        <Text style={font.hud}>Manche {clip.position}/{clip.rounds} · {clip.game.name}</Text>
+        <Text style={font.hud}>{label ?? `Manche ${clip.position}/${clip.rounds}`} · {clip.game.name}</Text>
         <Text style={{ color: secondsLeft <= 5 ? colors.danger : colors.ink, fontSize: 22, ...font.display }}>{secondsLeft} s</Text>
       </View>
       <TimerBar progress={progress} />

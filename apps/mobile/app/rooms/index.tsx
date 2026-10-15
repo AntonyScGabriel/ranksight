@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { Platform, Pressable, ScrollView, Switch, Text, TextInput, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import {
   GAME_NAMES, GAME_SLUGS, ROOM_DEFAULT_ROUNDS, ROOM_DEFAULT_TIME, ROOM_MAX_PLAYERS, ROOM_ROUND_CHOICES, ROOM_RULES, ROOM_STATUS_LABEL,
@@ -42,6 +42,7 @@ export default function RoomsScreen() {
   const [game, setGame] = useState<GameSlug>(GAME_SLUGS[0]);
   const [rounds, setRounds] = useState<number>(ROOM_DEFAULT_ROUNDS);
   const [roundSec, setRoundSec] = useState<number>(ROOM_DEFAULT_TIME);
+  const [suddenDeath, setSuddenDeath] = useState(true);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -77,7 +78,7 @@ export default function RoomsScreen() {
     setBusy(true);
     setError(null);
     try {
-      open((await api.createRoom({ game, rounds, roundSec })).id);
+      open((await api.createRoom({ game, rounds, roundSec, suddenDeath })).id);
     } catch (e) {
       setError(errorMessage(e, "Le salon n'a pas pu être créé."));
     } finally {
@@ -155,6 +156,13 @@ export default function RoomsScreen() {
         <Chips value={rounds} options={ROOM_ROUND_CHOICES} onChange={setRounds} label={(n) => String(n)} />
         <Hud>Temps de réponse</Hud>
         <Chips value={roundSec} options={ROOM_TIME_CHOICES} onChange={setRoundSec} label={(n) => `${n} s`} />
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: colors.ink, fontWeight: "700" }}>Mort subite</Text>
+            <Muted>En cas d&apos;égalité en tête, manche décisive entre les ex aequo.</Muted>
+          </View>
+          <Switch value={suddenDeath} onValueChange={setSuddenDeath} trackColor={{ true: colors.violet, false: colors.line }} accessibilityLabel="Mort subite" />
+        </View>
         {data.canHost ? (
           <PrimaryButton label="Créer le salon" disabled={busy} onPress={create} />
         ) : (

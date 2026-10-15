@@ -157,6 +157,12 @@ pour tester Google sur téléphone, expose l'API avec une adresse publique (tunn
     devient hôte (l'hôte ne peut ni modifier les réponses ni les scores). Totaux recalculés par le serveur, places partagées
     en cas d'égalité, joueurs partis classés après les autres. Les salons rapportent de l'XP mais ne comptent dans aucun
     classement ; les réponses apparaissent dans l'historique du joueur (administration).
+  - **Mort subite** (option à la création, cochée par défaut) : en cas d'égalité en tête à la fin des manches prévues,
+    les ex aequo disputent une manche décisive sur un nouveau clip (les autres regardent). Le meilleur score de la manche
+    l'emporte ; ses points ne s'ajoutent pas au total. Toujours à égalité : nouvelle manche, 3 au maximum, puis la
+    réponse la plus rapide (temps mesuré par le serveur) parmi les meilleurs. Le résultat indique comment la victoire a
+    été obtenue (aux points, en mort subite, à la rapidité, ou partagée sans l'option). Règles dans
+    `packages/shared/src/room-rules.ts`, testées dans `room-rules.test.ts`.
   - Limites : 20 salons créés par heure, 15 codes faux par joueur et par heure (puis blocage d'une heure), réponses en
     double refusées (jeton à usage unique et contrainte d'unicité en base).
 - **Images des rangs** : chaque rang s'affiche avec un emblème (choix du rang, résultat). Par défaut, emblème RankGuess aux

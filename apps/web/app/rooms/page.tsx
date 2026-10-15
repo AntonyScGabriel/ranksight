@@ -23,6 +23,7 @@ export default function RoomsPage() {
   const [game, setGame] = useState<GameSlug>(GAME_SLUGS[0]);
   const [rounds, setRounds] = useState<number>(ROOM_DEFAULT_ROUNDS);
   const [roundSec, setRoundSec] = useState<number>(ROOM_DEFAULT_TIME);
+  const [suddenDeath, setSuddenDeath] = useState(true);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,7 +42,7 @@ export default function RoomsPage() {
     setBusy(true);
     setError(null);
     try {
-      const room = await api.createRoom({ game, rounds, roundSec });
+      const room = await api.createRoom({ game, rounds, roundSec, suddenDeath });
       router.push(`/rooms/${room.id}`);
     } catch (e) {
       setError(errorMessage(e, "Le salon n'a pas pu être créé."));
@@ -173,6 +174,13 @@ export default function RoomsPage() {
               </select>
             </label>
           </div>
+          <label className="flex items-start gap-3 text-sm">
+            <input type="checkbox" checked={suddenDeath} onChange={(e) => setSuddenDeath(e.target.checked)} className="mt-1 h-4 w-4 accent-[var(--color-neon)]" />
+            <span>
+              <span className="font-semibold">Mort subite</span>
+              <span className="block text-muted">En cas d&apos;égalité en tête, manche décisive entre les ex aequo (3 au maximum, puis la réponse la plus rapide).</span>
+            </span>
+          </label>
           {data.canHost ? (
             <button disabled={busy} onClick={create} className="btn-primary w-full sm:w-auto">Créer le salon</button>
           ) : (

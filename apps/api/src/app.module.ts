@@ -29,6 +29,7 @@ import { MailModule } from "./modules/mail/mail.service.js";
 import { ShopModule } from "./modules/shop/shop.module.js";
 import { VersusModule } from "./modules/versus/versus.module.js";
 import { RoomsModule } from "./modules/rooms/rooms.module.js";
+import { HigherLowerModule } from "./modules/higher-lower/higher-lower.module.js";
 import { ModerationModule } from "./modules/moderation/moderation.module.js";
 import { ContactModule } from "./modules/contact/contact.module.js";
 import { MaintenanceModule } from "./modules/maintenance/maintenance.module.js";
@@ -67,6 +68,7 @@ import { HealthController } from "./health.controller.js";
     ShopModule,
     VersusModule,
     RoomsModule,
+    HigherLowerModule,
     ModerationModule,
     ContactModule,
     MaintenanceModule,

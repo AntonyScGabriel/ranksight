@@ -40,6 +40,10 @@ import {
   type RoomDto,
   type RoomPreviewDto,
   type RoomsOverviewDto,
+  type HigherLowerAnswerDto,
+  type HigherLowerChoice,
+  type HigherLowerOverviewDto,
+  type HigherLowerRunDto,
 } from "@ranksight/shared";
 
 export const API = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:4000/v1";
@@ -239,6 +243,13 @@ export const api = {
   acceptVersus: (id: string) => post<VersusMatchDto>(`/versus/${id}/accept`),
   declineVersus: (id: string) => post(`/versus/${id}/decline`),
   cancelVersus: (id: string) => del(`/versus/${id}`),
+
+  // Plus haut / Plus bas
+  higherLower: () => request<HigherLowerOverviewDto>("/higher-lower"),
+  startHigherLower: (game: string) => post<HigherLowerRunDto>("/higher-lower/runs", { game }),
+  higherLowerRun: (id: string) => request<HigherLowerRunDto>(`/higher-lower/runs/${id}`),
+  answerHigherLower: (id: string, round: number, choice: HigherLowerChoice) =>
+    post<HigherLowerAnswerDto>(`/higher-lower/runs/${id}/answer`, { round, choice }),
 
   // Salons privés
   rooms: () => request<RoomsOverviewDto>("/rooms"),

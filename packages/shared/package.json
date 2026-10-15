@@ -15,7 +15,7 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsc -p tsconfig.json && node --test dist/scoring.test.js dist/rewards.test.js dist/media.test.js dist/pseudo.test.js dist/history.test.js dist/seasons.test.js dist/rooms.test.js dist/room-rules.test.js"
+    "test": "tsc -p tsconfig.json && node --test dist/scoring.test.js dist/rewards.test.js dist/media.test.js dist/pseudo.test.js dist/history.test.js dist/seasons.test.js dist/rooms.test.js dist/room-rules.test.js dist/higher-lower.test.js"
   },
   "dependencies": {
     "zod": "^4.6.5"

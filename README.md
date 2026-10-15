@@ -142,6 +142,13 @@ pour tester Google sur téléphone, expose l'API avec une adresse publique (tunn
   des joueurs recalée sur la sienne) et refuse toute réponse hors délai. Bilan victoires / égalités / défaites sur le
   profil ; succès « Duelliste ». Les duels rapportent de l'XP mais ne comptent pas dans les classements. Pendant une manche,
   l'API enregistre la réponse sans renvoyer le rang réel ni le score : tout est dévoilé à la fin de la manche.
+- **Plus haut / Plus bas** (`/play/higher-lower`, lien depuis le mode Infini) : un clip est affiché avec son rang, le
+  joueur dit si le rang du clip suivant est plus haut ou plus bas. Bonne réponse : ce clip devient la référence ; une
+  erreur termine la série. Deux clips du même rang ne sont jamais comparés, aucun clip n'est montré deux fois dans une
+  série, jamais un clip proposé par le joueur. Le serveur garde l'état de la série : le rang du clip à comparer n'est
+  envoyé qu'après la réponse, et chaque question n'accepte qu'une réponse. **3 séries gratuites par jour** (jour UTC,
+  limite tenue même avec des lancements simultanés), illimitées en VIP. Pas d'XP ni de classement public : seul le
+  record personnel compte, le VIP ne donne donc aucun avantage de classement.
 - **Salons privés** (onglet « Salons », ou depuis « Duels » sur téléphone) : jusqu'à **8 joueurs**, hôte compris, voient le
   même clip au même moment. **Seul le créateur doit être VIP** : le droit est relu en base à la création (jamais un champ
   envoyé par l'application ni le statut du jeton de connexion). Rejoindre, jouer et voir les résultats est gratuit, et une

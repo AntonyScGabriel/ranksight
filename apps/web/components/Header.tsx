@@ -20,7 +20,7 @@ const NAV = [
 ];
 /** Onglet affiché dans la barre du haut sur grand écran (et toujours dans le menu du compte) */
 const NAV_WIDE = { href: "/suggestions", label: "Suggestions" };
-/** Salons privés : dans la barre du haut sur ordinateur ; sur téléphone, accessibles depuis l'écran Duels */
+/** Salons privés : dans la barre du haut sur grand écran ; sinon depuis l'écran Duels et le menu du compte */
 const NAV_ROOMS = { href: "/rooms", label: "Salons" };
 
 export function Header() {
@@ -58,7 +58,7 @@ export function Header() {
                 </Link>
               </li>
             ))}
-            <li>
+            <li className="hidden lg:block">
               <Link
                 href={NAV_ROOMS.href}
                 className={`relative rounded-lg px-3 py-2 text-sm transition hover:bg-surface hover:text-ink ${isActive(NAV_ROOMS.href) ? "text-ink" : "text-muted"}`}

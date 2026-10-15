@@ -1134,6 +1134,10 @@ model Room {
   confidence    Boolean    @default(false)
   /// Duel par équipes : 2 (2 contre 2) ou 3 (3 contre 3) joueurs par équipe ; NULL = chacun pour soi
   teamSize      Int?       @map("team_size")
+  /// Mode Intrus : à chaque manche, un joueur reçoit un autre clip ; après les réponses, tout le monde vote
+  impostor      Boolean    @default(false)
+  /// Étape de la manche en cours : ANSWER (réponses) ou VOTE (mode Intrus) ; la fin de l'étape est round_ends_at
+  phase         String     @default("ANSWER") @db.VarChar(8)
   /// Manches de mort subite déjà lancées (3 au maximum)
   suddenDeathRounds Int    @default(0) @map("sudden_death_rounds")
   /// Comment la première place a été attribuée : POINTS, SUDDEN_DEATH, SPEED (réponse la plus rapide), SHARED (égalité conservée)
@@ -1156,6 +1160,8 @@ model Room {
   invites   RoomInvite[]
   guesses   Guess[]
   stakes    RoomStake[]
+  votes     RoomVote[]
+  bonuses   RoomBonus[]
   tokenTransactions TokenTransaction[]
 
   @@index([status, expiresAt])
@@ -1193,6 +1199,9 @@ model RoomRound {
   clipId   String @map("clip_id") @db.Uuid
   /// Manche décisive (mort subite) : seuls les joueurs à égalité en tête y répondent, ses points ne s'ajoutent pas au total
   suddenDeath Boolean @default(false) @map("sudden_death")
+  /// Mode Intrus : joueur qui reçoit l'autre clip, et ce clip (jamais dévoilés avant la fin du vote)
+  impostorId  String? @map("impostor_id") @db.Uuid
+  altClipId   String? @map("alt_clip_id") @db.Uuid
 
   room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
   clip Clip @relation(fields: [clipId], references: [id])
@@ -1300,4 +1309,33 @@ model RoomStake {
   @@id([roomId, round, userId])
   @@index([roomId, round, settledAt])
   @@map("room_stakes")
+}
+
+/// Mode Intrus : vote d'un joueur pour désigner l'intrus d'une manche (un seul vote par joueur et par manche)
+model RoomVote {
+  roomId    String   @map("room_id") @db.Uuid
+  round     Int
+  voterId   String   @map("voter_id") @db.Uuid
+  targetId  String   @map("target_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@id([roomId, round, voterId])
+  @@map("room_votes")
+}
+
+/// Points attribués en plus des réponses (mode Intrus : intrus démasqué ou non), une ligne par joueur et par manche
+model RoomBonus {
+  roomId String @map("room_id") @db.Uuid
+  round  Int
+  userId String @map("user_id") @db.Uuid
+  points Int
+  /// IMPOSTOR_FOUND (bon vote) ou IMPOSTOR_HIDDEN (intrus non démasqué)
+  reason String @db.VarChar(20)
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@id([roomId, round, userId])
+  @@map("room_bonuses")
 }

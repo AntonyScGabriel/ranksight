@@ -177,6 +177,14 @@ pour tester Google sur téléphone, expose l'API avec une adresse publique (tunn
     l'option est active (somme des points de la manche décisive, puis temps de réponse moyen), sinon match nul. Une
     équipe dont tous les joueurs sont partis perd aussitôt par abandon. Seul l'hôte est VIP : les joueurs des deux
     équipes jouent gratuitement.
+  - **Intrus** (format choisi à la création, 4 à 8 joueurs, chacun pour soi, sans mises) : à chaque manche, un joueur
+    tiré au sort reçoit un autre clip du même jeu (rang éloigné d'au moins 2 crans, difficulté proche si possible), sans
+    le savoir. Personne n'est intrus deux fois tant que d'autres ne l'ont pas été. Chacun répond comme d'habitude
+    (points sur son propre clip), puis vote 25 s pour l'intrus d'après les rangs proposés par chacun (pas de texte
+    libre, donc rien à modérer ; pas de vote pour soi, un seul vote). Intrus démasqué (strictement le plus de votes) :
+    +100 à chaque bon votant ; sinon +200 pour l'intrus. Points du vote enregistrés une seule fois (`room_bonuses`,
+    clé joueur + manche). L'intrus, son clip et les votes ne sont dévoilés qu'à la fin du vote ; pendant une manche,
+    les scores affichés n'incluent pas encore la manche en cours (sinon on pourrait en déduire le rang réel).
   - **Mode Confiance** (option à la création) : avant de valider, chaque joueur engage 1, 2 ou 3 **jetons virtuels** ;
     mise et réponse sont verrouillées ensemble. Rang exact : mise rendue + 2 × la mise ; un rang d'écart : mise rendue ;
     plus loin : seule la mise est perdue. Les mises restent cachées jusqu'à la fin de la manche. Les manches de mort

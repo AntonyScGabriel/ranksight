@@ -269,6 +269,7 @@ export const api = {
   inviteToRoom: (id: string, userId: string) => post<{ invited: boolean }>(`/rooms/${id}/invite`, { userId }),
   declineRoomInvite: (id: string) => del(`/rooms/${id}/invite`),
   kickFromRoom: (id: string, userId: string) => post<RoomDto>(`/rooms/${id}/kick/${userId}`),
+  voteInRoom: (id: string, targetId: string) => post<RoomDto>(`/rooms/${id}/vote`, { targetId }),
   setRoomTeam: (id: string, team: 1 | 2, userId?: string) => post<RoomDto>(`/rooms/${id}/team`, { team, ...(userId ? { userId } : {}) }),
 
   // Amis

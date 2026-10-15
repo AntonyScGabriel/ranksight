@@ -64,3 +64,20 @@ test("équipes : totaux, mort subite et places", async () => {
   assert.equal(teamSuddenDeathEntry("2", []).score, null);
   assert.deepEqual(suddenDeathOutcome([a, { ...b, score: 100 }], 3), { kind: "winner", winnerId: "2", decidedBy: "SPEED" }, "égalité : temps moyen le plus court");
 });
+
+test("Intrus : démasqué ou non", async () => {
+  const { impostorBonuses, pickImpostor } = await import("./room-rules.js");
+  const caught = impostorBonuses("x", [{ voterId: "a", targetId: "x" }, { voterId: "b", targetId: "x" }, { voterId: "c", targetId: "a" }, { voterId: "x", targetId: "b" }]);
+  assert.equal(caught.caught, true);
+  assert.deepEqual(caught.bonuses.map((b) => [b.userId, b.points]), [["a", 100], ["b", 100]]);
+  const tie = impostorBonuses("x", [{ voterId: "a", targetId: "x" }, { voterId: "b", targetId: "c" }, { voterId: "c", targetId: "a" }, { voterId: "x", targetId: "c" }]);
+  assert.equal(tie.caught, false, "égalité de votes avec un autre joueur : pas démasqué");
+  assert.deepEqual(tie.bonuses, [{ userId: "x", points: 200, reason: "IMPOSTOR_HIDDEN" }]);
+  assert.equal(impostorBonuses("x", []).caught, false, "aucun vote : pas démasqué");
+  assert.equal(impostorBonuses("x", [{ voterId: "x", targetId: "x" }]).caught, false, "vote pour soi ignoré");
+  // Rotation : personne n'est intrus deux fois tant que d'autres ne l'ont pas été
+  const seen: string[] = [];
+  for (let i = 0; i < 4; i++) seen.push(pickImpostor(["a", "b", "c", "d"], seen, () => 0.99));
+  assert.deepEqual([...seen].sort(), ["a", "b", "c", "d"]);
+  assert.equal(pickImpostor(["a", "b"], ["a"], () => 0), "b");
+});

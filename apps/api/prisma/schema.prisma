@@ -115,6 +115,9 @@ model User {
   roomSeats        RoomPlayer[]
   roomInvites      RoomInvite[]       @relation("roomInvitee")
   roomInvitesSent  RoomInvite[]       @relation("roomInviter")
+  tournamentsCreated Tournament[]     @relation("tournamentCreator")
+  tournamentsHosted  Tournament[]     @relation("tournamentHost")
+  tournamentSeats    TournamentPlayer[]
   higherLowerRuns  HigherLowerRun[]
   tokenTransactions TokenTransaction[]
   roomStakes       RoomStake[]
@@ -271,6 +274,7 @@ model Game {
   dailies     DailyChallenge[]
   versus      VersusMatch[]
   rooms       Room[]
+  tournaments Tournament[]
   higherLowerRuns HigherLowerRun[]
 
   @@map("games")
@@ -1161,6 +1165,7 @@ model Room {
   guesses   Guess[]
   stakes    RoomStake[]
   votes     RoomVote[]
+  tournamentMatch TournamentMatch?
   bonuses   RoomBonus[]
   tokenTransactions TokenTransaction[]
 
@@ -1338,4 +1343,97 @@ model RoomBonus {
 
   @@id([roomId, round, userId])
   @@map("room_bonuses")
+}
+
+// ----------------------------------------------------------------------------
+// Tournois privés : tableau à élimination directe, matchs joués dans des salons à 2.
+// Seul le créateur doit être VIP ; les participants s'inscrivent et jouent gratuitement.
+// ----------------------------------------------------------------------------
+
+enum TournamentStatus {
+  LOBBY    // inscriptions ouvertes (code d'invitation)
+  ACTIVE   // tableau en cours
+  FINISHED // vainqueur connu, classement final
+  CLOSED   // fermé avant le lancement
+}
+
+model Tournament {
+  id          String           @id @default(uuid(7)) @db.Uuid
+  /// Code d'invitation (même format que les salons), unique
+  code        String           @unique @db.VarChar(8)
+  /// Joueur VIP qui a créé le tournoi (droit vérifié en base à la création)
+  createdById String           @map("created_by_id") @db.Uuid
+  /// Hôte actuel : lance le tableau ; le joueur inscrit le plus tôt s'il part avant le lancement
+  hostId      String           @map("host_id") @db.Uuid
+  gameId      String           @map("game_id") @db.Uuid
+  /// Places : 4, 8 ou 16
+  capacity    Int
+  /// Taille du tableau au lancement (puissance de 2 suffisante pour les inscrits)
+  bracketSize Int?             @map("bracket_size")
+  /// Manches par match et temps de réponse par manche
+  rounds      Int
+  roundSec    Int              @map("round_sec")
+  status      TournamentStatus @default(LOBBY)
+  expiresAt   DateTime         @map("expires_at")
+  createdAt   DateTime         @default(now()) @map("created_at")
+  startedAt   DateTime?        @map("started_at")
+  finishedAt  DateTime?        @map("finished_at")
+
+  createdBy User               @relation("tournamentCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  host      User               @relation("tournamentHost", fields: [hostId], references: [id], onDelete: Cascade)
+  game      Game               @relation(fields: [gameId], references: [id])
+  players   TournamentPlayer[]
+  matches   TournamentMatch[]
+
+  @@index([status, expiresAt])
+  @@map("tournaments")
+}
+
+model TournamentPlayer {
+  tournamentId String    @map("tournament_id") @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  joinedAt     DateTime  @default(now()) @map("joined_at")
+  /// Tête de série tirée au sort au lancement (1 = meilleure)
+  seed         Int?
+  /// A quitté le tournoi après le lancement (ses matchs sont perdus par forfait)
+  leftAt       DateTime? @map("left_at")
+  /// Place finale (1 = vainqueur ; places partagées entre éliminés d'un même tour)
+  placement    Int?
+
+  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([tournamentId, userId])
+  @@index([userId, joinedAt(sort: Desc)])
+  @@map("tournament_players")
+}
+
+model TournamentMatch {
+  id           String    @id @default(uuid(7)) @db.Uuid
+  tournamentId String    @map("tournament_id") @db.Uuid
+  /// Tour (1 = premier tour) et emplacement dans le tour
+  stage        Int
+  slot         Int
+  player1Id    String?   @map("player1_id") @db.Uuid
+  player2Id    String?   @map("player2_id") @db.Uuid
+  /// « Je suis prêt » de chaque joueur ; le match démarre quand les deux le sont
+  ready1At     DateTime? @map("ready1_at")
+  ready2At     DateTime? @map("ready2_at")
+  /// Heure limite pour être prêt, une fois les deux adversaires connus
+  deadlineAt   DateTime? @map("deadline_at")
+  /// Salon du match (créé et lancé quand les deux joueurs sont prêts)
+  roomId       String?   @unique @map("room_id") @db.Uuid
+  winnerId     String?   @map("winner_id") @db.Uuid
+  /// POINTS, SUDDEN_DEATH, SPEED, SEED, FORFEIT, NO_SHOW ou BYE
+  decidedBy    String?   @map("decided_by") @db.VarChar(12)
+  score1       Int?
+  score2       Int?
+  finishedAt   DateTime? @map("finished_at")
+
+  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  room       Room?      @relation(fields: [roomId], references: [id], onDelete: SetNull)
+
+  @@unique([tournamentId, stage, slot])
+  @@index([deadlineAt])
+  @@map("tournament_matches")
 }

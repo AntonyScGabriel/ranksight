@@ -37,6 +37,7 @@ const roomInclude = {
   game: { select: { slug: true, name: true } },
   host: { select: { displayName: true } },
   players: { include: { user: { select: playerSelect } }, orderBy: { joinedAt: "asc" as const } },
+  tournamentMatch: { select: { tournamentId: true } },
 } as const;
 const rankSelect = { id: true, name: true, color: true, order: true, iconUrl: true } as const;
 
@@ -320,6 +321,43 @@ export class RoomsService {
     if (!started) throw new ConflictException({ code: "ROOM_STARTED", message: "La partie a déjà commencé." });
     await this.notifyRoom(roomId);
     return this.detail(userId, roomId);
+  }
+
+  /**
+   * Match de tournoi : salon à 2 créé et lancé aussitôt (les deux joueurs ont cliqué « Je suis prêt »), avec mort subite.
+   * Pas de vérification VIP ici : le droit a été vérifié à la création du tournoi.
+   * Les deux joueurs quittent leurs éventuelles salles d'attente ; les clips ne viennent jamais de l'un d'eux.
+   */
+  async createMatch(input: { gameId: string; rounds: number; roundSec: number; createdById: string; players: [string, string] }): Promise<string> {
+    const clipIds = await this.pickClips(input.gameId, input.rounds, input.players);
+    const first = await this.prisma.clip.findUniqueOrThrow({ where: { id: clipIds[0]! }, select: { durationSec: true } });
+    const startsAt = later(ROOM_COUNTDOWN_SEC * SEC);
+    const left: string[] = [];
+    const roomId = await this.prisma.$transaction(async (tx) => {
+      for (const userId of input.players) {
+        await this.lockUser(tx, userId);
+        left.push(...(await this.leaveLobbiesOnly(tx, userId)));
+      }
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const code = this.newCode();
+        if (await tx.room.findUnique({ where: { code }, select: { id: true } })) continue;
+        const room = await tx.room.create({
+          data: {
+            code, createdById: input.createdById, hostId: input.players[0], gameId: input.gameId, rounds: input.rounds, roundSec: input.roundSec,
+            suddenDeath: true, maxPlayers: 2, status: "ACTIVE", startedAt: new Date(), currentRound: 1, roundStartsAt: startsAt,
+            roundEndsAt: new Date(startsAt.getTime() + roomRoundSec(first.durationSec, input.roundSec) * SEC),
+            expiresAt: new Date(),
+            players: { create: input.players.map((userId) => ({ userId })) },
+          },
+        });
+        await tx.roomRound.createMany({ data: clipIds.map((clipId, position) => ({ roomId: room.id, clipId, position })) });
+        return room.id;
+      }
+      throw new ConflictException({ code: "ROOM_CODE_UNAVAILABLE", message: "Impossible de générer un code, réessaie." });
+    });
+    for (const id of left) await this.notifyRoom(id);
+    await this.notifyRoom(roomId);
+    return roomId;
   }
 
   // ---------- Manches ----------
@@ -823,6 +861,7 @@ export class RoomsService {
       suddenDeathRounds: room.suddenDeathRounds,
       decidedBy: room.status === "FINISHED" ? (room.decidedBy as DecidedBy | null) : null,
       isHost: room.hostId === userId,
+      tournamentId: room.tournamentMatch?.tournamentId ?? null,
       left: !!me.leftAt,
       canStart: room.status === "LOBBY" && room.hostId === userId && active.length >= (room.impostor ? IMPOSTOR_MIN_PLAYERS : ROOM_MIN_PLAYERS)
         && (!room.teamSize || [1, 2].every((t) => active.filter((p) => p.team === t).length === room.teamSize)),
@@ -913,6 +952,18 @@ export class RoomsService {
       where: { userId, room: { status: "LOBBY", ...(exceptRoomId ? { id: { not: exceptRoomId } } : {}) } },
       select: { roomId: true, room: { select: { hostId: true } } },
     });
+    for (const l of lobbies) {
+      await tx.roomPlayer.delete({ where: { roomId_userId: { roomId: l.roomId, userId } } });
+      const remaining = await tx.roomPlayer.findFirst({ where: { roomId: l.roomId }, orderBy: { joinedAt: "asc" }, select: { userId: true } });
+      if (!remaining) await tx.room.update({ where: { id: l.roomId }, data: { status: "CLOSED", finishedAt: new Date() } });
+      else if (l.room.hostId === userId) await tx.room.update({ where: { id: l.roomId }, data: { hostId: remaining.userId } });
+    }
+    return lobbies.map((l) => l.roomId);
+  }
+
+  /** Sortie des salles d'attente (jamais d'une partie en cours), avant un match de tournoi. */
+  private async leaveLobbiesOnly(tx: Prisma.TransactionClient, userId: string): Promise<string[]> {
+    const lobbies = await tx.roomPlayer.findMany({ where: { userId, room: { status: "LOBBY" } }, select: { roomId: true, room: { select: { hostId: true } } } });
     for (const l of lobbies) {
       await tx.roomPlayer.delete({ where: { roomId_userId: { roomId: l.roomId, userId } } });
       const remaining = await tx.roomPlayer.findFirst({ where: { roomId: l.roomId }, orderBy: { joinedAt: "asc" }, select: { userId: true } });

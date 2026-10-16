@@ -70,7 +70,8 @@ export default function HigherLowerPage() {
   if (!me) return <LoginRequired next="/play/higher-lower" />;
   if (!overview) return error ? <p className="text-center text-danger">{error}</p> : <Skeleton />;
 
-  const canStart = overview.freeRunsLeft === null || overview.freeRunsLeft > 0;
+  // Mode VIP : le serveur refuse lancement et réponses sans VIP ; l'écran l'explique et propose l'offre
+  const canStart = overview.vip;
   const shown = last ? last.run : run;
   // Après une bonne réponse, le joueur voit d'abord le rang dévoilé, puis passe au clip suivant
   const revealing = !!last && last.correct && last.run.status === "ACTIVE";
@@ -79,16 +80,12 @@ export default function HigherLowerPage() {
     <section className="space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div className="space-y-1">
-          <h1 className="font-display text-3xl font-bold">Plus haut / Plus bas</h1>
+          <h1 className="flex items-center gap-2 font-display text-3xl font-bold">Plus haut / Plus bas <VipBadge /></h1>
           <p className="text-sm text-muted">Le rang du clip suivant est-il plus haut ou plus bas ? Une erreur termine la série.</p>
         </div>
         <div className="glass flex gap-6 px-5 py-3 text-center">
           <div><p className="font-display text-xl font-bold text-neon">{shown && shown.status === "ACTIVE" ? shown.score : "—"}</p><p className="hud-label">Série</p></div>
           <div><p className="font-display text-xl font-bold">{Math.max(overview.best, shown?.best ?? 0)}</p><p className="hud-label">Record</p></div>
-          <div>
-            <p className="font-display text-xl font-bold">{overview.freeRunsLeft === null ? "∞" : overview.freeRunsLeft}</p>
-            <p className="hud-label">{overview.vip ? "Séries (VIP)" : "Séries du jour"}</p>
-          </div>
         </div>
       </header>
       {error && <p role="alert" className="text-center text-sm text-danger">{error}</p>}
@@ -136,10 +133,10 @@ export default function HigherLowerPage() {
               ) : null}
             </div>
           </div>
-          {last && last.run.status === "ENDED" && <NewRun game={game} setGame={setGame} canStart={canStart} busy={busy} start={start} overview={overview} />}
+          {last && last.run.status === "ENDED" && <NewRun game={game} setGame={setGame} canStart={canStart} busy={busy} start={start} />}
         </div>
       ) : (
-        <NewRun game={game} setGame={setGame} canStart={canStart} busy={busy} start={start} overview={overview} />
+        <NewRun game={game} setGame={setGame} canStart={canStart} busy={busy} start={start} />
       )}
 
       <div className="glass space-y-2 p-6">
@@ -165,8 +162,8 @@ export default function HigherLowerPage() {
 }
 
 function NewRun({
-  game, setGame, canStart, busy, start, overview,
-}: { game: GameSlug; setGame: (g: GameSlug) => void; canStart: boolean; busy: boolean; start: () => void; overview: HigherLowerOverviewDto }) {
+  game, setGame, canStart, busy, start,
+}: { game: GameSlug; setGame: (g: GameSlug) => void; canStart: boolean; busy: boolean; start: () => void }) {
   return (
     <div className="glass space-y-4 p-6">
       <div className="flex flex-wrap items-center gap-3">
@@ -179,7 +176,10 @@ function NewRun({
         <button disabled={busy} onClick={start} className="btn-primary">Commencer</button>
       ) : (
         <div className="rounded-xl border border-warn/40 bg-warn/10 p-4 text-sm">
-          <p>Tu as joué tes {overview.freeRunsPerDay} séries gratuites du jour. Reviens demain, ou passe VIP pour jouer sans limite.</p>
+          <p>
+            Plus haut / Plus bas est un mode VIP, sans limite de séries. Deviner le rang, le mode Infini, les salons publics et les
+            duels classés restent gratuits. Le VIP n&apos;apporte aucun point au classement compétitif.
+          </p>
           <Link href="/shop" className="btn-primary mt-3 inline-flex !py-2 text-sm">Devenir VIP <VipBadge className="ml-2" /></Link>
         </div>
       )}

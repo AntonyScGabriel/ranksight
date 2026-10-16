@@ -33,7 +33,7 @@ export default function JoinRoomPage({ params }: { params: Promise<{ code: strin
   if (error && !preview) return <Panel title="Salon introuvable" text={error}><Link href="/rooms" className="btn-ghost mx-auto w-fit">Salons</Link></Panel>;
   if (!preview) return <Skeleton />;
 
-  const open = preview.status === "LOBBY" && preview.players < preview.maxPlayers;
+  const open = preview.status === "LOBBY" && preview.players < preview.maxPlayers && preview.allowed;
   return (
     <Panel title={`Salon de ${preview.host}`}>
       <p className="font-mono text-lg tracking-widest text-neon">{formatRoomCode(preview.code)}</p>
@@ -58,10 +58,14 @@ export default function JoinRoomPage({ params }: { params: Promise<{ code: strin
           }}
           className="btn-primary mx-auto"
         >
-          Rejoindre gratuitement
+          {preview.vipOnly ? "Rejoindre" : "Rejoindre gratuitement"}
         </button>
       ) : (
-        <p className="text-sm text-warn">{preview.status === "LOBBY" ? "Ce salon est complet." : "La partie a déjà commencé ou est terminée."}</p>
+        <p className="text-sm text-warn">
+          {!preview.allowed && preview.status === "LOBBY"
+            ? <>Ce salon utilise un mode VIP (mort subite) : il faut être VIP pour y jouer. <Link href="/shop" className="underline">Découvrir le VIP</Link></>
+            : preview.status === "LOBBY" ? "Ce salon est complet." : "La partie a déjà commencé ou est terminée."}
+        </p>
       )}
       {error && <p role="alert" className="text-sm text-danger">{error}</p>}
     </Panel>

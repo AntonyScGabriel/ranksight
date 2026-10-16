@@ -6,15 +6,12 @@
 /* global process, setTimeout, fetch, console */
 import { randomBytes, randomInt } from "node:crypto";
 import pg from "pg";
+import { assertSafeTarget } from "./guard.mjs";
 
 export const API = process.env.API_URL ?? "http://localhost:4000/v1";
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgresql://ranksight:ranksight@localhost:5432/ranksight";
 
-const local = /localhost|127\.0\.0\.1/.test(API) && /@(localhost|127\.0\.0\.1)[:/]/.test(DATABASE_URL);
-const dedicated = process.env.CI === "true" || /_test(\?|$)/.test(DATABASE_URL);
-if (process.env.NODE_ENV === "production" || !local || !dedicated) {
-  throw new Error("Tests d'intégration : API locale et base dédiée uniquement (CI, ou base dont le nom finit par « _test »).");
-}
+assertSafeTarget({ apiUrl: API, databaseUrl: DATABASE_URL, env: process.env });
 
 const pool = new pg.Pool({ connectionString: DATABASE_URL, max: 4 });
 export const sql = async (text, params = []) => (await pool.query(text, params)).rows;

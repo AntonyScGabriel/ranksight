@@ -99,7 +99,7 @@ export default function DailyPage() {
           <p className="text-muted">Tous les défis du jour sont terminés. Reviens demain pour de nouveaux clips.</p>
           <div className="flex gap-3">
             <Link href="/play/infinite" className="btn-primary">Mode Infini</Link>
-            <Link href="/play/higher-lower" className="btn-ghost">Plus haut / Plus bas</Link>
+            <Link href="/play/higher-lower" className="btn-ghost">Plus haut / Plus bas <span className="ml-1 rounded bg-warn px-1 text-[10px] font-bold text-black">VIP</span></Link>
             <Link href="/versus" className="btn-ghost">Lancer un duel</Link>
             <Link href="/leaderboard" className="btn-ghost">Classement</Link>
           </div>

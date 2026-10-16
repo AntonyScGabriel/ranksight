@@ -58,8 +58,10 @@ export default function InfiniteScreen() {
         <Pressable onPress={() => router.push("/higher-lower")} accessibilityRole="button" style={{ marginTop: 14 }}>
           <Card style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
             <View style={{ flex: 1, gap: 2 }}>
-              <Text style={{ color: colors.ink, fontWeight: "700", fontSize: 16 }}>Plus haut / Plus bas</Text>
-              <Muted>Le rang du clip suivant est-il plus haut ou plus bas ?</Muted>
+              <Text style={{ color: colors.ink, fontWeight: "700", fontSize: 16 }}>
+                Plus haut / Plus bas <Text style={{ color: colors.warn, fontSize: 12, fontWeight: "800" }}>VIP</Text>
+              </Text>
+              <Muted>Le rang du clip suivant est-il plus haut ou plus bas ? Mode réservé aux joueurs VIP.</Muted>
             </View>
             <Text style={{ color: colors.neon, fontSize: 20 }}>›</Text>
           </Card>

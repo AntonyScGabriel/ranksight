@@ -6,7 +6,6 @@ import { z } from "zod";
 import { GameSlug, RankDto } from "./schemas.js";
 
 /** Séries gratuites par jour (jour UTC) ; illimitées pour les joueurs VIP */
-export const HIGHER_LOWER_FREE_RUNS = 3;
 
 export const HigherLowerChoice = z.enum(["higher", "lower"]);
 export type HigherLowerChoice = z.infer<typeof HigherLowerChoice>;
@@ -64,9 +63,7 @@ export const HigherLowerAnswerDto = z.object({
 export type HigherLowerAnswerDto = z.infer<typeof HigherLowerAnswerDto>;
 
 export const HigherLowerOverviewDto = z.object({
-  /** null = illimité (VIP) */
-  freeRunsLeft: z.number().int().nullable(),
-  freeRunsPerDay: z.number().int(),
+  /** Mode VIP : seuls les joueurs VIP peuvent lancer une série et y répondre (vérifié par le serveur) */
   vip: z.boolean(),
   best: z.number().int(),
   active: HigherLowerRunDto.nullable(),
@@ -79,5 +76,5 @@ export const HIGHER_LOWER_RULES = [
   "Regarde le clip suivant et dis si son rang est plus haut ou plus bas.",
   "Bonne réponse : il devient le clip de référence et la série continue. Une erreur termine la série.",
   "Deux clips du même rang ne sont jamais comparés.",
-  `${HIGHER_LOWER_FREE_RUNS} séries gratuites par jour, illimitées avec le VIP. Pas de classement public : seul ton record compte.`,
+  "Mode réservé aux joueurs VIP, sans limite de séries. Pas de classement public ni d'avantage au classement compétitif : seul ton record compte.",
 ] as const;

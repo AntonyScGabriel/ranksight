@@ -46,8 +46,9 @@ const vipRequired = () =>
   );
 
 /**
- * Tournois privés à élimination directe. Seule la création exige le VIP (vérifié en base) ; s'inscrire, jouer
- * et gagner est gratuit, et un tournoi lancé va à son terme même si le créateur perd son VIP.
+ * Tournois privés à élimination directe. Les opérations de l'organisateur (création, lancement) exigent le VIP, relu en
+ * base à chaque fois ; s'inscrire, jouer et gagner est gratuit, et un tournoi lancé va à son terme même si le créateur
+ * perd son VIP.
  * Chaque match est un salon à 2 avec mort subite (`RoomsService.createMatch`), lancé quand les deux joueurs sont prêts ;
  * absences et forfaits sont réglés par la boucle de suivi (une seule instance de l'API, verrou Redis).
  */
@@ -158,6 +159,13 @@ export class TournamentsService {
     const t = await this.memberTournament(userId, tournamentId);
     if (t.hostId !== userId) throw new ForbiddenException({ code: "NOT_HOST", message: "Seul l'hôte peut lancer le tournoi." });
     if (t.status !== "LOBBY") throw new ConflictException({ code: "TOURNAMENT_STARTED", message: "Le tournoi a déjà commencé." });
+    // Organiser un tournoi est réservé aux VIP : le droit est relu au lancement (une fois lancé, le tournoi va à son terme)
+    if (!(await canHostVipGames(this.prisma, userId))) {
+      throw new HttpException(
+        { code: "PREMIUM_REQUIRED", message: "Ton VIP a pris fin : renouvelle-le pour lancer ce tournoi. Les inscrits peuvent quitter le tournoi à tout moment." },
+        HttpStatus.PAYMENT_REQUIRED,
+      );
+    }
     const players = t.players.map((p) => p.userId);
     if (players.length < TOURNAMENT_MIN_PLAYERS) {
       throw new BadRequestException({ code: "NOT_ENOUGH_PLAYERS", message: `Il faut au moins ${TOURNAMENT_MIN_PLAYERS} joueurs pour lancer le tournoi.` });

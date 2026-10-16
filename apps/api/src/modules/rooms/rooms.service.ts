@@ -7,7 +7,7 @@ import type { Redis } from "ioredis";
 import {
   ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, ROOM_COUNTDOWN_SEC, ROOM_EVENT, ROOM_INVITE_EVENT, ROOM_LOBBY_TTL_MIN, ROOM_MAX_PLAYERS,
   ROOM_MIN_PLAYERS, ROOM_REVEAL_SEC, ROOM_DEFAULT_ROUNDS, ROOM_DEFAULT_TIME, SUDDEN_DEATH_MAX_ROUNDS, TEAM_NAMES, finalPlacements, formatRoomCode,
-  modeSettings, roomMode, roomRoundSec, suddenDeathOutcome,
+  modeSettings, roomMode, roomRoundSec, roomVipRules, suddenDeathOutcome,
   teamPlacements, teamSuddenDeathEntry, teamTotals, tiedLeaders, IMPOSTOR_MIN_PLAYERS, IMPOSTOR_VOTE_SEC, impostorBonuses, pickImpostor,
   type DecidedBy, type PublicRoomDto, type QuickPlayResultDto, type RoomHistoryDto, type RoomMode,
   type PlayableClipDto, type RoomDto, type RoomInviteDto, type RoomPreviewDto, type RoomRoundDto,
@@ -24,6 +24,8 @@ import { PlayTokenService } from "../clips/play-token.service.js";
 import { flairSelect, toFlair } from "../cosmetics/flair.js";
 import { PushService } from "../notifications/notifications.module.js";
 import { canHostVipGames, isVip, vipSelect } from "../shop/vip.js";
+
+type VipSettings = { visibility: "PUBLIC" | "PRIVATE"; suddenDeath: boolean; rounds: number; roundSec: number };
 
 const SEC = 1000;
 /** Marge accordée à une réponse envoyée juste avant la fin du chrono (latence réseau) */
@@ -59,6 +61,19 @@ const vipRequired = () =>
     {
       code: "PREMIUM_REQUIRED",
       message: "Créer un salon privé est réservé aux joueurs VIP. Les salons publics sont gratuits, et rejoindre un salon reste toujours gratuit.",
+    },
+    HttpStatus.PAYMENT_REQUIRED,
+  );
+const vipModeRequired = () =>
+  new HttpException(
+    { code: "VIP_MODE_REQUIRED", message: "Ce salon utilise un mode VIP (mort subite) : il faut être VIP pour y jouer, même dans un salon public." },
+    HttpStatus.PAYMENT_REQUIRED,
+  );
+const vipOptionsRequired = () =>
+  new HttpException(
+    {
+      code: "PREMIUM_REQUIRED",
+      message: "La mort subite, le nombre de manches et le temps de réponse personnalisés sont réservés aux joueurs VIP. Un salon public classique reste gratuit.",
     },
     HttpStatus.PAYMENT_REQUIRED,
   );
@@ -102,9 +117,19 @@ export class RoomsService {
 
   // ---------- Création, accès ----------
 
-  /** Droit de créer un salon de cette visibilité : public pour tous, privé pour les joueurs VIP (vérifié en base). */
-  private async assertCanHost(userId: string, visibility: "PUBLIC" | "PRIVATE") {
-    if (visibility === "PRIVATE" && !(await canHostVipGames(this.prisma, userId))) throw vipRequired();
+  /** Accès aux fonctions VIP (abonnement relu en base, comme pour les autres droits VIP) */
+  private vip(userId: string) {
+    return canHostVipGames(this.prisma, userId);
+  }
+
+  /**
+   * Droit de créer (ou de relancer) un salon avec ces réglages : un salon public classique est ouvert à tous ; un salon
+   * privé, un mode VIP ou des options avancées exigent le VIP (vérifié en base, jamais d'après la requête).
+   */
+  private async assertCanHost(userId: string, settings: VipSettings) {
+    const rules = roomVipRules(settings);
+    if (!rules.hostVip || (await this.vip(userId))) return;
+    throw settings.visibility === "PRIVATE" && !rules.vipMode && !rules.advanced ? vipRequired() : vipOptionsRequired();
   }
 
   private async activeGame(slug: string) {
@@ -114,7 +139,7 @@ export class RoomsService {
   }
 
   async create(userId: string, input: CreateInput): Promise<RoomDto> {
-    await this.assertCanHost(userId, input.visibility);
+    await this.assertCanHost(userId, input);
     const game = await this.activeGame(input.game);
     // Assez de clips pour toutes les manches (vérifié de nouveau au lancement, avec tous les joueurs)
     await this.pickClips(game.id, input.rounds, [userId], true);
@@ -155,15 +180,17 @@ export class RoomsService {
   async preview(userId: string, code: string): Promise<RoomPreviewDto> {
     const room = await this.byCode(userId, code);
     const players = room.players.filter((p) => !p.leftAt);
+    const vipOnly = this.rules(room).vipMode;
     return {
       id: room.id, code: room.code, host: room.host.displayName, game: room.game, rounds: room.rounds, roundSec: room.roundSec,
       suddenDeath: room.suddenDeath, teamSize: room.teamSize, impostor: room.impostor, visibility: room.visibility, mode: roomMode(room),
+      vipOnly, allowed: !vipOnly || (await this.vip(userId)),
       players: players.length, maxPlayers: room.maxPlayers, status: room.status,
       member: room.players.some((p) => p.userId === userId),
     };
   }
 
-  /** Rejoindre avec le code (salon public ou privé), ou depuis une invitation. Aucun VIP n'est demandé. */
+  /** Rejoindre avec le code (salon public ou privé), ou depuis une invitation. Gratuit, sauf pour un salon en mode VIP. */
   async join(userId: string, code: string): Promise<RoomDto> {
     return this.enter(userId, await this.byCode(userId, code));
   }
@@ -187,6 +214,8 @@ export class RoomsService {
   private async enter(userId: string, found: RoomRow): Promise<RoomDto> {
     if (found.players.some((p) => p.userId === userId && !p.leftAt)) return this.detail(userId, found.id);
     if (found.status !== "LOBBY") throw roomStarted(found.status);
+    // Mode VIP : réservé aux joueurs VIP, que le salon soit public ou privé (invitation comprise)
+    if (this.rules(found).vipMode && !(await this.vip(userId))) throw vipModeRequired();
     await this.assertMayEnter(userId, found.id, found.players.map((p) => p.userId));
     const left = await this.prisma.$transaction(async (tx) => {
       await this.lockUser(tx, userId);
@@ -242,6 +271,8 @@ export class RoomsService {
   async quickPlay(userId: string, input: QuickPlay): Promise<QuickPlayResultDto> {
     const game = await this.activeGame(input.game);
     const settings = modeSettings(input.mode);
+    // Un joueur sans VIP n'est jamais placé dans un salon en mode VIP
+    const vip = await this.vip(userId);
     const defaults = { visibility: "PUBLIC" as const, rounds: ROOM_DEFAULT_ROUNDS, roundSec: ROOM_DEFAULT_TIME, suddenDeath: false, ...settings };
     if (input.create) await this.pickClips(game.id, defaults.rounds, [userId], true);
     const [kickedFrom, blocks] = await Promise.all([
@@ -261,6 +292,7 @@ export class RoomsService {
         WHERE r.visibility = 'PUBLIC' AND r.status = 'LOBBY' AND r.game_id = ${game.id}::uuid
           AND r.expires_at > (now() AT TIME ZONE 'UTC')
           AND r.impostor = ${settings.impostor} AND r.team_size IS NOT DISTINCT FROM ${settings.teamSize || null}::int
+          AND (${vip} OR NOT r.sudden_death)
           AND r.id <> ALL(${kickedFrom}::uuid[])
           AND NOT EXISTS (SELECT 1 FROM room_players p WHERE p.room_id = r.id AND p.user_id = ANY(${avoid}::uuid[]))
           AND (SELECT count(*) FROM room_players p WHERE p.room_id = r.id AND p.left_at IS NULL) < r.max_players
@@ -295,6 +327,7 @@ export class RoomsService {
 
   /** Liste des salons publics (salle d'attente, et parties en cours sauf filtre « places disponibles »), filtrable. */
   async publicList(userId: string, query: PublicQuery): Promise<PublicRoomDto[]> {
+    const vip = await this.vip(userId);
     const game = query.game ? await this.prisma.game.findFirst({ where: { slug: query.game }, select: { id: true } }) : null;
     if (query.game && !game) return [];
     const settings = query.mode ? modeSettings(query.mode) : null;
@@ -320,8 +353,8 @@ export class RoomsService {
     return rows
       .map((r) => ({
         id: r.id, status: r.status, mode: roomMode(r), game: r.game, host: r.host.displayName, rounds: r.rounds, roundSec: r.roundSec,
-        suddenDeath: r.suddenDeath, players: r._count.players, maxPlayers: r.maxPlayers,
-        joinable: r.status === "LOBBY" && r._count.players < r.maxPlayers, createdAt: r.createdAt.toISOString(),
+        suddenDeath: r.suddenDeath, vipOnly: this.rules(r).vipMode, players: r._count.players, maxPlayers: r.maxPlayers,
+        joinable: r.status === "LOBBY" && r._count.players < r.maxPlayers && (vip || !this.rules(r).vipMode), createdAt: r.createdAt.toISOString(),
       }))
       .filter((r) => !query.available || r.joinable)
       .sort((a, b) => Number(b.joinable) - Number(a.joinable))
@@ -349,7 +382,14 @@ export class RoomsService {
     if (room.status !== "FINISHED") throw new ConflictException({ code: "ROOM_NOT_FINISHED", message: "La revanche se propose une fois la partie terminée." });
     if (room.tournamentMatch) throw new BadRequestException({ code: "TOURNAMENT_MATCH", message: "Pas de revanche pour un match de tournoi." });
     if (room.rematch) return this.enter(userId, (await this.prisma.room.findUnique({ where: { id: room.rematch.id }, include: roomInclude }))!);
-    await this.assertCanHost(userId, room.visibility);
+    try {
+      await this.assertCanHost(userId, room);
+    } catch (e) {
+      // Sans le droit de la proposer : rejoindre la revanche si un autre joueur vient de la créer
+      const existing = await this.prisma.room.findUnique({ where: { rematchOfId: roomId }, include: roomInclude });
+      if (existing) return this.enter(userId, existing);
+      throw e;
+    }
     const input = {
       visibility: room.visibility, rounds: room.rounds, roundSec: room.roundSec, suddenDeath: room.suddenDeath,
       teamSize: room.teamSize ?? 0, impostor: room.impostor,
@@ -449,6 +489,12 @@ export class RoomsService {
       throw new ForbiddenException("Tu ne peux inviter que tes amis. Pour les autres, partage le code du salon.");
     }
     if (room.players.some((p) => p.userId === friendId && !p.leftAt)) return { invited: false };
+    if (this.rules(room).vipMode && !(await this.vip(friendId))) {
+      throw new HttpException(
+        { code: "VIP_MODE_REQUIRED", message: "Ce salon utilise un mode VIP (mort subite) : ton ami doit être VIP pour y jouer." },
+        HttpStatus.PAYMENT_REQUIRED,
+      );
+    }
     const me = room.players.find((p) => p.userId === userId)!.user;
     await this.prisma.roomInvite.upsert({
       where: { roomId_userId: { roomId, userId: friendId } },
@@ -525,7 +571,7 @@ export class RoomsService {
         else finish = true;
         return;
       }
-      if (current.hostId === userId) await tx.room.update({ where: { id: roomId }, data: { hostId: remaining[0]!.userId } });
+      if (current.hostId === userId) await tx.room.update({ where: { id: roomId }, data: { hostId: await this.nextHost(tx, roomId) } });
     });
     this.gateway.emitToUser(userId, ROOM_EVENT, { id: roomId });
     // Duel par équipes : une équipe sans plus aucun joueur perd aussitôt par abandon
@@ -549,6 +595,19 @@ export class RoomsService {
     if (room.hostId !== userId) throw new ForbiddenException({ code: "NOT_HOST", message: "Seul l'hôte peut lancer la partie." });
     if (room.status !== "LOBBY") throw new ConflictException({ code: "ROOM_STARTED", message: "La partie a déjà commencé." });
     const players = room.players.filter((p) => !p.leftAt).map((p) => p.userId);
+    // Droits VIP relus au lancement : hôte VIP pour un salon privé ou des réglages VIP, tous les joueurs VIP en mode VIP
+    const rules = this.rules(room);
+    if (rules.hostVip && !(await this.vip(userId))) throw rules.vipMode || rules.advanced ? vipOptionsRequired() : vipRequired();
+    if (rules.vipMode) {
+      const notVip = [];
+      for (const p of room.players.filter((x) => !x.leftAt)) if (!(await this.vip(p.userId))) notVip.push(p.user.displayName);
+      if (notVip.length) {
+        throw new HttpException(
+          { code: "VIP_MODE_REQUIRED", message: `Mode VIP (mort subite) : ${notVip.join(", ")} n'${notVip.length > 1 ? "ont" : "a"} plus le VIP. Retire ce joueur ou crée un salon classique.` },
+          HttpStatus.PAYMENT_REQUIRED,
+        );
+      }
+    }
     if (players.length < ROOM_MIN_PLAYERS) {
       throw new BadRequestException({ code: "NOT_ENOUGH_PLAYERS", message: `Il faut au moins ${ROOM_MIN_PLAYERS} joueurs pour lancer la partie.` });
     }
@@ -1016,6 +1075,7 @@ export class RoomsService {
     const current = seats.find((s) => !s.leftAt && LIVE.some((st) => st === s.room.status));
     return {
       canHostPrivate,
+      vip: canHostPrivate,
       current: current ? summary(current) : null,
       invites: invites.map((i): RoomInviteDto => ({
         roomId: i.roomId, rematch: !!i.room.rematchOfId, code: i.room.code, from: i.invitedBy.displayName, game: i.room.game,
@@ -1086,6 +1146,7 @@ export class RoomsService {
       visibility: room.visibility,
       mode: roomMode(room),
       suddenDeath: room.suddenDeath,
+      vipOnly: this.rules(room).vipMode,
       teamSize: room.teamSize,
       impostor: room.impostor,
       teams: room.teamSize
@@ -1106,7 +1167,7 @@ export class RoomsService {
       canStart: room.status === "LOBBY" && room.hostId === userId && active.length >= (room.impostor ? IMPOSTOR_MIN_PLAYERS : ROOM_MIN_PLAYERS)
         && (!room.teamSize || [1, 2].every((t) => active.filter((p) => p.team === t).length === room.teamSize)),
       canRematch: room.status === "FINISHED" && !room.tournamentMatch && !me.leftAt
-        && (room.rematch ? !room.rematch.players.some((p) => p.userId === userId) : room.visibility === "PUBLIC" || (await canHostVipGames(this.prisma, userId))),
+        && (room.rematch ? !room.rematch.players.some((p) => p.userId === userId) : !this.rules(room).hostVip || (await this.vip(userId))),
       rematch: room.rematch
         ? {
             id: room.rematch.id, code: room.rematch.code, host: room.rematch.host.displayName, status: room.rematch.status,
@@ -1180,6 +1241,29 @@ export class RoomsService {
     return room;
   }
 
+  /** Règles VIP d'un salon (matchs de tournoi exclus : leurs règles sont celles du tournoi) */
+  private rules(room: VipSettings & { tournamentMatch?: unknown }) {
+    return roomVipRules({ ...room, tournament: !!room.tournamentMatch });
+  }
+
+  /**
+   * Nouvel hôte quand l'hôte part : le joueur arrivé le plus tôt ; si le salon exige un hôte VIP (privé, mode VIP, options
+   * avancées), le premier joueur VIP arrivé, pour que la partie reste lançable (à défaut, le plus ancien).
+   */
+  private async nextHost(tx: Prisma.TransactionClient, roomId: string): Promise<string> {
+    const room = await tx.room.findUniqueOrThrow({
+      where: { id: roomId },
+      select: {
+        visibility: true, suddenDeath: true, rounds: true, roundSec: true, tournamentMatch: { select: { id: true } },
+        players: { where: { leftAt: null }, orderBy: { joinedAt: "asc" }, select: { userId: true, user: { select: { role: true, status: true, ...vipSelect } } } },
+      },
+    });
+    const first = room.players[0]!.userId;
+    if (!this.rules(room).hostVip) return first;
+    const vip = room.players.find((p) => p.user.status === "ACTIVE" && (isVip(p.user.subscription) || p.user.role === "ADMIN" || p.user.role === "OWNER"));
+    return vip?.userId ?? first;
+  }
+
   /** Verrou sur le joueur : deux demandes simultanées ne peuvent pas l'inscrire dans deux salons. */
   private async lockUser(tx: Prisma.TransactionClient, userId: string) {
     await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId}::uuid FOR UPDATE`;
@@ -1200,7 +1284,7 @@ export class RoomsService {
       await tx.roomPlayer.delete({ where: { roomId_userId: { roomId: l.roomId, userId } } });
       const remaining = await tx.roomPlayer.findFirst({ where: { roomId: l.roomId }, orderBy: { joinedAt: "asc" }, select: { userId: true } });
       if (!remaining) await tx.room.update({ where: { id: l.roomId }, data: { status: "CLOSED", finishedAt: new Date() } });
-      else if (l.room.hostId === userId) await tx.room.update({ where: { id: l.roomId }, data: { hostId: remaining.userId } });
+      else if (l.room.hostId === userId) await tx.room.update({ where: { id: l.roomId }, data: { hostId: await this.nextHost(tx, l.roomId) } });
     }
     return lobbies.map((l) => l.roomId);
   }
@@ -1212,7 +1296,7 @@ export class RoomsService {
       await tx.roomPlayer.delete({ where: { roomId_userId: { roomId: l.roomId, userId } } });
       const remaining = await tx.roomPlayer.findFirst({ where: { roomId: l.roomId }, orderBy: { joinedAt: "asc" }, select: { userId: true } });
       if (!remaining) await tx.room.update({ where: { id: l.roomId }, data: { status: "CLOSED", finishedAt: new Date() } });
-      else if (l.room.hostId === userId) await tx.room.update({ where: { id: l.roomId }, data: { hostId: remaining.userId } });
+      else if (l.room.hostId === userId) await tx.room.update({ where: { id: l.roomId }, data: { hostId: await this.nextHost(tx, l.roomId) } });
     }
     return lobbies.map((l) => l.roomId);
   }

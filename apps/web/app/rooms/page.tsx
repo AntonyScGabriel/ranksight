@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   GAME_NAMES, GAME_SLUGS, ROOM_DEFAULT_ROUNDS, ROOM_DEFAULT_TIME, ROOM_MAX_PLAYERS, ROOM_MODES, ROOM_MODE_LABEL, ROOM_ROUND_CHOICES, ROOM_RULES,
-  ROOM_STATUS_LABEL, ROOM_TIME_CHOICES, ROOM_VISIBILITY_HINT, ROOM_VISIBILITY_LABEL, modeSettings, normalizeRoomCode,
+  ROOM_ADVANCED_HINT, ROOM_STATUS_LABEL, ROOM_TIME_CHOICES, ROOM_VIP_MODE_HINT, ROOM_VISIBILITY_HINT, ROOM_VISIBILITY_LABEL, modeSettings,
+  normalizeRoomCode, roomVipRules,
   type GameSlug, type PublicRoomDto, type RoomMode, type RoomVisibility, type RoomsOverviewDto,
 } from "@ranksight/shared";
 import { api } from "@/lib/api";
@@ -31,7 +32,7 @@ export default function RoomsPage() {
   const [joinError, setJoinError] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    api.rooms().then(setData, () => setData({ canHostPrivate: false, current: null, invites: [], recent: [] }));
+    api.rooms().then(setData, () => setData({ canHostPrivate: false, vip: false, current: null, invites: [], recent: [] }));
   }, []);
   useEffect(() => {
     if (!me) return;
@@ -144,7 +145,7 @@ export default function RoomsPage() {
 
       <PublicRooms />
 
-      <CreateRoom canHostPrivate={data.canHostPrivate} />
+      <CreateRoom vip={data.vip} />
 
       <Link href="/tournaments" className="glass flex flex-wrap items-center justify-between gap-3 p-5 transition hover:border-violet">
         <div>
@@ -253,6 +254,7 @@ function PublicRooms() {
                 <p className="font-semibold">
                   {r.game.name} · {ROOM_MODE_LABEL[r.mode]}
                   <span className="ml-2 rounded bg-success/15 px-1.5 py-px text-[10px] font-bold uppercase tracking-wider text-success">Public</span>
+                  {r.vipOnly && <span className="ml-2"><VipBadge /></span>}
                 </p>
                 <p className="text-muted">
                   Salon de {r.host} · {r.rounds} manches · {r.roundSec} s{r.suddenDeath ? " · mort subite" : ""} · {ROOM_STATUS_LABEL[r.status]}
@@ -264,6 +266,8 @@ function PublicRooms() {
                   <button disabled={!!joining} onClick={() => join(r.id)} className="btn-primary !py-2 text-sm">
                     {joining === r.id ? "Connexion…" : "Rejoindre"}
                   </button>
+                ) : r.vipOnly && r.status === "LOBBY" && r.players < r.maxPlayers ? (
+                  <Link href="/shop" className="text-xs text-warn underline" title={ROOM_VIP_MODE_HINT}>Réservé aux VIP</Link>
                 ) : (
                   <span className="text-xs text-muted">{r.status === "ACTIVE" ? "En cours" : "Complet"}</span>
                 )}
@@ -276,25 +280,33 @@ function PublicRooms() {
   );
 }
 
-/** Création : salon public (gratuit, visible dans la liste) ou privé (VIP, code ou invitation). */
-function CreateRoom({ canHostPrivate }: { canHostPrivate: boolean }) {
+/**
+ * Création : salon public classique (gratuit, visible dans la liste) ; salon privé, mort subite (mode VIP) et options
+ * avancées (manches, temps de réponse) réservés aux VIP. Les mêmes règles sont vérifiées par le serveur.
+ */
+function CreateRoom({ vip }: { vip: boolean }) {
   const router = useRouter();
   const [visibility, setVisibility] = useState<RoomVisibility>("PUBLIC");
   const [game, setGame] = useState<GameSlug>(GAME_SLUGS[0]);
   const [mode, setMode] = useState<RoomMode>("CLASSIC");
   const [rounds, setRounds] = useState<number>(ROOM_DEFAULT_ROUNDS);
   const [roundSec, setRoundSec] = useState<number>(ROOM_DEFAULT_TIME);
-  const [suddenDeath, setSuddenDeath] = useState(true);
+  const [suddenDeath, setSuddenDeath] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const locked = visibility === "PRIVATE" && !canHostPrivate;
+  // Sans VIP, les options avancées restent aux réglages standard (le serveur refuserait d'autres valeurs)
+  const rules = roomVipRules({ visibility, suddenDeath, rounds: vip ? rounds : ROOM_DEFAULT_ROUNDS, roundSec: vip ? roundSec : ROOM_DEFAULT_TIME });
+  const locked = rules.hostVip && !vip;
 
   const create = async () => {
     if (busy || locked) return;
     setBusy(true);
     setError(null);
     try {
-      const room = await api.createRoom({ game, visibility, rounds, roundSec, suddenDeath, ...modeSettings(mode) });
+      const room = await api.createRoom({
+        game, visibility, suddenDeath, ...modeSettings(mode),
+        rounds: vip ? rounds : ROOM_DEFAULT_ROUNDS, roundSec: vip ? roundSec : ROOM_DEFAULT_TIME,
+      });
       router.push(`/rooms/${room.id}`);
     } catch (e) {
       setError(errorMessage(e, "Le salon n'a pas pu être créé."));
@@ -333,25 +345,34 @@ function CreateRoom({ canHostPrivate }: { canHostPrivate: boolean }) {
           </select>
         </label>
         <label className="space-y-1 text-sm">
-          <span className="hud-label">Manches</span>
-          <select value={rounds} onChange={(e) => setRounds(Number(e.target.value))} className="input">
+          <span className="hud-label flex items-center gap-1">Manches {!vip && <VipBadge />}</span>
+          <select value={vip ? rounds : ROOM_DEFAULT_ROUNDS} disabled={!vip} onChange={(e) => setRounds(Number(e.target.value))} className="input disabled:opacity-60">
             {ROOM_ROUND_CHOICES.map((n) => <option key={n} value={n}>{n} manches</option>)}
           </select>
         </label>
         <label className="space-y-1 text-sm">
-          <span className="hud-label">Temps de réponse</span>
-          <select value={roundSec} onChange={(e) => setRoundSec(Number(e.target.value))} className="input">
+          <span className="hud-label flex items-center gap-1">Temps de réponse {!vip && <VipBadge />}</span>
+          <select value={vip ? roundSec : ROOM_DEFAULT_TIME} disabled={!vip} onChange={(e) => setRoundSec(Number(e.target.value))} className="input disabled:opacity-60">
             {ROOM_TIME_CHOICES.map((n) => <option key={n} value={n}>{n} secondes</option>)}
           </select>
         </label>
       </div>
-      <label className="flex items-start gap-3 text-sm">
-        <input type="checkbox" checked={suddenDeath} onChange={(e) => setSuddenDeath(e.target.checked)} className="mt-1 h-4 w-4 accent-[var(--color-neon)]" />
+      <label className={`flex items-start gap-3 text-sm ${vip ? "" : "opacity-70"}`}>
+        <input
+          type="checkbox"
+          checked={suddenDeath}
+          disabled={!vip}
+          onChange={(e) => setSuddenDeath(e.target.checked)}
+          className="mt-1 h-4 w-4 accent-[var(--color-neon)]"
+        />
         <span>
-          <span className="font-semibold">Mort subite</span>
-          <span className="block text-muted">En cas d&apos;égalité en tête, manche décisive entre les ex aequo (3 au maximum, puis la réponse la plus rapide).</span>
+          <span className="flex items-center gap-2 font-semibold">Mort subite <VipBadge /></span>
+          <span className="block text-muted">
+            En cas d&apos;égalité en tête, manche décisive entre les ex aequo (3 au maximum, puis la réponse la plus rapide). {ROOM_VIP_MODE_HINT}
+          </span>
         </span>
       </label>
+      {!vip && <p className="text-xs text-muted">{ROOM_ADVANCED_HINT}</p>}
       {mode === "IMPOSTOR" && (
         <p className="text-sm text-muted">
           Intrus (4 à 8 joueurs) : à chaque manche, un joueur reçoit un autre clip sans le savoir ; après les réponses, tout le monde vote pour le démasquer.
@@ -359,7 +380,7 @@ function CreateRoom({ canHostPrivate }: { canHostPrivate: boolean }) {
       )}
       {locked ? (
         <div className="rounded-xl border border-warn/40 bg-warn/10 p-4 text-sm">
-          <p>Un salon privé est réservé aux joueurs VIP. Les salons publics restent gratuits, et tes amis rejoignent toujours sans VIP.</p>
+          <p>Un salon privé est réservé aux joueurs VIP. Les salons publics classiques restent gratuits, et tes amis rejoignent toujours sans VIP.</p>
           <Link href="/shop" className="btn-primary mt-3 inline-flex !py-2 text-sm">Devenir VIP</Link>
         </div>
       ) : (

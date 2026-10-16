@@ -50,3 +50,14 @@ test("modes de salon : déduits des paramètres et réciproques", async () => {
   assert.deepEqual(PublicRoomsQuery.parse({ available: "true", mode: "IMPOSTOR" }), { available: true, mode: "IMPOSTOR" });
   assert.deepEqual(PublicRoomsQuery.parse({}), { available: false });
 });
+
+test("accès VIP des salons : public classique gratuit, privé, mode VIP et options avancées réservés", async () => {
+  const { roomVipRules, ROOM_DEFAULT_ROUNDS, ROOM_DEFAULT_TIME } = await import("./rooms.js");
+  const std = { rounds: ROOM_DEFAULT_ROUNDS, roundSec: ROOM_DEFAULT_TIME };
+  assert.deepEqual(roomVipRules({ visibility: "PUBLIC", suddenDeath: false, ...std }), { vipMode: false, advanced: false, hostVip: false }, "public classique : gratuit");
+  assert.deepEqual(roomVipRules({ visibility: "PRIVATE", suddenDeath: false, ...std }), { vipMode: false, advanced: false, hostVip: true }, "privé : hôte VIP, invités gratuits");
+  assert.deepEqual(roomVipRules({ visibility: "PUBLIC", suddenDeath: true, ...std }), { vipMode: true, advanced: false, hostVip: true }, "mort subite : mode VIP même en public");
+  assert.equal(roomVipRules({ visibility: "PUBLIC", suddenDeath: false, rounds: 10, roundSec: ROOM_DEFAULT_TIME }).hostVip, true, "manches : option avancée");
+  assert.equal(roomVipRules({ visibility: "PUBLIC", suddenDeath: false, rounds: ROOM_DEFAULT_ROUNDS, roundSec: 60 }).advanced, true, "temps : option avancée");
+  assert.equal(roomVipRules({ visibility: "PRIVATE", suddenDeath: true, ...std, tournament: true }).vipMode, false, "match de tournoi : règles du tournoi");
+});

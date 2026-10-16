@@ -59,7 +59,7 @@ export default function InfinitePage() {
         <button onClick={start} className="btn-primary">Lancer une partie</button>
         {error && <p className="text-sm text-danger">{error}</p>}
         <p className="border-t border-line/60 pt-4 text-sm text-muted">
-          Autre défi solo : <Link href="/play/higher-lower" className="text-neon hover:underline">Plus haut / Plus bas</Link>, le rang du clip suivant est-il plus haut ou plus bas&nbsp;?
+          Autre défi solo : <Link href="/play/higher-lower" className="text-neon hover:underline">Plus haut / Plus bas</Link> (mode VIP), le rang du clip suivant est-il plus haut ou plus bas&nbsp;?
         </p>
       </div>
     );

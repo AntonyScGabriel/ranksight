@@ -4,14 +4,13 @@ import {
 } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import {
-  AnswerHigherLowerInput, HIGHER_LOWER_FREE_RUNS, StartHigherLowerInput, higherLowerCorrect,
+  AnswerHigherLowerInput, StartHigherLowerInput, higherLowerCorrect,
   type HigherLowerAnswerDto, type HigherLowerOverviewDto, type HigherLowerRunDto, type RankDto,
 } from "@ranksight/shared";
 import { CurrentUser, type AuthUser } from "../../common/decorators/current-user.decorator.js";
 import { ZodPipe } from "../../common/pipes/zod.pipe.js";
 import type { Prisma } from "../../generated/prisma/client.js";
 import { PrismaService } from "../../prisma/prisma.service.js";
-import { todayUtc } from "../clips/clips.service.js";
 import { canHostVipGames } from "../shop/vip.js";
 import { StorageService } from "../storage/storage.service.js";
 
@@ -22,17 +21,15 @@ const clipSelect = {
 type ClipRow = Prisma.ClipGetPayload<{ select: typeof clipSelect }>;
 type RunRow = Prisma.HigherLowerRunGetPayload<{ include: { game: { select: { slug: true; name: true } } } }>;
 
-const freeLimitReached = () =>
+const vipRequired = () =>
   new HttpException(
-    {
-      code: "PREMIUM_REQUIRED",
-      message: `Tu as joué tes ${HIGHER_LOWER_FREE_RUNS} séries gratuites du jour. Reviens demain, ou passe VIP pour jouer sans limite.`,
-    },
+    { code: "PREMIUM_REQUIRED", message: "Plus haut / Plus bas est un mode VIP. Deviner le rang, les salons publics et les duels classés restent gratuits." },
     HttpStatus.PAYMENT_REQUIRED,
   );
 
 /**
- * Plus haut / Plus bas (solo). L'état de la série est gardé par le serveur : le rang du clip à comparer n'est envoyé
+ * Plus haut / Plus bas (solo), mode réservé aux joueurs VIP : le droit est relu en base au lancement et à chaque réponse
+ * (une requête envoyée directement à l'API sans VIP est refusée). L'état de la série est gardé par le serveur : le rang du clip à comparer n'est envoyé
  * qu'après la réponse, et chaque question n'accepte qu'une réponse (numéro de question vérifié en base).
  * Pas de classement public ni d'XP : seul le record personnel compte, le mode ne peut pas servir à gagner des avantages.
  */
@@ -44,9 +41,8 @@ export class HigherLowerService {
   ) {}
 
   async overview(userId: string): Promise<HigherLowerOverviewDto> {
-    const [vip, startedToday, best, active, recent] = await Promise.all([
+    const [vip, best, active, recent] = await Promise.all([
       canHostVipGames(this.prisma, userId),
-      this.startedToday(userId),
       this.best(userId),
       this.prisma.higherLowerRun.findFirst({ where: { userId, endedAt: null }, include: { game: { select: { slug: true, name: true } } } }),
       this.prisma.higherLowerRun.findMany({
@@ -57,8 +53,6 @@ export class HigherLowerService {
       }),
     ]);
     return {
-      freeRunsLeft: vip ? null : Math.max(0, HIGHER_LOWER_FREE_RUNS - startedToday),
-      freeRunsPerDay: HIGHER_LOWER_FREE_RUNS,
       vip,
       best,
       active: active ? await this.toDto(active, best) : null,
@@ -66,17 +60,14 @@ export class HigherLowerService {
     };
   }
 
-  /** Nouvelle série : la précédente, si elle était en cours, est abandonnée. 3 par jour sans VIP (vérifié en base). */
+  /** Nouvelle série (VIP, vérifié en base) : la précédente, si elle était en cours, est abandonnée. */
   async start(userId: string, gameSlug: string): Promise<HigherLowerRunDto> {
     const game = await this.prisma.game.findFirst({ where: { slug: gameSlug, isActive: true }, select: { id: true } });
     if (!game) throw new BadRequestException({ code: "GAME_UNAVAILABLE", message: "Ce jeu n'est pas disponible." });
-    const vip = await canHostVipGames(this.prisma, userId);
+    if (!(await canHostVipGames(this.prisma, userId))) throw vipRequired();
     const run = await this.prisma.$transaction(async (tx) => {
-      // Verrou sur le joueur : deux lancements simultanés ne dépassent pas la limite gratuite
+      // Verrou sur le joueur : deux lancements simultanés ne laissent qu'une série en cours
       await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId}::uuid FOR UPDATE`;
-      if (!vip && (await tx.higherLowerRun.count({ where: { userId, startedAt: { gte: todayUtc() } } })) >= HIGHER_LOWER_FREE_RUNS) {
-        throw freeLimitReached();
-      }
       await tx.higherLowerRun.updateMany({ where: { userId, endedAt: null }, data: { endedAt: new Date(), endReason: "ABANDONED", nextClipId: null } });
       const [first] = await tx.$queryRaw<{ id: string; rank_order: number }[]>`
         SELECT c.id, r."order" AS rank_order FROM clips c JOIN ranks r ON r.id = c.rank_id
@@ -101,6 +92,7 @@ export class HigherLowerService {
 
   /** Réponse à la question `round` : comparée par le serveur, une seule fois (mise à jour conditionnée à la question en cours). */
   async answer(userId: string, id: string, round: number, choice: "higher" | "lower"): Promise<HigherLowerAnswerDto> {
+    if (!(await canHostVipGames(this.prisma, userId))) throw vipRequired();
     const bestBefore = await this.best(userId);
     const result = await this.prisma.$transaction(async (tx) => {
       const [locked] = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM higher_lower_runs WHERE id = ${id}::uuid AND user_id = ${userId}::uuid FOR UPDATE`;
@@ -146,10 +138,6 @@ export class HigherLowerService {
         AND r."order" <> ${currentOrder} AND c.id <> ALL(${used}::uuid[])
       ORDER BY random() LIMIT 1`;
     return row?.id ?? null;
-  }
-
-  private startedToday(userId: string) {
-    return this.prisma.higherLowerRun.count({ where: { userId, startedAt: { gte: todayUtc() } } });
   }
 
   private async best(userId: string) {

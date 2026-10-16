@@ -142,23 +142,34 @@ pour tester Google sur téléphone, expose l'API avec une adresse publique (tunn
   des joueurs recalée sur la sienne) et refuse toute réponse hors délai. Bilan victoires / égalités / défaites sur le
   profil ; succès « Duelliste ». Les duels rapportent de l'XP mais ne comptent pas dans les classements. Pendant une manche,
   l'API enregistre la réponse sans renvoyer le rang réel ni le score : tout est dévoilé à la fin de la manche.
-- **Plus haut / Plus bas** (`/play/higher-lower`, lien depuis le mode Infini) : un clip est affiché avec son rang, le
+- **Plus haut / Plus bas** (`/play/higher-lower`, lien depuis le mode Infini) — **mode VIP** : un clip est affiché avec son rang, le
   joueur dit si le rang du clip suivant est plus haut ou plus bas. Bonne réponse : ce clip devient la référence ; une
   erreur termine la série. Deux clips du même rang ne sont jamais comparés, aucun clip n'est montré deux fois dans une
   série, jamais un clip proposé par le joueur. Le serveur garde l'état de la série : le rang du clip à comparer n'est
-  envoyé qu'après la réponse, et chaque question n'accepte qu'une réponse. **3 séries gratuites par jour** (jour UTC,
-  limite tenue même avec des lancements simultanés), illimitées en VIP. Pas d'XP ni de classement public : seul le
-  record personnel compte, le VIP ne donne donc aucun avantage de classement.
+  envoyé qu'après la réponse, et chaque question n'accepte qu'une réponse. **Réservé aux joueurs VIP**, sans limite de
+  séries : le droit est relu en base au lancement et à chaque réponse (une requête envoyée directement à l'API sans VIP
+  reçoit 402). Les joueurs gratuits voient le mode, ses règles et un lien vers l'offre VIP. Pas d'XP ni de classement
+  public : seul le record personnel compte, le VIP ne donne donc aucun avantage de classement.
 - **Salons** (onglet « Salons », ou depuis « Duels » sur téléphone) : jusqu'à **8 joueurs**, hôte compris, voient le
   même clip au même moment. Parties personnalisées, **jamais classées** : elles rapportent de l'XP mais ne modifient pas
   la cote compétitive. À la création, l'hôte choisit la visibilité :
   - **Public** : visible dans la liste des salons publics (`GET /rooms/public`, filtres jeu, mode et places disponibles ;
     ni code ni liste des joueurs), rejoignable sans invitation tant qu'il reste de la place (`POST /rooms/:id/join`).
-    Création gratuite pour tous.
+    **Salon public classique : création gratuite pour tous.**
   - **Privé** : absent des listes ; on n'y entre qu'avec le code ou une invitation (un accès direct par identifiant répond
-    « salon introuvable »). **Seule sa création exige le VIP**, relu en base (jamais un champ envoyé par l'application).
-  - Rejoindre, jouer et voir les résultats est toujours gratuit, et une partie lancée va à son terme, même si le VIP du
-    créateur se termine entre-temps. Les salons existants avant l'ajout de la visibilité sont privés.
+    « salon introuvable »). **Sa création exige le VIP**, relu en base (jamais un champ envoyé par l'application) ; un
+    invité gratuit le rejoint normalement.
+  - **Fonctions VIP** (`roomVipRules` dans `packages/shared/src/rooms.ts`, appliquées par l'API) :
+    - **Mort subite = mode VIP** : à la création (hôte VIP), pour rejoindre (code, liste, invitation, revanche, « Jouer
+      maintenant ») et au lancement, **chaque joueur doit être VIP**, que le salon soit public ou privé. Un salon public
+      en mode VIP reste visible dans la liste avec la mention « Réservé aux VIP ». Inviter un ami sans VIP est refusé.
+    - **Options avancées** (nombre de manches ou temps de réponse différents de 5 manches / 30 s) : hôte VIP ; les
+      autres joueurs peuvent être gratuits.
+    - Les droits sont relus au lancement : un hôte (ou, en mode VIP, un joueur) dont le VIP a pris fin bloque le
+      lancement avec un message clair. Si l'hôte part, le premier joueur VIP reprend un salon qui exige un hôte VIP.
+    - Mode Intrus et équipes : gratuits (non classés comme modes VIP).
+  - Rejoindre, jouer et voir les résultats d'un salon classique est gratuit, et une partie lancée va à son terme, même si
+    le VIP du créateur se termine entre-temps. Les salons existants avant l'ajout de la visibilité sont privés.
   - **« Jouer maintenant »** (`POST /rooms/quick-play`, écrans Salons et Duels) : rejoint le salon public compatible (même
     jeu, même mode) le plus rempli ; sans salon ouvert, le joueur choisit « Créer un salon public » (réglages par défaut)
     ou « Patienter » (nouvelle recherche toutes les 5 s pendant 2 minutes). Les demandes pour un même jeu et un même mode
@@ -182,7 +193,7 @@ pour tester Google sur téléphone, expose l'API avec une adresse publique (tunn
     devient hôte (l'hôte ne peut ni modifier les réponses ni les scores). Totaux recalculés par le serveur, places partagées
     en cas d'égalité, joueurs partis classés après les autres. Les salons rapportent de l'XP mais ne comptent dans aucun
     classement ; les réponses apparaissent dans l'historique du joueur (administration).
-  - **Mort subite** (option à la création, cochée par défaut) : en cas d'égalité en tête à la fin des manches prévues,
+  - **Mort subite** (mode VIP, option à la création, décochée par défaut) : en cas d'égalité en tête à la fin des manches prévues,
     les ex aequo disputent une manche décisive sur un nouveau clip (les autres regardent). Le meilleur score de la manche
     l'emporte ; ses points ne s'ajoutent pas au total. Toujours à égalité : nouvelle manche, 3 au maximum, puis la
     réponse la plus rapide (temps mesuré par le serveur) parmi les meilleurs. Le résultat indique comment la victoire a
@@ -244,16 +255,18 @@ pour tester Google sur téléphone, expose l'API avec une adresse publique (tunn
     avant sa clôture (au plus une minute) compte pour la saison suivante. Archives : `/ranked/seasons`
     (`GET /ratings/seasons`, `GET /ratings/seasons/:key?scope=`).
 - **Tournois privés** (`/tournaments`, depuis l'écran Salons) : tableau à élimination directe de 4, 8 ou 16 places.
-  **Seul le créateur doit être VIP** (relu en base à la création) ; s'inscrire avec le code ou le lien
+  **Seul l'organisateur doit être VIP** (relu en base à la création et au lancement) ; s'inscrire avec le code ou le lien
   `/tournaments/join/CODE`, jouer et gagner est gratuit, et un tournoi lancé va à son terme même si le VIP du créateur se
   termine. Réglages : jeu, places, 3 ou 5 manches par match, temps de réponse.
-  - Lancement par l'hôte à partir de 3 inscrits ; têtes de série tirées au sort (aléa cryptographique), tableau à la
-    puissance de 2 suffisante, meilleures têtes de série qualifiées d'office s'il manque des joueurs (1 et 2 ne peuvent
+  - Lancement par l'hôte (VIP relu en base au lancement) à partir de 3 inscrits ; têtes de série tirées au sort (aléa
+    cryptographique), tableau à la puissance de 2 suffisante, meilleures têtes de série qualifiées d'office s'il manque des joueurs (1 et 2 ne peuvent
     se rencontrer qu'en finale).
   - Match : dès que les deux adversaires sont connus, ils ont 5 minutes pour cliquer sur « Je suis prêt » ; le salon du
     match (2 joueurs, mort subite, clips jamais proposés par l'un d'eux) est alors créé et lancé, et les deux joueurs y
     sont envoyés. Un seul joueur prêt à l'heure limite : il gagne par forfait ; aucun : la meilleure tête de série passe.
-    Égalité parfaite après la mort subite : meilleure tête de série. Quitter le tournoi = forfait.
+    Égalité parfaite après la mort subite : meilleure tête de série. Quitter le tournoi = forfait. La mort subite n'y
+    sert qu'à départager les deux joueurs : elle fait partie des règles du tournoi (organisé par un VIP) et ne demande
+    pas le VIP aux participants.
   - Le gagnant passe au tour suivant dès la fin de son match ; places finales : 1er, 2e, puis places partagées par tour
     (3e pour les demi-finalistes, 5e pour les quarts, 9e pour les huitièmes). Statistiques : victoires (hors
     qualifications d'office) et points marqués en match. Suivi des matchs et des heures limites par une boucle d'une
@@ -305,8 +318,10 @@ pour tester Google sur téléphone, expose l'API avec une adresse publique (tunn
   statut, réponse facultative, suppression des messages hors sujet. L'auteur reçoit une notification sur son téléphone.
 - **Boutique VIP** (menu du compte, profil, application) : passes VIP 1 mois (4,99 €), 3 mois (12,99 €) et 12 mois (39,99 €),
   paiement unique par carte via Stripe Checkout, sans abonnement. Avantages : +50 % d'XP sur chaque réponse, badge VIP
-  (classements, chat, profil) et création de salons privés et de tournois (voir « Salons »). Il n'apporte aucun point au
-  classement compétitif. Un pass acheté pendant un VIP en cours s'ajoute à sa date de fin. Sans `STRIPE_SECRET_KEY`,
+  (classements, chat, profil), Plus haut / Plus bas, mort subite, options avancées des salons, création de salons privés
+  et de tournois (voir « Salons »). Restent gratuits : deviner le rang (défis du jour, Infini), duels classés et
+  classement compétitif, « Jouer maintenant », salons publics classiques, participation aux salons privés et aux
+  tournois sur invitation. Le VIP n'apporte aucun point au classement compétitif. Un pass acheté pendant un VIP en cours s'ajoute à sa date de fin. Sans `STRIPE_SECRET_KEY`,
   la boutique s'affiche mais l'achat est indisponible. L'administration peut offrir ou retirer le VIP (page Utilisateurs).
 - **Promo du moment** : réutilisable à chaque événement (lancement, Noël, anniversaire du site…). Nom affiché aux joueurs,
   prix promo par pass, fin automatique facultative (date et heure). Par défaut : « Offre de lancement » à moitié prix

@@ -157,6 +157,7 @@ test("départ du créateur, expulsion, fermeture", async () => {
 
 test("partie complète : résultats, revanche avec confirmation, historique, aucun effet sur la cote", async () => {
   const host = await newUser("ply");
+  await grantVip(host.id); // 3 manches de 20 s : options avancées, réservées aux VIP
   const guest = await newUser("plg");
   let room = (await host.s.post("/rooms", { game: GAME, visibility: "PUBLIC", rounds: 3, roundSec: 20 })).body;
   await guest.s.post(`/rooms/${room.id}/join`);
@@ -182,7 +183,8 @@ test("partie complète : résultats, revanche avec confirmation, historique, auc
   assert.equal(room.details.length, 3, "toutes les manches dévoilées à la fin");
   assert.equal(await ratingsOf([host.id, guest.id]), 0, "un salon ne crée ni ne modifie aucune cote");
   assert.equal(room.canRematch, true);
-  // Revanche : proposée par l'hôte, l'invité confirme en rejoignant ; proposée deux fois en même temps : un seul salon
+  // Revanche aux mêmes réglages (options avancées : à proposer par un VIP). Proposée par deux VIP en même temps : un seul salon
+  await grantVip(guest.id);
   const [p1, p2] = await Promise.all([host.s.post(`/rooms/${room.id}/rematch`), guest.s.post(`/rooms/${room.id}/rematch`)]);
   assert.equal(p1.status, 200, JSON.stringify(p1.body));
   assert.equal(p2.status, 200, JSON.stringify(p2.body));

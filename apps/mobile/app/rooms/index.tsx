@@ -3,7 +3,8 @@ import { Platform, Pressable, ScrollView, Switch, Text, TextInput, View } from "
 import { router, useFocusEffect } from "expo-router";
 import {
   GAME_NAMES, GAME_SLUGS, ROOM_DEFAULT_ROUNDS, ROOM_DEFAULT_TIME, ROOM_MAX_PLAYERS, ROOM_MODES, ROOM_MODE_LABEL, ROOM_ROUND_CHOICES, ROOM_RULES,
-  ROOM_STATUS_LABEL, ROOM_TIME_CHOICES, ROOM_VISIBILITY_HINT, ROOM_VISIBILITY_LABEL, modeSettings, normalizeRoomCode,
+  ROOM_ADVANCED_HINT, ROOM_STATUS_LABEL, ROOM_TIME_CHOICES, ROOM_VIP_MODE_HINT, ROOM_VISIBILITY_HINT, ROOM_VISIBILITY_LABEL, modeSettings,
+  normalizeRoomCode, roomVipRules,
   type GameSlug, type PublicRoomDto, type RoomMode, type RoomVisibility, type RoomsOverviewDto,
 } from "@ranksight/shared";
 import { api } from "@/lib/api";
@@ -30,7 +31,7 @@ export default function RoomsScreen() {
   const [game, setGame] = useState<GameSlug>(GAME_SLUGS[0]);
   const [rounds, setRounds] = useState<number>(ROOM_DEFAULT_ROUNDS);
   const [roundSec, setRoundSec] = useState<number>(ROOM_DEFAULT_TIME);
-  const [suddenDeath, setSuddenDeath] = useState(true);
+  const [suddenDeath, setSuddenDeath] = useState(false);
   const [mode, setMode] = useState<RoomMode>("CLASSIC");
   const [visibility, setVisibility] = useState<RoomVisibility>("PUBLIC");
   const [code, setCode] = useState("");
@@ -40,7 +41,7 @@ export default function RoomsScreen() {
 
   const load = useCallback(() => {
     if (!me) return;
-    api.rooms().then(setData, () => setData((d) => d ?? { canHostPrivate: false, current: null, invites: [], recent: [] }));
+    api.rooms().then(setData, () => setData((d) => d ?? { canHostPrivate: false, vip: false, current: null, invites: [], recent: [] }));
   }, [me]);
   useFocusEffect(load);
   useEffect(() => onRoom(load), [onRoom, load]);
@@ -70,7 +71,12 @@ export default function RoomsScreen() {
     setBusy(true);
     setError(null);
     try {
-      open((await api.createRoom({ game, visibility, rounds, roundSec, suddenDeath, ...modeSettings(mode) })).id);
+      // Sans VIP, les options avancées restent aux réglages standard (le serveur refuserait d'autres valeurs)
+      const vip = !!data?.vip;
+      open((await api.createRoom({
+        game, visibility, suddenDeath: vip && suddenDeath, ...modeSettings(mode),
+        rounds: vip ? rounds : ROOM_DEFAULT_ROUNDS, roundSec: vip ? roundSec : ROOM_DEFAULT_TIME,
+      })).id);
     } catch (e) {
       setError(errorMessage(e, "Le salon n'a pas pu être créé."));
     } finally {
@@ -151,23 +157,35 @@ export default function RoomsScreen() {
         {mode === "IMPOSTOR" && <Muted>Un joueur reçoit un autre clip sans le savoir ; après les réponses, tout le monde vote pour le démasquer. 4 joueurs minimum.</Muted>}
         <Hud>Jeu</Hud>
         <Chips value={game} options={GAME_SLUGS} onChange={setGame} label={(s) => GAME_NAMES[s]} />
-        <Hud>Manches</Hud>
-        <Chips value={rounds} options={ROOM_ROUND_CHOICES} onChange={setRounds} label={(n) => String(n)} />
-        <Hud>Temps de réponse</Hud>
-        <Chips value={roundSec} options={ROOM_TIME_CHOICES} onChange={setRoundSec} label={(n) => `${n} s`} />
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+        {data.vip ? (
+          <>
+            <Hud>Manches · VIP</Hud>
+            <Chips value={rounds} options={ROOM_ROUND_CHOICES} onChange={setRounds} label={(n) => String(n)} />
+            <Hud>Temps de réponse · VIP</Hud>
+            <Chips value={roundSec} options={ROOM_TIME_CHOICES} onChange={setRoundSec} label={(n) => `${n} s`} />
+          </>
+        ) : (
+          <Muted>{ROOM_ADVANCED_HINT}</Muted>
+        )}
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 12, opacity: data.vip ? 1 : 0.6 }}>
           <View style={{ flex: 1 }}>
-            <Text style={{ color: colors.ink, fontWeight: "700" }}>Mort subite</Text>
-            <Muted>En cas d&apos;égalité en tête, manche décisive entre les ex aequo.</Muted>
+            <Text style={{ color: colors.ink, fontWeight: "700" }}>Mort subite <Text style={{ color: colors.warn, fontSize: 12 }}>VIP</Text></Text>
+            <Muted>En cas d&apos;égalité en tête, manche décisive entre les ex aequo. {ROOM_VIP_MODE_HINT}</Muted>
           </View>
-          <Switch value={suddenDeath} onValueChange={setSuddenDeath} trackColor={{ true: colors.violet, false: colors.line }} accessibilityLabel="Mort subite" />
+          <Switch
+            value={data.vip && suddenDeath}
+            disabled={!data.vip}
+            onValueChange={setSuddenDeath}
+            trackColor={{ true: colors.violet, false: colors.line }}
+            accessibilityLabel="Mort subite, mode VIP"
+          />
         </View>
-        {visibility === "PUBLIC" || data.canHostPrivate ? (
+        {!roomVipRules({ visibility, suddenDeath: data.vip && suddenDeath, rounds: data.vip ? rounds : ROOM_DEFAULT_ROUNDS, roundSec: data.vip ? roundSec : ROOM_DEFAULT_TIME }).hostVip || data.vip ? (
           <PrimaryButton label={busy ? "Création…" : visibility === "PUBLIC" ? "Créer le salon public" : "Créer le salon privé"} disabled={busy} onPress={create} />
         ) : (
           <View style={{ gap: 10, borderWidth: 1, borderColor: `${colors.warn}66`, backgroundColor: `${colors.warn}14`, borderRadius: 12, padding: 12 }}>
             <Text style={{ color: colors.ink, lineHeight: 20 }}>
-              Un salon privé est réservé aux joueurs VIP. Les salons publics restent gratuits, et tes amis rejoignent toujours sans VIP.
+              Un salon privé est réservé aux joueurs VIP. Les salons publics classiques restent gratuits, et tes amis rejoignent toujours sans VIP.
             </Text>
             <GhostButton label={Platform.OS === "android" ? "Devenir VIP" : "Mon VIP"} onPress={() => router.push("/shop")} />
           </View>
@@ -256,11 +274,17 @@ function PublicRooms({ onOpen }: { onOpen: (id: string) => void }) {
         rooms.map((r) => (
           <View key={r.id} style={{ flexDirection: "row", alignItems: "center", gap: 10, borderTopWidth: 1, borderColor: colors.line, paddingTop: 10 }}>
             <View style={{ flex: 1, gap: 2 }}>
-              <Text style={{ color: colors.ink, fontWeight: "700" }}>{r.game.name} · {ROOM_MODE_LABEL[r.mode]}</Text>
+              <Text style={{ color: colors.ink, fontWeight: "700" }}>
+                {r.game.name} · {ROOM_MODE_LABEL[r.mode]}{r.vipOnly ? <Text style={{ color: colors.warn, fontSize: 12 }}> · VIP</Text> : null}
+              </Text>
               <Muted>Salon de {r.host} · {r.rounds} manches · {r.roundSec} s · {r.players}/{r.maxPlayers} · {ROOM_STATUS_LABEL[r.status]}</Muted>
             </View>
             {r.joinable ? (
               <GhostButton label={joining === r.id ? "…" : "Rejoindre"} onPress={() => void join(r.id)} />
+            ) : r.vipOnly && r.status === "LOBBY" && r.players < r.maxPlayers ? (
+              <Pressable onPress={() => router.push("/shop")} accessibilityRole="link" accessibilityLabel={ROOM_VIP_MODE_HINT}>
+                <Text style={{ color: colors.warn, fontSize: 12, textDecorationLine: "underline" }}>Réservé aux VIP</Text>
+              </Pressable>
             ) : (
               <Text style={{ color: colors.muted, fontSize: 12 }}>{r.status === "ACTIVE" ? "En cours" : "Complet"}</Text>
             )}

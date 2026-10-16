@@ -278,6 +278,7 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
             : "Invisible dans les listes : seuls tes amis invités et ceux qui ont le code peuvent entrer."}{" "}
           Partie non classée.
         </p>
+        {room.vipOnly && <p className="text-xs text-warn">Mode VIP (mort subite) : seuls les joueurs VIP peuvent rejoindre ce salon.</p>}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">

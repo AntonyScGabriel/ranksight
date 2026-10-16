@@ -38,7 +38,7 @@ export default function JoinRoomScreen() {
   }
   if (!preview) return <Loading />;
 
-  const open = preview.status === "LOBBY" && preview.players < preview.maxPlayers;
+  const open = preview.status === "LOBBY" && preview.players < preview.maxPlayers && preview.allowed;
   return (
     <View style={{ padding: 16 }}>
       <Message title={`Salon de ${preview.host}`}>
@@ -48,7 +48,7 @@ export default function JoinRoomScreen() {
         <Muted center>{preview.players}/{preview.maxPlayers} joueurs · {ROOM_STATUS_LABEL[preview.status]}</Muted>
         {open ? (
           <PrimaryButton
-            label="Rejoindre gratuitement"
+            label={preview.vipOnly ? "Rejoindre" : "Rejoindre gratuitement"}
             disabled={busy}
             onPress={async () => {
               setBusy(true);
@@ -63,7 +63,14 @@ export default function JoinRoomScreen() {
             }}
           />
         ) : (
-          <Text style={{ color: colors.warn, textAlign: "center" }}>{preview.status === "LOBBY" ? "Ce salon est complet." : "La partie a déjà commencé ou est terminée."}</Text>
+          <>
+            <Text style={{ color: colors.warn, textAlign: "center" }}>
+              {!preview.allowed && preview.status === "LOBBY"
+                ? "Ce salon utilise un mode VIP (mort subite) : il faut être VIP pour y jouer."
+                : preview.status === "LOBBY" ? "Ce salon est complet." : "La partie a déjà commencé ou est terminée."}
+            </Text>
+            {!preview.allowed && preview.status === "LOBBY" && <GhostButton label="Découvrir le VIP" onPress={() => router.push("/shop")} />}
+          </>
         )}
         {error && <Text style={{ color: colors.danger, textAlign: "center" }}>{error}</Text>}
       </Message>

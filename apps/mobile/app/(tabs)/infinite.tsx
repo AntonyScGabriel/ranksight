@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
+import { router } from "expo-router";
 import type { PlayableClipDto } from "@ranksight/shared";
 import { api, ApiError } from "@/lib/api";
 import { useSession } from "@/lib/session";
@@ -54,6 +55,15 @@ export default function InfiniteScreen() {
           <PrimaryButton label="Lancer une partie" onPress={start} />
           {error && <Text style={{ color: colors.danger }}>{error}</Text>}
         </Card>
+        <Pressable onPress={() => router.push("/higher-lower")} accessibilityRole="button" style={{ marginTop: 14 }}>
+          <Card style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text style={{ color: colors.ink, fontWeight: "700", fontSize: 16 }}>Plus haut / Plus bas</Text>
+              <Muted>Le rang du clip suivant est-il plus haut ou plus bas ?</Muted>
+            </View>
+            <Text style={{ color: colors.neon, fontSize: 20 }}>›</Text>
+          </Card>
+        </Pressable>
       </View>
     );
   }

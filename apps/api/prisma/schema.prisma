@@ -113,6 +113,7 @@ model User {
   roomSeats        RoomPlayer[]
   roomInvites      RoomInvite[]       @relation("roomInvitee")
   roomInvitesSent  RoomInvite[]       @relation("roomInviter")
+  higherLowerRuns  HigherLowerRun[]
   grantedPurchases Purchase[]         @relation("granter")
   giftsReceived    Purchase[]         @relation("giftRecipient")
   giftCodesCreated GiftCode[]         @relation("giftCodeCreator")
@@ -266,6 +267,7 @@ model Game {
   dailies     DailyChallenge[]
   versus      VersusMatch[]
   rooms       Room[]
+  higherLowerRuns HigherLowerRun[]
 
   @@map("games")
 }
@@ -1202,4 +1204,36 @@ model RoomInvite {
   @@id([roomId, userId])
   @@index([userId])
   @@map("room_invites")
+}
+
+// ----------------------------------------------------------------------------
+// Plus haut / Plus bas : le rang du clip suivant est-il plus haut ou plus bas que celui du clip affiché ?
+// Une erreur termine la série. 3 séries gratuites par jour, illimitées en VIP.
+// ----------------------------------------------------------------------------
+
+model HigherLowerRun {
+  id            String    @id @default(uuid(7)) @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  gameId        String    @map("game_id") @db.Uuid
+  /// Bonnes réponses d'affilée
+  score         Int       @default(0)
+  /// Question en cours (1 = première comparaison) : une réponse n'est acceptée qu'une fois par question
+  round         Int       @default(1)
+  /// Clip affiché avec son rang
+  currentClipId String    @map("current_clip_id") @db.Uuid
+  /// Clip à comparer (rang caché jusqu'à la réponse) ; NULL une fois la série terminée
+  nextClipId    String?   @map("next_clip_id") @db.Uuid
+  /// Clips déjà montrés dans la série (jamais deux fois le même)
+  usedClipIds   String[]  @default([]) @map("used_clip_ids") @db.Uuid
+  /// Fin de la série : WRONG (mauvaise réponse), COMPLETE (plus de clip à comparer), ABANDONED (nouvelle série lancée)
+  endReason     String?   @map("end_reason") @db.VarChar(16)
+  startedAt     DateTime  @default(now()) @map("started_at")
+  endedAt       DateTime? @map("ended_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  game Game @relation(fields: [gameId], references: [id])
+
+  @@index([userId, startedAt(sort: Desc)])
+  @@index([userId, score(sort: Desc)])
+  @@map("higher_lower_runs")
 }

@@ -4,7 +4,7 @@ import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  ROOM_MIN_PLAYERS, ROOM_RULES, formatRoomCode, type RoomDto, type RoomPlayerDto, type RoomRoundDto, type UserSummaryDto,
+  DECIDED_BY_LABEL, ROOM_MIN_PLAYERS, ROOM_RULES, SUDDEN_DEATH_RULES, formatRoomCode, type RoomDto, type RoomPlayerDto, type RoomRoundDto, type UserSummaryDto,
 } from "@ranksight/shared";
 import { api } from "@/lib/api";
 import { useConfirm } from "@/lib/confirm";
@@ -83,8 +83,15 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
               <>
                 {lastRound && <RoundReveal round={lastRound} players={room.players} meId={me.id} />}
                 <div className="glass p-8 text-center">
-                  <p className="hud-label">{room.live!.round === 1 ? "La partie commence" : `Manche ${room.live!.round}/${room.rounds}`}</p>
+                  <p className={`hud-label ${room.live!.suddenDeath ? "!text-warn" : ""}`}>
+                    {room.live!.round === 1 ? "La partie commence" : room.live!.suddenDeath ? "Mort subite · manche décisive" : `Manche ${room.live!.round}/${room.rounds}`}
+                  </p>
                   <p className="font-display text-6xl font-bold text-neon" aria-live="polite">{live.secondsLeft}</p>
+                  {room.live!.suddenDeath && (
+                    <p className="mt-2 text-sm text-muted">
+                      Égalité en tête : {room.players.filter((p) => p.finalist).map((p) => (p.id === me.id ? "toi" : p.displayName)).join(" contre ")}. Le meilleur score de cette manche l&apos;emporte.
+                    </p>
+                  )}
                 </div>
               </>
             )}
@@ -96,6 +103,7 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
                 progress={live.roundProgress}
                 onSubmitted={() => live.markSubmitted(live.clip!.position)}
                 onClosed={live.load}
+                label={room.live?.suddenDeath ? "Mort subite · manche décisive" : undefined}
               />
             ) : (
               <Skeleton className="h-96" />
@@ -107,6 +115,16 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
                   {room.players.filter((p) => !p.left && p.answered).length}/{room.players.filter((p) => !p.left).length} joueurs ont répondu.
                   {phase === "answered" && ` Fin de la manche dans ${live.secondsLeft} s au plus tard.`}
                 </p>
+                <TimerBar progress={live.roundProgress} />
+              </div>
+            )}
+            {phase === "spectating" && room.live && (
+              <div className="glass space-y-3 p-8 text-center">
+                <p className="hud-label !text-warn">Mort subite</p>
+                <p className="font-display text-xl font-semibold">
+                  {room.players.filter((p) => p.finalist).map((p) => p.displayName).join(" contre ")} se départagent
+                </p>
+                <p className="text-sm text-muted">Seuls les joueurs à égalité en tête répondent à cette manche. Résultat dans {live.secondsLeft} s au plus tard.</p>
                 <TimerBar progress={live.roundProgress} />
               </div>
             )}
@@ -130,6 +148,7 @@ function PlayerName({ p, meId }: { p: RoomPlayerDto; meId: string }) {
       <FlairBadge flair={p.flair} size={11} />
       {p.vip && <VipBadge />}
       {p.isHost && <span title="Hôte du salon" className="text-xs text-warn">★</span>}
+      {p.finalist && <span title="Dispute la mort subite" className="rounded bg-warn/15 px-1 text-[10px] font-bold text-warn">MS</span>}
     </span>
   );
 }
@@ -168,7 +187,9 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
           <button onClick={() => copy("code")} className="btn-ghost">{copied === "code" ? "Code copié ✓" : "Copier le code"}</button>
           <button onClick={() => copy("link")} className="btn-ghost">{copied === "link" ? "Lien copié ✓" : "Copier le lien d'invitation"}</button>
         </div>
-        <p className="text-sm text-muted">{room.game.name} · {room.rounds} manches · {room.roundSec} s par manche · rejoindre est gratuit</p>
+        <p className="text-sm text-muted">
+          {room.game.name} · {room.rounds} manches · {room.roundSec} s par manche{room.suddenDeath ? " · mort subite" : ""} · rejoindre est gratuit
+        </p>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
@@ -231,7 +252,9 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
           </div>
           <div className="glass space-y-2 p-6">
             <h2 className="font-display text-lg font-semibold">Règles</h2>
-            <ul className="list-disc space-y-1 pl-5 text-sm text-muted">{ROOM_RULES.map((r) => <li key={r}>{r}</li>)}</ul>
+            <ul className="list-disc space-y-1 pl-5 text-sm text-muted">
+              {[...ROOM_RULES, ...(room.suddenDeath ? SUDDEN_DEATH_RULES : [])].map((r) => <li key={r}>{r}</li>)}
+            </ul>
           </div>
         </div>
       </div>
@@ -243,7 +266,7 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
 function Scoreboard({ room, meId }: { room: RoomDto; meId: string }) {
   return (
     <aside className="glass h-fit space-y-3 p-5">
-      <p className="hud-label">{room.game.name} · manche {room.live?.round ?? room.rounds}/{room.rounds}</p>
+      <p className="hud-label">{room.game.name} · {room.live?.suddenDeath ? "mort subite" : `manche ${room.live?.round ?? room.rounds}/${room.rounds}`}</p>
       <ol className="space-y-2">
         {room.players.map((p, i) => (
           <li key={p.id} className={`flex items-center gap-2 text-sm ${p.left ? "opacity-50" : ""}`}>
@@ -260,11 +283,13 @@ function Scoreboard({ room, meId }: { room: RoomDto; meId: string }) {
 }
 
 /** Fin de manche : rang réel et réponse de chaque joueur. */
-function RoundReveal({ round, players, meId }: { round: RoomRoundDto; players: RoomPlayerDto[]; meId: string }) {
+function RoundReveal({ round, players: all, meId }: { round: RoomRoundDto; players: RoomPlayerDto[]; meId: string }) {
+  // Manche décisive : seuls les finalistes y ont répondu
+  const players = round.suddenDeath ? all.filter((p) => round.answers.some((a) => a.userId === p.id) || p.finalist) : all;
   return (
     <div className="glass space-y-4 p-6">
       <div className="flex flex-col items-center gap-1 text-center">
-        <p className="hud-label">Manche {round.position} · rang réel</p>
+        <p className="hud-label">{round.suddenDeath ? "Mort subite" : `Manche ${round.position}`} · rang réel</p>
         <RankEmblem rank={round.correctRank} size={64} />
         <p className="font-display text-lg font-bold" style={{ color: round.correctRank.color }}>{round.correctRank.name}</p>
       </div>
@@ -305,6 +330,7 @@ function FinalResult({ room, meId }: { room: RoomDto; meId: string }) {
         <p className="text-sm text-muted">
           {winners.length > 1 ? `Égalité en tête : ${winners.map((w) => w.displayName).join(", ")}` : `Vainqueur : ${winners[0]?.displayName ?? "—"}`}
         </p>
+        {room.decidedBy && room.decidedBy !== "POINTS" && <p className="text-sm text-warn">{DECIDED_BY_LABEL[room.decidedBy]}</p>}
       </div>
 
       <ol className="glass divide-y divide-line/60 p-2">
@@ -331,7 +357,7 @@ function FinalResult({ room, meId }: { room: RoomDto; meId: string }) {
                 {room.details.map((d) => (
                   <th key={d.position} className="font-normal">
                     <span className="flex items-center gap-1" style={{ color: d.correctRank.color }}>
-                      #{d.position} <RankEmblem rank={d.correctRank} size={18} /> {d.correctRank.name}
+                      {d.suddenDeath ? "MS" : `#${d.position}`} <RankEmblem rank={d.correctRank} size={18} /> {d.correctRank.name}
                     </span>
                   </th>
                 ))}

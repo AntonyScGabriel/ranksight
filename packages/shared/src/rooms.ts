@@ -60,6 +60,8 @@ export const CreateRoomInput = z
     game: GameSlug,
     rounds: z.coerce.number().int().refine((n) => (ROOM_ROUND_CHOICES as readonly number[]).includes(n), "Nombre de manches non proposé.").default(ROOM_DEFAULT_ROUNDS),
     roundSec: z.coerce.number().int().refine((n) => (ROOM_TIME_CHOICES as readonly number[]).includes(n), "Temps de réponse non proposé.").default(ROOM_DEFAULT_TIME),
+    /** Mort subite en cas d'égalité en tête */
+    suddenDeath: z.boolean().default(false),
   })
   .strict();
 export type CreateRoomInput = z.input<typeof CreateRoomInput>;
@@ -107,12 +109,16 @@ export const RoomPlayerDto = z.object({
   answered: z.boolean(),
   /** Place finale, une fois la partie terminée */
   placement: z.number().int().nullable(),
+  /** Dispute la mort subite (à égalité en tête) */
+  finalist: z.boolean(),
 });
 export type RoomPlayerDto = z.infer<typeof RoomPlayerDto>;
 
 /** Manche terminée : rang réel et réponses de chaque joueur */
 export const RoomRoundDto = z.object({
   position: z.number().int(),
+  /** Manche décisive (mort subite) */
+  suddenDeath: z.boolean(),
   correctRank: RoomRankRef,
   answers: z.array(z.object({ userId: z.string().uuid(), rank: RoomRankRef, score: z.number().int() })),
 });
@@ -120,6 +126,10 @@ export type RoomRoundDto = z.infer<typeof RoomRoundDto>;
 
 export const RoomLiveDto = z.object({
   round: z.number().int(),
+  /** Manche décisive : seuls les finalistes répondent */
+  suddenDeath: z.boolean(),
+  /** Le joueur connecté répond à cette manche (toujours vrai hors mort subite, sauf s'il a quitté) */
+  playing: z.boolean(),
   startsAt: z.string(),
   endsAt: z.string(),
   serverNow: z.string(),
@@ -135,6 +145,11 @@ export const RoomDto = z.object({
   rounds: z.number().int(),
   roundSec: z.number().int(),
   maxPlayers: z.number().int(),
+  suddenDeath: z.boolean(),
+  /** Manches de mort subite jouées */
+  suddenDeathRounds: z.number().int(),
+  /** Comment la première place a été attribuée (partie terminée) */
+  decidedBy: z.enum(["POINTS", "SUDDEN_DEATH", "SPEED", "SHARED"]).nullable(),
   isHost: z.boolean(),
   /** Le joueur connecté a quitté la partie (il peut encore voir les résultats) */
   left: z.boolean(),
@@ -158,6 +173,7 @@ export const RoomPreviewDto = z.object({
   game: z.object({ slug: z.string(), name: z.string() }),
   rounds: z.number().int(),
   roundSec: z.number().int(),
+  suddenDeath: z.boolean(),
   players: z.number().int(),
   maxPlayers: z.number().int(),
   status: RoomStatus,

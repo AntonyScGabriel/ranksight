@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Pressable, ScrollView, Share, Text, View } from "react-native";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import {
-  ROOM_MIN_PLAYERS, ROOM_RULES, formatRoomCode, type RoomDto, type RoomPlayerDto, type RoomRoundDto, type UserSummaryDto,
+  DECIDED_BY_LABEL, ROOM_MIN_PLAYERS, ROOM_RULES, SUDDEN_DEATH_RULES, formatRoomCode, type RoomDto, type RoomPlayerDto, type RoomRoundDto, type UserSummaryDto,
 } from "@ranksight/shared";
 import { api, WEB_URL } from "@/lib/api";
 import { useConfirm } from "@/lib/confirm";
@@ -81,6 +81,7 @@ export default function RoomScreen() {
             progress={live.roundProgress}
             onSubmitted={() => live.markSubmitted(live.clip!.position)}
             onClosed={live.load}
+            label={room.live?.suddenDeath ? "Mort subite" : undefined}
           />
         ) : (
           <Loading />
@@ -101,8 +102,11 @@ export default function RoomScreen() {
         <>
           {lastRound && <RoundReveal round={lastRound} players={room.players} meId={me.id} />}
           <Card style={{ alignItems: "center", gap: 4 }}>
-            <Hud>{room.live.round === 1 ? "La partie commence" : `Manche ${room.live.round}/${room.rounds}`}</Hud>
+            <Hud>{room.live.round === 1 ? "La partie commence" : room.live.suddenDeath ? "Mort subite · manche décisive" : `Manche ${room.live.round}/${room.rounds}`}</Hud>
             <Text style={{ color: colors.neon, fontSize: 56, ...font.display }}>{live.secondsLeft}</Text>
+            {room.live.suddenDeath && (
+              <Muted center>Égalité en tête : {room.players.filter((p) => p.finalist).map((p) => (p.id === me.id ? "toi" : p.displayName)).join(" contre ")}.</Muted>
+            )}
           </Card>
         </>
       )}
@@ -115,6 +119,14 @@ export default function RoomScreen() {
           <Muted center>
             {room.players.filter((p) => !p.left && p.answered).length}/{room.players.filter((p) => !p.left).length} joueurs ont répondu.
           </Muted>
+          <TimerBar progress={live.roundProgress} />
+        </Card>
+      )}
+
+      {phase === "spectating" && room.live && (
+        <Card style={{ gap: 10 }}>
+          <Text style={{ color: colors.warn, fontSize: 18, fontWeight: "700", textAlign: "center" }}>Mort subite</Text>
+          <Muted center>{room.players.filter((p) => p.finalist).map((p) => p.displayName).join(" contre ")} se départagent : seuls les joueurs à égalité en tête répondent.</Muted>
           <TimerBar progress={live.roundProgress} />
         </Card>
       )}
@@ -137,6 +149,7 @@ function PlayerName({ p, meId }: { p: RoomPlayerDto; meId: string }) {
       <FlairBadge flair={p.flair} size={10} />
       {p.vip && <Text style={{ color: "black", backgroundColor: colors.warn, borderRadius: 3, paddingHorizontal: 4, fontSize: 9, fontWeight: "800", overflow: "hidden" }}>VIP</Text>}
       {p.isHost && <Text style={{ color: colors.warn, fontSize: 12 }} accessibilityLabel="Hôte du salon">★</Text>}
+      {p.finalist && <Text style={{ color: colors.warn, fontSize: 10, fontWeight: "800" }} accessibilityLabel="Dispute la mort subite">MS</Text>}
     </View>
   );
 }
@@ -158,7 +171,7 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
       <Card style={{ alignItems: "center", gap: 8 }}>
         <Hud>Code du salon</Hud>
         <Text selectable style={{ color: colors.neon, fontSize: 34, fontWeight: "700", letterSpacing: 5 }}>{code}</Text>
-        <Muted center>{room.game.name} · {room.rounds} manches · {room.roundSec} s · rejoindre est gratuit</Muted>
+        <Muted center>{room.game.name} · {room.rounds} manches · {room.roundSec} s{room.suddenDeath ? " · mort subite" : ""} · rejoindre est gratuit</Muted>
         <View style={{ alignSelf: "stretch" }}>
           <GhostButton
             label="Partager l'invitation"
@@ -218,7 +231,7 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
 
       <Card style={{ gap: 6 }}>
         <Text style={{ color: colors.ink, fontSize: 16, fontWeight: "700" }}>Règles</Text>
-        {ROOM_RULES.map((r) => <Muted key={r}>• {r}</Muted>)}
+        {[...ROOM_RULES, ...(room.suddenDeath ? SUDDEN_DEATH_RULES : [])].map((r) => <Muted key={r}>• {r}</Muted>)}
       </Card>
     </>
   );
@@ -245,11 +258,11 @@ function RoundReveal({ round, players, meId }: { round: RoomRoundDto; players: R
   return (
     <Card style={{ gap: 10 }}>
       <View style={{ alignItems: "center", gap: 3 }}>
-        <Hud>Manche {round.position} · rang réel</Hud>
+        <Hud>{round.suddenDeath ? "Mort subite" : `Manche ${round.position}`} · rang réel</Hud>
         <RankEmblem rank={round.correctRank} size={56} />
         <Text style={{ color: round.correctRank.color, fontWeight: "800" }}>{round.correctRank.name}</Text>
       </View>
-      {players.map((p) => {
+      {players.filter((p) => !round.suddenDeath || p.finalist || round.answers.some((a) => a.userId === p.id)).map((p) => {
         const a = round.answers.find((x) => x.userId === p.id);
         return (
           <View key={p.id} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
@@ -281,6 +294,7 @@ function FinalResult({ room, meId }: { room: RoomDto; meId: string }) {
           {me?.placement === 1 ? (winners.length > 1 ? "Victoire partagée !" : "Victoire !") : me?.placement ? `${me.placement}e place` : "Partie terminée"}
         </Text>
         <Muted center>{winners.length > 1 ? `Égalité en tête : ${winners.map((w) => w.displayName).join(", ")}` : `Vainqueur : ${winners[0]?.displayName ?? "—"}`}</Muted>
+        {room.decidedBy && room.decidedBy !== "POINTS" && <Text style={{ color: colors.warn, textAlign: "center" }}>{DECIDED_BY_LABEL[room.decidedBy]}</Text>}
       </Card>
       <Card style={{ gap: 10 }}>
         {room.players.map((p) => (
@@ -303,7 +317,7 @@ function FinalResult({ room, meId }: { room: RoomDto; meId: string }) {
             <View key={d.position} style={{ gap: 4, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 8 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                 <RankEmblem rank={d.correctRank} size={26} />
-                <Text style={{ color: colors.ink, fontWeight: "600" }}>{d.position}. <Text style={{ color: d.correctRank.color }}>{d.correctRank.name}</Text></Text>
+                <Text style={{ color: colors.ink, fontWeight: "600" }}>{d.suddenDeath ? "Mort subite" : `${d.position}.`} <Text style={{ color: d.correctRank.color }}>{d.correctRank.name}</Text></Text>
               </View>
               <Text style={{ color: colors.muted, fontSize: 13 }}>
                 {room.players.map((p) => {

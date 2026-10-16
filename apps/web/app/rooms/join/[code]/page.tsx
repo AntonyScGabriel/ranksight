@@ -3,7 +3,7 @@
 import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ROOM_STATUS_LABEL, formatRoomCode, normalizeRoomCode, type RoomPreviewDto } from "@ranksight/shared";
+import { ROOM_MODE_LABEL, ROOM_STATUS_LABEL, ROOM_VISIBILITY_LABEL, formatRoomCode, normalizeRoomCode, type RoomPreviewDto } from "@ranksight/shared";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { errorMessage } from "@/components/AuthForm";
@@ -29,15 +29,16 @@ export default function JoinRoomPage({ params }: { params: Promise<{ code: strin
 
   if (loading) return <Skeleton />;
   if (!me) return <LoginRequired next={`/rooms/join/${raw}`} text="Connecte-toi (ou crée un compte gratuit) pour rejoindre ce salon. Pas besoin d'être VIP." />;
-  if (!code) return <Panel title="Code invalide" text="Le code d'un salon fait 8 caractères, lettres et chiffres."><Link href="/rooms" className="btn-ghost mx-auto w-fit">Salons privés</Link></Panel>;
-  if (error && !preview) return <Panel title="Salon introuvable" text={error}><Link href="/rooms" className="btn-ghost mx-auto w-fit">Salons privés</Link></Panel>;
+  if (!code) return <Panel title="Code invalide" text="Le code d'un salon fait 8 caractères, lettres et chiffres."><Link href="/rooms" className="btn-ghost mx-auto w-fit">Salons</Link></Panel>;
+  if (error && !preview) return <Panel title="Salon introuvable" text={error}><Link href="/rooms" className="btn-ghost mx-auto w-fit">Salons</Link></Panel>;
   if (!preview) return <Skeleton />;
 
-  const open = preview.status === "LOBBY" && preview.players < preview.maxPlayers;
+  const open = preview.status === "LOBBY" && preview.players < preview.maxPlayers && preview.allowed;
   return (
     <Panel title={`Salon de ${preview.host}`}>
       <p className="font-mono text-lg tracking-widest text-neon">{formatRoomCode(preview.code)}</p>
       <ul className="space-y-1 text-sm text-muted">
+        <li>Salon {ROOM_VISIBILITY_LABEL[preview.visibility].toLowerCase()} · {ROOM_MODE_LABEL[preview.mode]} · partie non classée</li>
         <li>{preview.game.name} · {preview.rounds} manches · {preview.roundSec} s par manche</li>
         <li>{preview.players}/{preview.maxPlayers} joueurs · {ROOM_STATUS_LABEL[preview.status]}</li>
       </ul>
@@ -57,10 +58,14 @@ export default function JoinRoomPage({ params }: { params: Promise<{ code: strin
           }}
           className="btn-primary mx-auto"
         >
-          Rejoindre gratuitement
+          {preview.vipOnly ? "Rejoindre" : "Rejoindre gratuitement"}
         </button>
       ) : (
-        <p className="text-sm text-warn">{preview.status === "LOBBY" ? "Ce salon est complet." : "La partie a déjà commencé ou est terminée."}</p>
+        <p className="text-sm text-warn">
+          {!preview.allowed && preview.status === "LOBBY"
+            ? <>Ce salon utilise un mode VIP (mort subite) : il faut être VIP pour y jouer. <Link href="/shop" className="underline">Découvrir le VIP</Link></>
+            : preview.status === "LOBBY" ? "Ce salon est complet." : "La partie a déjà commencé ou est terminée."}
+        </p>
       )}
       {error && <p role="alert" className="text-sm text-danger">{error}</p>}
     </Panel>

@@ -30,9 +30,9 @@ interface ChatValue {
   onVersus: (fn: Listener<{ id: string }>) => () => void;
   /** Invitations de duel en attente de réponse (badge de navigation) */
   versusPending: number;
-  /** Un salon privé du joueur a changé (arrivée, départ, manche, fin) ou une invitation est arrivée */
+  /** Un salon du joueur a changé (arrivée, départ, manche, fin) ou une invitation est arrivée */
   onRoom: (fn: Listener<{ id: string }>) => () => void;
-  /** Invitations dans un salon privé (badge de navigation) */
+  /** Invitations dans un salon (badge de navigation) */
   roomInvites: number;
   /** Un tournoi du joueur a changé (inscription, match prêt, résultat) */
   onTournament: (fn: Listener<{ id: string }>) => () => void;
@@ -86,7 +86,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const roomListeners = useRef(new Set<Listener<{ id: string }>>());
   const tournamentListeners = useRef(new Set<Listener<{ id: string }>>());
   const [roomInvites, setRoomInvites] = useState(0);
-  // Invitation dans un salon privé : bandeau « Voir le salon » sur toutes les pages
+  // Invitation dans un salon : bandeau « Voir le salon » sur toutes les pages
   const [roomInvite, setRoomInvite] = useState<RoomInviteDto | null>(null);
   const seenRoomInvites = useRef(new Set<string>());
   const refreshRooms = useCallback(() => {

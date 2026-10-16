@@ -1,13 +1,14 @@
-import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Module, Param, ParseUUIDPipe, Post } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Module, Param, ParseUUIDPipe, Post, Query } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
-import { CreateRoomInput, InviteToRoomInput, JoinRoomInput, SetRoomTeamInput, VoteInput, normalizeRoomCode } from "@ranksight/shared";
+import {
+  CreateRoomInput, InviteToRoomInput, JoinRoomInput, PublicRoomsQuery, QuickPlayInput, SetRoomTeamInput, VoteInput, normalizeRoomCode,
+} from "@ranksight/shared";
 import type { z } from "zod";
 import { CurrentUser, type AuthUser } from "../../common/decorators/current-user.decorator.js";
 import { ZodPipe } from "../../common/pipes/zod.pipe.js";
 import { ChatModule } from "../chat/chat.module.js";
 import { ClipsModule } from "../clips/clips.module.js";
 import { RoomsService } from "./rooms.service.js";
-import { TokensModule } from "../tokens/tokens.module.js";
 
 @Controller("rooms")
 export class RoomsController {
@@ -19,7 +20,31 @@ export class RoomsController {
     return this.rooms.overview(u.sub);
   }
 
-  /** POST /v1/rooms — { game, rounds, roundSec } : réservé aux joueurs VIP (vérifié en base) */
+  /** GET /v1/rooms/public?game=&mode=&available=true — salons publics (jamais les salons privés) */
+  @Get("public")
+  @Throttle({ default: { ttl: 60_000, limit: 120 } })
+  publicList(@CurrentUser() u: AuthUser, @Query(new ZodPipe(PublicRoomsQuery)) query: z.output<typeof PublicRoomsQuery>) {
+    return this.rooms.publicList(u.sub, query);
+  }
+
+  /** GET /v1/rooms/history?cursor= — mes salons terminés et mes statistiques (sans effet sur la cote compétitive) */
+  @Get("history")
+  history(@CurrentUser() u: AuthUser, @Query("cursor", new ParseUUIDPipe({ optional: true })) cursor?: string) {
+    return this.rooms.history(u.sub, cursor);
+  }
+
+  /**
+   * POST /v1/rooms/quick-play — { game, mode, create } : « Jouer maintenant ». Rejoint un salon public compatible,
+   * ou en crée un si `create` ; sinon { room: null } (le joueur choisit de créer ou de patienter).
+   */
+  @Post("quick-play")
+  @HttpCode(200)
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
+  quickPlay(@CurrentUser() u: AuthUser, @Body(new ZodPipe(QuickPlayInput)) body: z.output<typeof QuickPlayInput>) {
+    return this.rooms.quickPlay(u.sub, body);
+  }
+
+  /** POST /v1/rooms — { game, visibility, rounds, roundSec… } : public pour tous, privé réservé aux joueurs VIP (vérifié en base) */
   @Post()
   @Throttle({ default: { ttl: 3_600_000, limit: 20 } })
   create(@CurrentUser() u: AuthUser, @Body(new ZodPipe(CreateRoomInput)) body: z.output<typeof CreateRoomInput>) {
@@ -44,6 +69,29 @@ export class RoomsController {
   @Throttle({ default: { ttl: 60_000, limit: 60 } })
   join(@CurrentUser() u: AuthUser, @Body(new ZodPipe(JoinRoomInput)) body: z.output<typeof JoinRoomInput>) {
     return this.rooms.join(u.sub, body.code);
+  }
+
+  /** POST /v1/rooms/:id/join — rejoindre un salon public depuis la liste (un salon privé exige son code ou une invitation) */
+  @Post(":id/join")
+  @HttpCode(200)
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
+  joinPublic(@CurrentUser() u: AuthUser, @Param("id", ParseUUIDPipe) id: string) {
+    return this.rooms.joinPublic(u.sub, id);
+  }
+
+  /** POST /v1/rooms/:id/close — l'hôte ferme sa salle d'attente */
+  @Post(":id/close")
+  @HttpCode(204)
+  close(@CurrentUser() u: AuthUser, @Param("id", ParseUUIDPipe) id: string) {
+    return this.rooms.close(u.sub, id);
+  }
+
+  /** POST /v1/rooms/:id/rematch — proposer (ou rejoindre) la revanche d'une partie terminée */
+  @Post(":id/rematch")
+  @HttpCode(200)
+  @Throttle({ default: { ttl: 60_000, limit: 20 } })
+  rematch(@CurrentUser() u: AuthUser, @Param("id", ParseUUIDPipe) id: string) {
+    return this.rooms.rematch(u.sub, id);
   }
 
   @Get(":id")
@@ -103,13 +151,14 @@ export class RoomsController {
   /** POST /v1/rooms/:id/kick/:userId — l'hôte retire un joueur de la salle d'attente */
   @Post(":id/kick/:userId")
   @HttpCode(200)
+  @Throttle({ default: { ttl: 60_000, limit: 20 } })
   kick(@CurrentUser() u: AuthUser, @Param("id", ParseUUIDPipe) id: string, @Param("userId", ParseUUIDPipe) target: string) {
     return this.rooms.kick(u.sub, id, target);
   }
 }
 
 @Module({
-  imports: [ClipsModule, ChatModule, TokensModule],
+  imports: [ClipsModule, ChatModule],
   controllers: [RoomsController],
   providers: [RoomsService],
   exports: [RoomsService],

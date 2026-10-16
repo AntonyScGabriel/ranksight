@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { QuickPlay } from "@/components/QuickPlay";
 import { useRouter } from "next/navigation";
 import { GAME_NAMES, GAME_SLUGS, type UserSummaryDto, type VersusMatchDto, type VersusStatsDto } from "@ranksight/shared";
 import { api } from "@/lib/api";
@@ -83,12 +84,13 @@ export default function VersusPage() {
         </div>
       </header>
 
+      <QuickPlay compact />
       <Link href="/rooms" className="glass flex flex-wrap items-center justify-between gap-3 p-5 transition hover:border-violet">
         <div>
-          <p className="font-display text-lg font-semibold">Salons privés <span className="text-sm font-normal text-muted">· jusqu&apos;à 8 joueurs</span></p>
-          <p className="text-sm text-muted">Joue avec tes amis grâce à un code. Seul le créateur du salon doit être VIP.</p>
+          <p className="font-display text-lg font-semibold">Salons <span className="text-sm font-normal text-muted">· jusqu&apos;à 8 joueurs, non classés</span></p>
+          <p className="text-sm text-muted">Liste des salons publics, salons privés entre amis avec un code, historique de tes parties.</p>
         </div>
-        <span className="btn-ghost">Ouvrir</span>
+        <span className="btn-ghost">Voir les salons</span>
       </Link>
 
       <Link href="/ranked" className="glass flex flex-wrap items-center justify-between gap-3 p-5 transition hover:border-violet">

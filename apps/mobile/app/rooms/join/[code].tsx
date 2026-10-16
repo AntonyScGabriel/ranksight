@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
-import { ROOM_STATUS_LABEL, formatRoomCode, normalizeRoomCode, type RoomPreviewDto } from "@ranksight/shared";
+import { ROOM_MODE_LABEL, ROOM_STATUS_LABEL, ROOM_VISIBILITY_LABEL, formatRoomCode, normalizeRoomCode, type RoomPreviewDto } from "@ranksight/shared";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { colors } from "@/lib/theme";
@@ -31,23 +31,24 @@ export default function JoinRoomScreen() {
     return (
       <View style={{ padding: 16 }}>
         <Message title={code ? "Salon introuvable" : "Code invalide"} text={error ?? "Le code d'un salon fait 8 caractères, lettres et chiffres."}>
-          <GhostButton label="Salons privés" onPress={() => router.replace("/rooms")} />
+          <GhostButton label="Salons" onPress={() => router.replace("/rooms")} />
         </Message>
       </View>
     );
   }
   if (!preview) return <Loading />;
 
-  const open = preview.status === "LOBBY" && preview.players < preview.maxPlayers;
+  const open = preview.status === "LOBBY" && preview.players < preview.maxPlayers && preview.allowed;
   return (
     <View style={{ padding: 16 }}>
       <Message title={`Salon de ${preview.host}`}>
         <Text style={{ color: colors.neon, fontSize: 22, letterSpacing: 4, textAlign: "center", fontWeight: "700" }}>{formatRoomCode(preview.code)}</Text>
+        <Muted center>Salon {ROOM_VISIBILITY_LABEL[preview.visibility].toLowerCase()} · {ROOM_MODE_LABEL[preview.mode]} · partie non classée</Muted>
         <Muted center>{preview.game.name} · {preview.rounds} manches · {preview.roundSec} s par manche</Muted>
         <Muted center>{preview.players}/{preview.maxPlayers} joueurs · {ROOM_STATUS_LABEL[preview.status]}</Muted>
         {open ? (
           <PrimaryButton
-            label="Rejoindre gratuitement"
+            label={preview.vipOnly ? "Rejoindre" : "Rejoindre gratuitement"}
             disabled={busy}
             onPress={async () => {
               setBusy(true);
@@ -62,7 +63,14 @@ export default function JoinRoomScreen() {
             }}
           />
         ) : (
-          <Text style={{ color: colors.warn, textAlign: "center" }}>{preview.status === "LOBBY" ? "Ce salon est complet." : "La partie a déjà commencé ou est terminée."}</Text>
+          <>
+            <Text style={{ color: colors.warn, textAlign: "center" }}>
+              {!preview.allowed && preview.status === "LOBBY"
+                ? "Ce salon utilise un mode VIP (mort subite) : il faut être VIP pour y jouer."
+                : preview.status === "LOBBY" ? "Ce salon est complet." : "La partie a déjà commencé ou est terminée."}
+            </Text>
+            {!preview.allowed && preview.status === "LOBBY" && <GhostButton label="Découvrir le VIP" onPress={() => router.push("/shop")} />}
+          </>
         )}
         {error && <Text style={{ color: colors.danger, textAlign: "center" }}>{error}</Text>}
       </Message>

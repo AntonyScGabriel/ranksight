@@ -1,4 +1,4 @@
-import { BadRequestException, Controller, Get, Module, Query } from "@nestjs/common";
+import { BadRequestException, Controller, Get, Module, Param, Query } from "@nestjs/common";
 import { RatingScope } from "@ranksight/shared";
 import { CurrentUser, type AuthUser } from "../../common/decorators/current-user.decorator.js";
 import { RatingsService } from "./ratings.service.js";
@@ -19,6 +19,21 @@ export class RatingsController {
   @Get("me")
   mine(@CurrentUser() u: AuthUser) {
     return this.ratings.mine(u.sub);
+  }
+
+  /** GET /v1/ratings/seasons — saison en cours, saisons archivées et mes résultats de fin de saison */
+  @Get("seasons")
+  seasons(@CurrentUser() u: AuthUser) {
+    return this.ratings.seasons(u.sub);
+  }
+
+  /** GET /v1/ratings/seasons/:key?scope=… — classement final archivé d'une saison terminée */
+  @Get("seasons/:key")
+  archive(@CurrentUser() u: AuthUser, @Param("key") key: string, @Query("scope") raw?: string) {
+    const scope = RatingScope.safeParse(raw ?? "global");
+    if (!scope.success) throw new BadRequestException({ code: "INVALID_SCOPE", message: "Classement inconnu." });
+    if (!/^[a-z0-9-]{1,32}$/.test(key)) throw new BadRequestException({ code: "INVALID_SEASON", message: "Saison inconnue." });
+    return this.ratings.archive(u.sub, key, scope.data);
   }
 }
 

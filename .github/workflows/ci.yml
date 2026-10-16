@@ -28,6 +28,15 @@ jobs:
       - run: npm test
       - run: npm run prisma:migrate -w @ranksight/api
       - run: npm run build
+      # Tests d'intégration : API démarrée sur la base de la CI (salons, « Jouer maintenant », classement, saisons,
+      # suppression des jetons, VIP). Ils ne tournent que sur une base dédiée (CI, ou base « _test » en local).
+      - name: Tests d'intégration de l'API
+        run: |
+          cd apps/api
+          npx tsx --env-file=../../.env prisma/seed.ts
+          node --env-file=../../.env dist/main.js > api.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://localhost:4000/v1/games > /dev/null && break; sleep 1; done
+          npm run test:integration || { tail -50 api.log; exit 1; }
       # Code exécuté sur les serveurs (API, site, administration). Les dépendances de l'application mobile
       # sont surtout l'outillage de build Expo/Metro, suivi à chaque montée de version du SDK Expo.
       - name: Audit des dépendances

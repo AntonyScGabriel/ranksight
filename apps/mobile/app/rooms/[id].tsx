@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Pressable, ScrollView, Share, Text, View } from "react-native";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import {
-  CONFIDENCE_RULES, DECIDED_BY_LABEL, IMPOSTOR_MIN_PLAYERS, IMPOSTOR_RULES, ROOM_MIN_PLAYERS, ROOM_RULES, SUDDEN_DEATH_RULES, TEAM_COLORS, TEAM_NAMES, TEAM_RULES, formatRoomCode, type RoomDto, type RoomPlayerDto, type RoomRoundDto, type UserSummaryDto,
+  DECIDED_BY_LABEL, IMPOSTOR_MIN_PLAYERS, IMPOSTOR_RULES, ROOM_MIN_PLAYERS, ROOM_RULES, SUDDEN_DEATH_RULES, TEAM_COLORS, TEAM_NAMES, TEAM_RULES, ROOM_MODE_LABEL, ROOM_VISIBILITY_LABEL, formatRoomCode, type RoomDto, type RoomPlayerDto, type RoomRoundDto, type UserSummaryDto,
 } from "@ranksight/shared";
 import { api, WEB_URL } from "@/lib/api";
 import { useConfirm } from "@/lib/confirm";
@@ -15,7 +15,7 @@ import { LiveRound, TimerBar } from "@/components/LiveRound";
 import { RankEmblem } from "@/components/RankEmblem";
 import { Avatar, Card, GhostButton, Hud, Loading, LoginRequired, Message, Muted, PrimaryButton } from "@/components/ui";
 
-/** Salon privé : salle d'attente, manches synchronisées, révélations, classement final. */
+/** Salon (public ou privé) : salle d'attente, manches synchronisées, révélations, classement final, revanche. */
 export default function RoomScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const navigation = useNavigation();
@@ -47,7 +47,7 @@ export default function RoomScreen() {
     return (
       <View style={{ padding: 16 }}>
         <Message title="Salon introuvable" text="Ce salon n'existe pas ou tu n'en fais pas partie.">
-          <GhostButton label="Salons privés" onPress={() => router.replace("/rooms")} />
+          <GhostButton label="Salons" onPress={() => router.replace("/rooms")} />
         </Message>
       </View>
     );
@@ -82,7 +82,6 @@ export default function RoomScreen() {
             onSubmitted={() => live.markSubmitted(live.clip!.position)}
             onClosed={live.load}
             label={room.live?.suddenDeath ? "Mort subite" : undefined}
-            tokens={room.confidence && !room.live?.suddenDeath ? room.myTokens : undefined}
           />
         ) : (
           <Loading />
@@ -120,7 +119,6 @@ export default function RoomScreen() {
           <Muted center>
             {room.players.filter((p) => !p.left && p.answered).length}/{room.players.filter((p) => !p.left).length} joueurs ont répondu.
           </Muted>
-          {room.myStake !== null && <Text style={{ color: colors.warn, textAlign: "center" }}>Mise engagée : {room.myStake} jeton{room.myStake > 1 ? "s" : ""}</Text>}
           <TimerBar progress={live.roundProgress} />
         </Card>
       )}
@@ -172,11 +170,20 @@ function TeamTotals({ room }: { room: RoomDto }) {
   );
 }
 
-function TokensNet({ n }: { n: number }) {
-  return <Text style={{ color: n > 0 ? colors.success : n < 0 ? colors.danger : colors.muted, fontSize: 12, fontWeight: "700" }}>{n > 0 ? `+${n}` : n} j.</Text>;
-}
-
 function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () => Promise<unknown>) => Promise<void> }) {
+  const confirm = useConfirm();
+  const kick = async (p: RoomPlayerDto) => {
+    const ok = await confirm({ title: `Retirer ${p.displayName} ?`, message: "Ce joueur ne pourra plus revenir dans ce salon.", confirmLabel: "Retirer", danger: true });
+    if (ok !== false) await act(() => api.kickFromRoom(room.id, p.id));
+  };
+  const close = async () => {
+    const ok = await confirm({ title: "Fermer le salon ?", message: "Tous les joueurs sortiront de la salle d'attente.", confirmLabel: "Fermer", danger: true });
+    if (ok === false) return;
+    await act(async () => {
+      await api.closeRoom(room.id);
+      router.replace("/rooms");
+    });
+  };
   const [friends, setFriends] = useState<UserSummaryDto[]>([]);
   const [invited, setInvited] = useState<Set<string>>(new Set());
   useEffect(() => {
@@ -191,9 +198,15 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
   return (
     <>
       <Card style={{ alignItems: "center", gap: 8 }}>
-        <Hud>Code du salon</Hud>
+        <Hud>Salon {ROOM_VISIBILITY_LABEL[room.visibility].toLowerCase()} · code</Hud>
         <Text selectable style={{ color: colors.neon, fontSize: 34, fontWeight: "700", letterSpacing: 5 }}>{code}</Text>
-        <Muted center>{room.game.name} · {room.rounds} manches · {room.roundSec} s{room.suddenDeath ? " · mort subite" : ""}{room.confidence ? " · Confiance" : ""}{room.teamSize ? ` · ${room.teamSize} contre ${room.teamSize}` : ""} · rejoindre est gratuit</Muted>
+        <Muted center>{room.game.name} · {ROOM_MODE_LABEL[room.mode]} · {room.rounds} manches · {room.roundSec} s{room.suddenDeath ? " · mort subite" : ""} · rejoindre est gratuit</Muted>
+        <Muted center>
+          {room.visibility === "PUBLIC"
+            ? "Visible dans la liste des salons publics : n'importe quel joueur peut rejoindre tant qu'il reste de la place."
+            : "Invisible dans les listes : seuls tes amis invités et ceux qui ont le code peuvent entrer."} Partie non classée.
+        </Muted>
+        {room.vipOnly && <Text style={{ color: colors.warn, textAlign: "center" }}>Mode VIP (mort subite) : seuls les joueurs VIP peuvent rejoindre ce salon.</Text>}
         <View style={{ alignSelf: "stretch" }}>
           <GhostButton
             label="Partager l'invitation"
@@ -234,7 +247,7 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
             <Avatar name={p.displayName} url={p.avatarUrl} size={34} frame={p.flair.frame} />
             <PlayerName p={p} meId={meId} />
             {room.isHost && p.id !== meId && (
-              <Pressable onPress={() => act(() => api.kickFromRoom(room.id, p.id))} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Retirer ${p.displayName}`}>
+              <Pressable onPress={() => void kick(p)} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Retirer ${p.displayName}`}>
                 <Text style={{ color: colors.muted, fontSize: 13 }}>Retirer</Text>
               </Pressable>
             )}
@@ -243,6 +256,7 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
         {room.isHost ? (
           <>
             <PrimaryButton label="Lancer la partie" disabled={!room.canStart} onPress={() => act(() => api.startRoom(room.id))} />
+            <GhostButton label="Fermer le salon" danger onPress={() => void close()} />
             {!room.canStart && (
               <Muted center>
                 {room.teamSize ? `Il faut ${room.teamSize} joueurs dans chaque équipe pour lancer la partie.` : `Il faut au moins ${room.impostor ? IMPOSTOR_MIN_PLAYERS : ROOM_MIN_PLAYERS} joueurs pour lancer la partie.`}
@@ -279,7 +293,7 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
 
       <Card style={{ gap: 6 }}>
         <Text style={{ color: colors.ink, fontSize: 16, fontWeight: "700" }}>Règles</Text>
-        {[...ROOM_RULES, ...(room.impostor ? IMPOSTOR_RULES : []), ...(room.teamSize ? TEAM_RULES : []), ...(room.suddenDeath ? SUDDEN_DEATH_RULES : []), ...(room.confidence ? CONFIDENCE_RULES : [])].map((r) => <Muted key={r}>• {r}</Muted>)}
+        {[...ROOM_RULES, ...(room.impostor ? IMPOSTOR_RULES : []), ...(room.teamSize ? TEAM_RULES : []), ...(room.suddenDeath ? SUDDEN_DEATH_RULES : [])].map((r) => <Muted key={r}>• {r}</Muted>)}
       </Card>
     </>
   );
@@ -296,7 +310,6 @@ function Scoreboard({ room, meId }: { room: RoomDto; meId: string }) {
           <Avatar name={p.displayName} url={p.avatarUrl} size={26} frame={p.flair.frame} />
           <PlayerName p={p} meId={meId} />
           {p.left ? <Text style={{ color: colors.muted, fontSize: 12 }}>parti</Text> : p.answered ? <Text style={{ color: colors.success }}>✓</Text> : null}
-          {p.tokensNet !== null && <TokensNet n={p.tokensNet} />}
           <Text style={{ width: 44, textAlign: "right", color: colors.ink, ...font.display }}>{p.score}</Text>
         </View>
       ))}
@@ -378,7 +391,6 @@ function RoundReveal({ round, players, meId }: { round: RoomRoundDto; players: R
           <View key={p.id} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <PlayerName p={p} meId={meId} />
             <Text style={{ color: colors.muted }} numberOfLines={1}>{a ? a.rank.name : "—"}</Text>
-            {a?.stake != null && <TokensNet n={(a.payout ?? 0) - a.stake} />}
             <Text style={{ width: 44, textAlign: "right", color: a && a.score > 0 ? colors.success : colors.muted, fontWeight: "700" }}>+{a?.score ?? 0}</Text>
           </View>
         );
@@ -391,7 +403,7 @@ function FinalResult({ room, meId }: { room: RoomDto; meId: string }) {
   if (room.status === "CLOSED") {
     return (
       <Message title="Salon fermé" text="Ce salon a été fermé avant le lancement de la partie.">
-        <PrimaryButton label="Salons privés" onPress={() => router.replace("/rooms")} />
+        <PrimaryButton label="Salons" onPress={() => router.replace("/rooms")} />
       </Message>
     );
   }
@@ -420,8 +432,7 @@ function FinalResult({ room, meId }: { room: RoomDto; meId: string }) {
             <Text style={{ width: 22, textAlign: "center", color: p.placement === 1 ? colors.neon : colors.muted, ...font.display }}>{p.placement ?? "—"}</Text>
             <Avatar name={p.displayName} url={p.avatarUrl} size={30} frame={p.flair.frame} />
             <PlayerName p={p} meId={meId} />
-            {p.tokensNet !== null && <TokensNet n={p.tokensNet} />}
-            <Text style={{ color: colors.ink, fontSize: 18, ...font.display }}>{p.score}</Text>
+              <Text style={{ color: colors.ink, fontSize: 18, ...font.display }}>{p.score}</Text>
           </Pressable>
         ))}
       </Card>
@@ -448,7 +459,49 @@ function FinalResult({ room, meId }: { room: RoomDto; meId: string }) {
       )}
       {room.tournamentId
         ? <PrimaryButton label="Retour au tournoi" onPress={() => router.replace({ pathname: "/tournaments/[id]", params: { id: room.tournamentId! } })} />
-        : <PrimaryButton label="Nouveau salon" onPress={() => router.replace("/rooms")} />}
+        : <Rematch room={room} />}
     </>
+  );
+}
+
+/** Revanche : un joueur la propose (mêmes réglages, les autres sont invités) ; chacun confirme en la rejoignant. */
+function Rematch({ room }: { room: RoomDto }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const go = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const next = await api.rematchRoom(room.id);
+      router.replace({ pathname: "/rooms/[id]", params: { id: next.id } });
+    } catch (e) {
+      setError(errorMessage(e, "La revanche n'a pas pu être lancée."));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const r = room.rematch;
+  return (
+    <Card style={{ gap: 10 }}>
+      {r ? (
+        <>
+          <Text style={{ color: colors.ink, fontSize: 17, fontWeight: "700", textAlign: "center" }}>Revanche proposée par {r.host}</Text>
+          <Muted center>{r.players}/{r.maxPlayers} joueurs l&apos;ont rejointe · {r.status === "LOBBY" ? "en salle d'attente" : r.status === "ACTIVE" ? "partie en cours" : "terminée"}</Muted>
+          {r.joined ? (
+            <PrimaryButton label="Aller à la revanche" onPress={() => router.replace({ pathname: "/rooms/[id]", params: { id: r.id } })} />
+          ) : r.status === "LOBBY" ? (
+            <PrimaryButton label={busy ? "Connexion…" : "Accepter la revanche"} disabled={busy} onPress={go} />
+          ) : null}
+        </>
+      ) : room.canRematch ? (
+        <>
+          <Muted center>Même jeu, mêmes réglages : les autres joueurs reçoivent une invitation et confirment en rejoignant.</Muted>
+          <PrimaryButton label={busy ? "Création…" : "Proposer une revanche"} disabled={busy} onPress={go} />
+        </>
+      ) : null}
+      <GhostButton label="Autres salons" onPress={() => router.replace("/rooms")} />
+      {error && <Text style={{ color: colors.danger, textAlign: "center" }}>{error}</Text>}
+    </Card>
   );
 }

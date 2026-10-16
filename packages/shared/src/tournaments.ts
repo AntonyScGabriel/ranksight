@@ -170,6 +170,10 @@ export const TournamentDto = z.object({
   /** Taille du tableau une fois lancé (4, 8 ou 16) */
   bracketSize: z.number().int().nullable(),
   isHost: z.boolean(),
+  /** Avant le lancement : l'organisateur est parti sans inscrit VIP pour le remplacer */
+  hostLeft: z.boolean(),
+  /** Le joueur connecté (VIP, inscrit) peut reprendre l'organisation */
+  canClaimHost: z.boolean(),
   left: z.boolean(),
   canStart: z.boolean(),
   players: z.array(TournamentPlayerDto),

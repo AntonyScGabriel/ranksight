@@ -142,29 +142,58 @@ pour tester Google sur téléphone, expose l'API avec une adresse publique (tunn
   des joueurs recalée sur la sienne) et refuse toute réponse hors délai. Bilan victoires / égalités / défaites sur le
   profil ; succès « Duelliste ». Les duels rapportent de l'XP mais ne comptent pas dans les classements. Pendant une manche,
   l'API enregistre la réponse sans renvoyer le rang réel ni le score : tout est dévoilé à la fin de la manche.
-- **Plus haut / Plus bas** (`/play/higher-lower`, lien depuis le mode Infini) : un clip est affiché avec son rang, le
+- **Plus haut / Plus bas** (`/play/higher-lower`, lien depuis le mode Infini) — **mode VIP** : un clip est affiché avec son rang, le
   joueur dit si le rang du clip suivant est plus haut ou plus bas. Bonne réponse : ce clip devient la référence ; une
   erreur termine la série. Deux clips du même rang ne sont jamais comparés, aucun clip n'est montré deux fois dans une
   série, jamais un clip proposé par le joueur. Le serveur garde l'état de la série : le rang du clip à comparer n'est
-  envoyé qu'après la réponse, et chaque question n'accepte qu'une réponse. **3 séries gratuites par jour** (jour UTC,
-  limite tenue même avec des lancements simultanés), illimitées en VIP. Pas d'XP ni de classement public : seul le
-  record personnel compte, le VIP ne donne donc aucun avantage de classement.
-- **Salons privés** (onglet « Salons », ou depuis « Duels » sur téléphone) : jusqu'à **8 joueurs**, hôte compris, voient le
-  même clip au même moment. **Seul le créateur doit être VIP** : le droit est relu en base à la création (jamais un champ
-  envoyé par l'application ni le statut du jeton de connexion). Rejoindre, jouer et voir les résultats est gratuit, et une
-  partie lancée va toujours à son terme, même si le VIP du créateur se termine entre-temps.
+  envoyé qu'après la réponse, et chaque question n'accepte qu'une réponse. **Réservé aux joueurs VIP**, sans limite de
+  séries : le droit est relu en base à chaque lancement (une requête envoyée directement à l'API sans VIP reçoit 402).
+  Une série déjà lancée peut être terminée même si le VIP prend fin entre-temps ; aucune nouvelle série sans VIP. Les joueurs gratuits voient le mode, ses règles et un lien vers l'offre VIP. Pas d'XP ni de classement
+  public : seul le record personnel compte, le VIP ne donne donc aucun avantage de classement.
+- **Salons** (onglet « Salons », ou depuis « Duels » sur téléphone) : jusqu'à **8 joueurs**, hôte compris, voient le
+  même clip au même moment. Parties personnalisées, **jamais classées** : elles rapportent de l'XP mais ne modifient pas
+  la cote compétitive. À la création, l'hôte choisit la visibilité :
+  - **Public** : visible dans la liste des salons publics (`GET /rooms/public`, filtres jeu, mode et places disponibles ;
+    ni code ni liste des joueurs), rejoignable sans invitation tant qu'il reste de la place (`POST /rooms/:id/join`).
+    **Salon public classique : création gratuite pour tous.**
+  - **Privé** : absent des listes ; on n'y entre qu'avec le code ou une invitation (un accès direct par identifiant répond
+    « salon introuvable »). **Sa création exige le VIP**, relu en base (jamais un champ envoyé par l'application) ; un
+    invité gratuit le rejoint normalement.
+  - **Fonctions VIP** (`roomVipRules` dans `packages/shared/src/rooms.ts`, appliquées par l'API) :
+    - **Mort subite = mode VIP** : à la création (hôte VIP), pour rejoindre (code, liste, invitation, revanche, « Jouer
+      maintenant ») et au lancement, **chaque joueur doit être VIP**, que le salon soit public ou privé. Un salon public
+      en mode VIP reste visible dans la liste avec la mention « Réservé aux VIP ». Inviter un ami sans VIP est refusé.
+    - **Options avancées** (nombre de manches ou temps de réponse différents de 5 manches / 30 s) : hôte VIP ; les
+      autres joueurs peuvent être gratuits.
+    - Les droits sont relus au lancement : un hôte (ou, en mode VIP, un joueur) dont le VIP a pris fin bloque le
+      lancement avec un message clair. Si l'hôte part, le premier joueur VIP reprend un salon qui exige un hôte VIP.
+    - Mode Intrus et équipes : gratuits (non classés comme modes VIP).
+  - Rejoindre, jouer et voir les résultats d'un salon classique est gratuit, et une partie lancée va à son terme, même si
+    le VIP du créateur se termine entre-temps. Les salons existants avant l'ajout de la visibilité sont privés.
+  - **« Jouer maintenant »** (`POST /rooms/quick-play`, écrans Salons et Duels) : rejoint le salon public compatible (même
+    jeu, même mode) le plus rempli ; sans salon ouvert, le joueur choisit « Créer un salon public » (réglages par défaut)
+    ou « Patienter » (nouvelle recherche toutes les 5 s pendant 2 minutes). Les demandes pour un même jeu et un même mode
+    passent l'une après l'autre (verrou PostgreSQL de transaction) : deux joueurs qui cliquent en même temps se
+    retrouvent dans le même salon, et la dernière place n'est attribuée qu'une fois. Jamais de salon privé, jamais un
+    autre jeu ou mode. Ne pas confondre avec le **duel au hasard**, seul mode qui compte pour le classement.
+  - Modes : chacun pour soi, équipes 2 contre 2, équipes 3 contre 3, Intrus (`RoomMode`, déduit des réglages).
+  - L'hôte peut fermer sa salle d'attente (`POST /rooms/:id/close`) ; **revanche** (`POST /rooms/:id/rematch`) : un joueur
+    de la partie terminée la propose, un nouveau salon aux mêmes réglages est créé une seule fois (contrainte d'unicité),
+    les autres sont invités et confirment en le rejoignant. **Historique** (`GET /rooms/history`) : salons terminés hors
+    tournois, victoires, podiums et victoires par mode, sans lien avec la cote.
   - Création : jeu (LoL, Valorant, Rocket League, CS2), 3 / 5 / 7 / 10 manches, 20 / 30 / 45 / 60 s par manche (plus pour un
     clip long). Code d'invitation de 8 caractères sans caractères ambigus (environ 40 bits d'aléa), bouton de copie du code
     et du lien `/rooms/join/CODE` ; invitation d'un ami (bandeau sur le site, notification push sur mobile).
-  - Salle d'attente : joueurs, places libres, l'hôte peut retirer un joueur (qui ne peut plus revenir) et lance la partie à
-    2 joueurs ou plus. Les clips sont tirés au lancement, jamais parmi ceux proposés par un joueur du salon. Une salle
+  - Salle d'attente : joueurs, places libres, l'hôte peut retirer un joueur (confirmation demandée ; le joueur ne peut plus
+    revenir, ni par le code ni par « Jouer maintenant ») et lance la partie à 2 joueurs ou plus. La place est attribuée
+    sous verrou de la ligne du salon : jamais plus de joueurs que de places, jamais deux inscriptions du même joueur. Les clips sont tirés au lancement, jamais parmi ceux proposés par un joueur du salon. Une salle
     d'attente non lancée ferme au bout d'une heure. Un joueur n'est que dans un salon à la fois.
   - Partie : même barème que les autres modes ; la manche se termine quand tous les joueurs restants ont répondu ou à la fin
     du chrono. Un joueur qui quitte garde ses points mais ne répond plus ; si l'hôte part, le joueur arrivé le plus tôt
     devient hôte (l'hôte ne peut ni modifier les réponses ni les scores). Totaux recalculés par le serveur, places partagées
     en cas d'égalité, joueurs partis classés après les autres. Les salons rapportent de l'XP mais ne comptent dans aucun
     classement ; les réponses apparaissent dans l'historique du joueur (administration).
-  - **Mort subite** (option à la création, cochée par défaut) : en cas d'égalité en tête à la fin des manches prévues,
+  - **Mort subite** (mode VIP, option à la création, décochée par défaut) : en cas d'égalité en tête à la fin des manches prévues,
     les ex aequo disputent une manche décisive sur un nouveau clip (les autres regardent). Le meilleur score de la manche
     l'emporte ; ses points ne s'ajoutent pas au total. Toujours à égalité : nouvelle manche, 3 au maximum, puis la
     réponse la plus rapide (temps mesuré par le serveur) parmi les meilleurs. Le résultat indique comment la victoire a
@@ -177,7 +206,7 @@ pour tester Google sur téléphone, expose l'API avec une adresse publique (tunn
     l'option est active (somme des points de la manche décisive, puis temps de réponse moyen), sinon match nul. Une
     équipe dont tous les joueurs sont partis perd aussitôt par abandon. Seul l'hôte est VIP : les joueurs des deux
     équipes jouent gratuitement.
-  - **Intrus** (format choisi à la création, 4 à 8 joueurs, chacun pour soi, sans mises) : à chaque manche, un joueur
+  - **Intrus** (format choisi à la création, 4 à 8 joueurs, chacun pour soi) : à chaque manche, un joueur
     tiré au sort reçoit un autre clip du même jeu (rang éloigné d'au moins 2 crans, difficulté proche si possible), sans
     le savoir. Personne n'est intrus deux fois tant que d'autres ne l'ont pas été. Chacun répond comme d'habitude
     (points sur son propre clip), puis vote 25 s pour l'intrus d'après les rangs proposés par chacun (pas de texte
@@ -185,48 +214,68 @@ pour tester Google sur téléphone, expose l'API avec une adresse publique (tunn
     +100 à chaque bon votant ; sinon +200 pour l'intrus. Points du vote enregistrés une seule fois (`room_bonuses`,
     clé joueur + manche). L'intrus, son clip et les votes ne sont dévoilés qu'à la fin du vote ; pendant une manche,
     les scores affichés n'incluent pas encore la manche en cours (sinon on pourrait en déduire le rang réel).
-  - **Mode Confiance** (option à la création) : avant de valider, chaque joueur engage 1, 2 ou 3 **jetons virtuels** ;
-    mise et réponse sont verrouillées ensemble. Rang exact : mise rendue + 2 × la mise ; un rang d'écart : mise rendue ;
-    plus loin : seule la mise est perdue. Les mises restent cachées jusqu'à la fin de la manche. Les manches de mort
-    subite se jouent sans mise. Avec un solde vide, le joueur répond sans mise (il n'est jamais bloqué).
-  - **Jetons** (`/tokens`, carte « Mes jetons » de l'écran Salons) : 20 jetons au départ (comptes existants compris,
-    inscrits au journal par la migration), recharge gratuite une fois par jour jusqu'à 10 jetons, bénéfice net plafonné
-    à 100 jetons par jour. Les jetons ne s'achètent pas, ne se retirent pas, ne se transfèrent pas et ne donnent droit à
-    aucun prix. Le solde (`users.token_balance`, jamais négatif : contrainte en base) ne bouge que par des mouvements
-    inscrits dans `token_transactions`, chacun avec une clé unique : une mise, un gain ou une recharge ne peut pas être
-    compté deux fois. La mise est débitée dans la même transaction que la réponse (mise à jour conditionnelle au solde) ;
-    deux envois simultanés ne dépensent jamais les mêmes jetons.
-  - Limites : 20 salons créés par heure, 15 codes faux par joueur et par heure (puis blocage d'une heure), réponses en
-    double refusées (jeton à usage unique et contrainte d'unicité en base).
-- **Classement compétitif** (`/ranked`, depuis Duels et Classements) : cote RankSight (Elo), globale et par jeu, distincte
-  du rang réel dans les jeux. **Seuls les duels « au hasard » comptent** : jamais les duels entre amis, les salons ni
-  les tournois privés, pour qu'on ne puisse pas monter en jouant entre amis. Un duel sur un jeu compte pour ce jeu et
-  pour le global ; « Tous les jeux » pour le global seulement.
-  - Cote de départ 1000 (plancher 100) ; facteur K de 32 pendant les 20 premiers duels, puis 20. Victoire, nul ou
-    défaite selon le résultat du duel ; un abandon compte comme une défaite.
-  - Anti-arrangement : contre un même adversaire, seuls 3 duels par 24 heures font bouger la cote (les suivants sont
-    inscrits à l'historique, sans effet). Le VIP n'intervient pas dans le calcul.
+  - **Jetons virtuels et mode Confiance : supprimés.** Plus de route `/tokens`, plus de mises ni de solde. La migration
+    `20261031000000_ranked_seasons_public_rooms` déplace les données (soldes, journal, mises, salons joués en mode
+    Confiance) dans le schéma PostgreSQL `archive`, hors de l'application, sans rien effacer ; le VIP, la boutique et
+    les achats Stripe et Google Play n'en dépendaient pas et ne changent pas.
+  - Limites : 20 salons créés par heure, 15 codes faux par joueur et par heure (puis blocage d'une heure), 30
+    « Jouer maintenant » et 20 expulsions par minute, réponses en double refusées (jeton à usage unique et contrainte
+    d'unicité en base).
+- **Classement compétitif** (`/ranked`, depuis Duels et Classements) : cote globale et par jeu, distincte du rang réel
+  dans les jeux, calculée uniquement par l'API. **Seuls les duels « au hasard » officiels comptent** : jamais les duels
+  entre amis, les salons publics ou privés (équipes comprises), les tournois, ni les duels annulés, expirés ou non
+  terminés. L'admissibilité est décidée par le serveur d'après le duel enregistré, jamais d'après un champ envoyé par
+  l'application. Un duel sur un jeu compte pour ce jeu et pour le global ; « Tous les jeux » pour le global seulement.
+  - **Cote de départ 500** (plancher 100) ; méthode Elo : battre un joueur mieux classé rapporte plus, perdre contre un
+    joueur moins bien classé coûte plus. Coefficient 32 pendant les 20 premiers duels admissibles de la carrière, 20 à
+    partir du 21e. L'interface montre seulement les points gagnés ou perdus, la cote, le rang et la progression vers le
+    rang suivant.
+  - **Rangs** : une seule échelle, `RATING_TIERS` dans `packages/shared/src/ratings.ts` (API, site et application) :
+    Bronze 100, Argent 350, Or 500, Platine 650, Diamant 800, Maître 1000. C'est l'échelle d'origine (mêmes écarts),
+    alignée sur la cote de départ ; la migration a décalé les cotes existantes de 500 points (plancher 100), chacun garde
+    donc son rang. Une cote exactement au seuil appartient au rang du seuil.
+  - **Abandon** : défaite pour celui qui abandonne. Avant la fin de la première manche, le gagnant n'est pas crédité
+    (`EARLY_FORFEIT`, contre les victoires arrangées). Une déconnexion n'est jamais un abandon : le duel continue au
+    chrono et le joueur peut revenir.
+  - Anti-arrangement : contre un même adversaire, seuls 3 duels par 24 heures glissantes font bouger la cote (les
+    suivants sont inscrits à l'historique, sans effet, `PAIR_LIMIT`). Lignes verrouillées dans un ordre fixe : la limite
+    tient avec des duels traités en même temps. Le VIP n'intervient pas dans le calcul.
   - Chaque duel n'est compté qu'une fois par joueur et par classement (`rating_changes`, clé joueur + classement +
-    duel ; contrôle « avant + variation = après » en base). Calcul à la fin du duel ; rattrapage chaque minute des duels
-    terminés sans cote (une seule instance de l'API, verrou Redis).
-  - Classement : 5 duels classés minimum, joueurs bannis ou supprimés exclus, places partagées à cote égale ; paliers
-    affichés (Bronze à Maître) à titre indicatif. Écran de fin de duel : nouvelle cote et variation.
+    duel ; contrôles « avant + variation = après » et raison obligatoire d'un duel non compté). Calcul à la fin du duel ;
+    rattrapage chaque minute des duels terminés sans cote (une seule instance de l'API, verrou Redis).
+  - Classement public : **5 duels admissibles dans la saison** (les duels non comptés ne comptent pas), joueurs bannis
+    ou supprimés exclus, places partagées à cote égale.
+  - **Saisons** (dates gérées dans l'administration, les mêmes que les classements des défis) : à la fin d'une saison,
+    l'API archive le classement final (`competitive_season_results` : cote, meilleure cote, rang, place, statistiques)
+    puis chaque cote repart **au seuil minimal du rang atteint** (Diamant à 870 → 800 ; Maître à 1450 → 1000 ; 799, juste
+    sous le Diamant → 650). Joueur non classé (moins de 5 duels dans la saison) : même règle, sans jamais dépasser 500.
+    Les compteurs de la saison repartent à zéro, les duels de carrière sont conservés. Archivage et réinitialisation se
+    font dans une seule transaction, une seule fois : saison verrouillée et date `seasons.competitive_reset_at` (une
+    seconde exécution, simultanée ou après un redémarrage, ne fait rien). Un duel terminé après la fin d'une saison mais
+    avant sa clôture (au plus une minute) compte pour la saison suivante. Archives : `/ranked/seasons`
+    (`GET /ratings/seasons`, `GET /ratings/seasons/:key?scope=`).
 - **Tournois privés** (`/tournaments`, depuis l'écran Salons) : tableau à élimination directe de 4, 8 ou 16 places.
-  **Seul le créateur doit être VIP** (relu en base à la création) ; s'inscrire avec le code ou le lien
+  **Seul l'organisateur doit être VIP** (relu en base à la création et au lancement) ; s'inscrire avec le code ou le lien
   `/tournaments/join/CODE`, jouer et gagner est gratuit, et un tournoi lancé va à son terme même si le VIP du créateur se
   termine. Réglages : jeu, places, 3 ou 5 manches par match, temps de réponse.
-  - Lancement par l'hôte à partir de 3 inscrits ; têtes de série tirées au sort (aléa cryptographique), tableau à la
-    puissance de 2 suffisante, meilleures têtes de série qualifiées d'office s'il manque des joueurs (1 et 2 ne peuvent
+  - Lancement par l'hôte (VIP relu en base au lancement) à partir de 3 inscrits ; têtes de série tirées au sort (aléa
+    cryptographique), tableau à la puissance de 2 suffisante, meilleures têtes de série qualifiées d'office s'il manque des joueurs (1 et 2 ne peuvent
     se rencontrer qu'en finale).
   - Match : dès que les deux adversaires sont connus, ils ont 5 minutes pour cliquer sur « Je suis prêt » ; le salon du
     match (2 joueurs, mort subite, clips jamais proposés par l'un d'eux) est alors créé et lancé, et les deux joueurs y
     sont envoyés. Un seul joueur prêt à l'heure limite : il gagne par forfait ; aucun : la meilleure tête de série passe.
-    Égalité parfaite après la mort subite : meilleure tête de série. Quitter le tournoi = forfait.
+    Égalité parfaite après la mort subite : meilleure tête de série. Quitter le tournoi = forfait. La mort subite n'y
+    sert qu'à départager les deux joueurs : elle fait partie des règles du tournoi (organisé par un VIP) et ne demande
+    pas le VIP aux participants.
   - Le gagnant passe au tour suivant dès la fin de son match ; places finales : 1er, 2e, puis places partagées par tour
     (3e pour les demi-finalistes, 5e pour les quarts, 9e pour les huitièmes). Statistiques : victoires (hors
     qualifications d'office) et points marqués en match. Suivi des matchs et des heures limites par une boucle d'une
     seconde (une seule instance de l'API, verrou Redis) ; notifications en direct et push quand un match est prêt.
-  - Inscriptions non lancées fermées au bout de deux heures ; 10 tournois créés par heure au plus.
+  - Organisateur qui quitte avant le lancement : l'organisation passe au plus ancien inscrit VIP, jamais à un joueur
+    gratuit (qui ne pourrait pas lancer). Sans inscrit VIP, le tournoi reste en attente sans organisateur ; un inscrit VIP
+    peut reprendre l'organisation (`POST /tournaments/:id/claim-host`, VIP relu en base, une seule reprise aboutit en cas
+    de demandes simultanées). Départs, reprises et lancement passent sous verrou du tournoi.
+  - Inscriptions non lancées fermées au bout de deux heures (ou au départ du dernier inscrit) ; 10 tournois créés par heure au plus.
 - **Images des rangs** : chaque rang s'affiche avec un emblème (choix du rang, résultat). Par défaut, emblème RankGuess aux
   couleurs du rang ; l'administration peut envoyer sa propre image par rang (page « Rangs » : PNG, JPEG ou WebP, 512 Ko
   maximum, stockée en base). Utiliser uniquement des images dont vous détenez les droits.
@@ -273,7 +322,10 @@ pour tester Google sur téléphone, expose l'API avec une adresse publique (tunn
   statut, réponse facultative, suppression des messages hors sujet. L'auteur reçoit une notification sur son téléphone.
 - **Boutique VIP** (menu du compte, profil, application) : passes VIP 1 mois (4,99 €), 3 mois (12,99 €) et 12 mois (39,99 €),
   paiement unique par carte via Stripe Checkout, sans abonnement. Avantages : +50 % d'XP sur chaque réponse, badge VIP
-  (classements, chat, profil) et création de salons privés (voir « Salons privés »). Un pass acheté pendant un VIP en cours s'ajoute à sa date de fin. Sans `STRIPE_SECRET_KEY`,
+  (classements, chat, profil), Plus haut / Plus bas, mort subite, options avancées des salons, création de salons privés
+  et de tournois (voir « Salons »). Restent gratuits : deviner le rang (défis du jour, Infini), duels classés et
+  classement compétitif, « Jouer maintenant », salons publics classiques, participation aux salons privés et aux
+  tournois sur invitation. Le VIP n'apporte aucun point au classement compétitif. Un pass acheté pendant un VIP en cours s'ajoute à sa date de fin. Sans `STRIPE_SECRET_KEY`,
   la boutique s'affiche mais l'achat est indisponible. L'administration peut offrir ou retirer le VIP (page Utilisateurs).
 - **Promo du moment** : réutilisable à chaque événement (lancement, Noël, anniversaire du site…). Nom affiché aux joueurs,
   prix promo par pass, fin automatique facultative (date et heure). Par défaut : « Offre de lancement » à moitié prix
@@ -326,7 +378,7 @@ npm run mobile         # application mobile (Expo), après vérification des dé
 npm run reinstall      # réinstallation propre (supprime tous les node_modules)
 npm run lint           # ESLint sur tout le projet
 npm run typecheck      # vérification TypeScript
-npm test               # tests du barème
+npm test               # tests unitaires des règles partagées (barème, Elo, rangs, saisons, salons…)
 npm run build          # build de production (API, site, administration)
 npm run db:down        # arrête PostgreSQL et Redis
 npm run admin:promote -- <pseudo> [OWNER|ADMIN|MODERATOR|REVIEWER|USER] [--transfer]
@@ -334,6 +386,22 @@ npm run account:password -- <pseudo> <email>   # email + mot de passe pour un co
 ```
 
 Remise à zéro complète : `docker compose down -v`, supprimer `apps/api/storage`, puis `npm run dev`.
+
+### Tests d'intégration de l'API
+
+`apps/api/test/integration/` : salons publics et privés, « Jouer maintenant » (demandes simultanées, dernière place),
+classement (exclusions, limite par adversaire avec duels simultanés, abandon, éligibilité, coefficient, VIP), fin de
+saison (archive, seuils, double exécution), suppression des jetons et VIP. Ils parlent à une API démarrée et lisent la
+base ; ils refusent de tourner ailleurs qu'en CI ou sur une base locale dédiée dont le nom finit par `_test` (le test
+des saisons réinitialise toutes les cotes de cette base). Ils sont lancés automatiquement par la CI. En local :
+
+```bash
+createdb -h localhost -U ranksight ranksight_test        # base dédiée (une seule fois)
+DATABASE_URL=postgresql://ranksight:ranksight@localhost:5432/ranksight_test npx prisma migrate deploy   # dans apps/api
+DATABASE_URL=postgresql://ranksight:ranksight@localhost:5432/ranksight_test npx tsx --env-file=../../.env prisma/seed.ts
+DATABASE_URL=postgresql://ranksight:ranksight@localhost:5432/ranksight_test node --env-file=../../.env dist/main.js   # API de test
+DATABASE_URL=postgresql://ranksight:ranksight@localhost:5432/ranksight_test npm run test:integration -w @ranksight/api
+```
 
 ## Arborescence
 

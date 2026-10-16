@@ -20,7 +20,7 @@ const NAV = [
 ];
 /** Onglet affiché dans la barre du haut sur grand écran (et toujours dans le menu du compte) */
 const NAV_WIDE = { href: "/suggestions", label: "Suggestions" };
-/** Salons privés : dans la barre du haut sur grand écran ; sinon depuis l'écran Duels et le menu du compte */
+/** Salons (publics et privés) : dans la barre du haut sur grand écran ; sinon depuis l'écran Duels et le menu du compte */
 const NAV_ROOMS = { href: "/rooms", label: "Salons" };
 
 export function Header() {
@@ -108,7 +108,7 @@ export function Header() {
                       {me.newRewards > 0 && <span className="ml-2 rounded-full bg-neon px-1.5 text-[10px] font-bold text-void">{me.newRewards}</span>}
                     </MenuLink>
                     <MenuLink href="/achievements" onClick={() => setOpen(false)}>Mes succès</MenuLink>
-                    <MenuLink href="/rooms" onClick={() => setOpen(false)}>Salons privés</MenuLink>
+                    <MenuLink href="/rooms" onClick={() => setOpen(false)}>Salons</MenuLink>
                     <MenuLink href="/shop" onClick={() => setOpen(false)}>Boutique VIP</MenuLink>
                     <MenuLink href="/my-clips" onClick={() => setOpen(false)}>Mes clips</MenuLink>
                     <MenuLink href="/submit" onClick={() => setOpen(false)}>Proposer un clip</MenuLink>

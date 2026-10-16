@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useChat } from "@/lib/chat";
 import { colors, radius } from "@/lib/theme";
 
-/** Invitation à un duel en direct ou dans un salon privé : bandeau en haut de l'écran, où que soit le joueur. */
+/** Invitation à un duel en direct ou dans un salon : bandeau en haut de l'écran, où que soit le joueur. */
 export function InviteBanner() {
   const { invite, dismissInvite } = useChat();
   const pathname = usePathname();

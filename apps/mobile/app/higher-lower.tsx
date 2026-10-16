@@ -82,7 +82,8 @@ export default function HigherLowerScreen() {
   if (!me) return <View style={{ padding: 16 }}><LoginRequired /></View>;
   if (!overview) return error ? <View style={{ padding: 16 }}><Muted center>{error}</Muted></View> : <Loading />;
 
-  const canStart = overview.freeRunsLeft === null || overview.freeRunsLeft > 0;
+  // Mode VIP : le serveur refuse le lancement sans VIP (une série déjà lancée se termine) ; l'écran l'explique et propose l'offre
+  const canStart = overview.vip;
   const shown = last ? last.run : run;
   const revealing = !!last && last.correct && last.run.status === "ACTIVE";
   const playing = !!shown && shown.status === "ACTIVE" && !last;
@@ -92,7 +93,7 @@ export default function HigherLowerScreen() {
       <Card style={{ flexDirection: "row", justifyContent: "space-around" }}>
         <Stat label="Série" value={shown && shown.status === "ACTIVE" ? String(shown.score) : "—"} color={colors.neon} />
         <Stat label="Record" value={String(Math.max(overview.best, shown?.best ?? 0))} />
-        <Stat label={overview.vip ? "Séries (VIP)" : "Séries du jour"} value={overview.freeRunsLeft === null ? "∞" : String(overview.freeRunsLeft)} />
+        <Stat label="Accès" value="VIP" color={colors.warn} />
       </Card>
       {error && <Text style={{ color: colors.danger, textAlign: "center" }}>{error}</Text>}
 
@@ -152,7 +153,8 @@ export default function HigherLowerScreen() {
           ) : (
             <View style={{ gap: 10, borderWidth: 1, borderColor: `${colors.warn}66`, backgroundColor: `${colors.warn}14`, borderRadius: 12, padding: 12 }}>
               <Text style={{ color: colors.ink, lineHeight: 20 }}>
-                Tu as joué tes {overview.freeRunsPerDay} séries gratuites du jour. Reviens demain, ou passe VIP pour jouer sans limite.
+                Plus haut / Plus bas est un mode VIP, sans limite de séries. Deviner le rang, le mode Infini, les salons publics et les
+                duels classés restent gratuits. Le VIP n&apos;apporte aucun point au classement compétitif.
               </Text>
               <GhostButton label={Platform.OS === "android" ? "Devenir VIP" : "Mon VIP"} onPress={() => router.push("/shop")} />
             </View>

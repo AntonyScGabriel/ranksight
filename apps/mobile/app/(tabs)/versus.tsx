@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import { useChat } from "@/lib/chat";
 import { useConfirm } from "@/lib/confirm";
 import { useSession } from "@/lib/session";
+import { QuickPlay } from "@/components/QuickPlay";
 import { colors, font } from "@/lib/theme";
 import { errorMessage } from "@/components/AuthUi";
 import { Avatar, Card, GhostButton, Hud, Loading, LoginRequired, Muted, PrimaryButton } from "@/components/ui";
@@ -87,14 +88,16 @@ export default function VersusScreen() {
         </Card>
       </Pressable>
 
-      <Pressable onPress={() => router.push("/rooms")} accessibilityRole="button" accessibilityLabel="Salons privés">
+      <QuickPlay />
+
+      <Pressable onPress={() => router.push("/rooms")} accessibilityRole="button" accessibilityLabel="Salons">
         <Card style={{ flexDirection: "row", alignItems: "center", gap: 12, borderColor: roomInvites ? colors.neon : colors.line }}>
           <View style={{ flex: 1, gap: 2 }}>
-            <Text style={{ color: colors.ink, fontSize: 17, fontWeight: "700" }}>Salons privés · jusqu&apos;à 8 joueurs</Text>
+            <Text style={{ color: colors.ink, fontSize: 17, fontWeight: "700" }}>Salons · jusqu&apos;à 8 joueurs, non classés</Text>
             <Muted>
               {roomInvites
                 ? `${roomInvites} invitation${roomInvites > 1 ? "s" : ""} reçue${roomInvites > 1 ? "s" : ""}.`
-                : "Joue avec tes amis grâce à un code. Seul le créateur du salon doit être VIP."}
+                : "Salons publics, salons privés entre amis avec un code, historique de tes parties."}
             </Muted>
           </View>
           <Text style={{ color: colors.neon, fontSize: 20 }}>›</Text>

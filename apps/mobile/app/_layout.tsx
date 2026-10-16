@@ -64,6 +64,7 @@ export default function RootLayout() {
           <Stack.Screen name="rooms/index" options={{ headerShown: true, title: "Salons privés", ...header }} />
           <Stack.Screen name="rooms/[id]" options={{ headerShown: true, title: "Salon privé", ...header }} />
           <Stack.Screen name="rooms/join/[code]" options={{ headerShown: true, title: "Rejoindre un salon", ...header }} />
+          <Stack.Screen name="ranked" options={{ headerShown: true, title: "Classement compétitif", ...header }} />
           <Stack.Screen name="tournaments/index" options={{ headerShown: true, title: "Tournois privés", ...header }} />
           <Stack.Screen name="tournaments/[id]" options={{ headerShown: true, title: "Tournoi", ...header }} />
           <Stack.Screen name="tournaments/join/[code]" options={{ headerShown: true, title: "S'inscrire au tournoi", ...header }} />

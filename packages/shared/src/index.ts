@@ -6,3 +6,4 @@ export * from "./rooms.js";
 export * from "./room-rules.js";
 export * from "./higher-lower.js";
 export * from "./tournaments.js";
+export * from "./ratings.js";

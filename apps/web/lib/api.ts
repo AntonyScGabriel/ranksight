@@ -50,6 +50,9 @@ import {
   type TournamentDto,
   type TournamentPreviewDto,
   type TournamentsOverviewDto,
+  type MyRatingsDto,
+  type RatingBoardDto,
+  type RatingScope,
 } from "@ranksight/shared";
 
 export const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/v1";
@@ -242,6 +245,10 @@ export const api = {
   // Jetons virtuels (mode Confiance)
   tokens: () => request<TokensDto>("/tokens"),
   refillTokens: () => post<TokensDto>("/tokens/refill"),
+
+  // Classement compétitif
+  ratingBoard: (scope: RatingScope) => request<RatingBoardDto>(`/ratings/leaderboard?scope=${scope}`),
+  myRatings: () => request<MyRatingsDto>("/ratings/me"),
 
   // Tournois privés
   tournaments: () => request<TournamentsOverviewDto>("/tournaments"),

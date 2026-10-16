@@ -44,6 +44,9 @@ import {
   type TournamentDto,
   type TournamentPreviewDto,
   type TournamentsOverviewDto,
+  type MyRatingsDto,
+  type RatingBoardDto,
+  type RatingScope,
   type HigherLowerAnswerDto,
   type HigherLowerChoice,
   type HigherLowerOverviewDto,
@@ -259,6 +262,10 @@ export const api = {
   // Jetons virtuels (mode Confiance)
   tokens: () => request<TokensDto>("/tokens"),
   refillTokens: () => post<TokensDto>("/tokens/refill"),
+
+  // Classement compétitif
+  ratingBoard: (scope: RatingScope) => request<RatingBoardDto>(`/ratings/leaderboard?scope=${scope}`),
+  myRatings: () => request<MyRatingsDto>("/ratings/me"),
 
   // Tournois privés
   tournaments: () => request<TournamentsOverviewDto>("/tournaments"),

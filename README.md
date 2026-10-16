@@ -198,6 +198,19 @@ pour tester Google sur téléphone, expose l'API avec une adresse publique (tunn
     deux envois simultanés ne dépensent jamais les mêmes jetons.
   - Limites : 20 salons créés par heure, 15 codes faux par joueur et par heure (puis blocage d'une heure), réponses en
     double refusées (jeton à usage unique et contrainte d'unicité en base).
+- **Classement compétitif** (`/ranked`, depuis Duels et Classements) : cote RankSight (Elo), globale et par jeu, distincte
+  du rang réel dans les jeux. **Seuls les duels « au hasard » comptent** : jamais les duels entre amis, les salons ni
+  les tournois privés, pour qu'on ne puisse pas monter en jouant entre amis. Un duel sur un jeu compte pour ce jeu et
+  pour le global ; « Tous les jeux » pour le global seulement.
+  - Cote de départ 1000 (plancher 100) ; facteur K de 32 pendant les 20 premiers duels, puis 20. Victoire, nul ou
+    défaite selon le résultat du duel ; un abandon compte comme une défaite.
+  - Anti-arrangement : contre un même adversaire, seuls 3 duels par 24 heures font bouger la cote (les suivants sont
+    inscrits à l'historique, sans effet). Le VIP n'intervient pas dans le calcul.
+  - Chaque duel n'est compté qu'une fois par joueur et par classement (`rating_changes`, clé joueur + classement +
+    duel ; contrôle « avant + variation = après » en base). Calcul à la fin du duel ; rattrapage chaque minute des duels
+    terminés sans cote (une seule instance de l'API, verrou Redis).
+  - Classement : 5 duels classés minimum, joueurs bannis ou supprimés exclus, places partagées à cote égale ; paliers
+    affichés (Bronze à Maître) à titre indicatif. Écran de fin de duel : nouvelle cote et variation.
 - **Tournois privés** (`/tournaments`, depuis l'écran Salons) : tableau à élimination directe de 4, 8 ou 16 places.
   **Seul le créateur doit être VIP** (relu en base à la création) ; s'inscrire avec le code ou le lien
   `/tournaments/join/CODE`, jouer et gagner est gratuit, et un tournoi lancé va à son terme même si le VIP du créateur se

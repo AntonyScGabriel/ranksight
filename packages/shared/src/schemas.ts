@@ -920,6 +920,8 @@ export const VersusMatchDto = z.object({
   finishedAt: z.string().nullable(),
   /** Manches terminées, réponses des deux joueurs comprises */
   details: z.array(VersusRoundDto),
+  /** Duel au hasard terminé : variation de la cote du joueur connecté (classement compétitif) */
+  rating: z.object({ scope: z.string(), before: z.number().int(), after: z.number().int(), delta: z.number().int(), counted: z.boolean() }).nullable(),
 });
 export type VersusMatchDto = z.infer<typeof VersusMatchDto>;
 

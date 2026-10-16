@@ -16,7 +16,7 @@ const LIVE = ["OPEN", "PENDING", "ACTIVE"];
 /** Duels : défier un joueur au hasard ou un ami, répondre aux invitations, suivre ses duels. */
 export default function VersusScreen() {
   const { me, loading } = useSession();
-  const { onVersus } = useChat();
+  const { onVersus, roomInvites } = useChat();
   const confirm = useConfirm();
   const [data, setData] = useState<{ matches: VersusMatchDto[]; stats: VersusStatsDto } | null>(null);
   const [friends, setFriends] = useState<UserSummaryDto[]>([]);
@@ -76,6 +76,20 @@ export default function VersusScreen() {
         Duel en direct : 5 clips, les mêmes pour les deux joueurs, au même moment. 30 secondes par manche (plus pour un clip long), puis les deux réponses
         sont dévoilées. Le meilleur total l&apos;emporte.
       </Muted>
+
+      <Pressable onPress={() => router.push("/rooms")} accessibilityRole="button" accessibilityLabel="Salons privés">
+        <Card style={{ flexDirection: "row", alignItems: "center", gap: 12, borderColor: roomInvites ? colors.neon : colors.line }}>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text style={{ color: colors.ink, fontSize: 17, fontWeight: "700" }}>Salons privés · jusqu&apos;à 8 joueurs</Text>
+            <Muted>
+              {roomInvites
+                ? `${roomInvites} invitation${roomInvites > 1 ? "s" : ""} reçue${roomInvites > 1 ? "s" : ""}.`
+                : "Joue avec tes amis grâce à un code. Seul le créateur du salon doit être VIP."}
+            </Muted>
+          </View>
+          <Text style={{ color: colors.neon, fontSize: 20 }}>›</Text>
+        </Card>
+      </Pressable>
 
       <Card style={{ flexDirection: "row", justifyContent: "space-around" }}>
         {([["Victoires", data.stats.wins, colors.success], ["Égalités", data.stats.draws, colors.ink], ["Défaites", data.stats.losses, colors.danger]] as const).map(

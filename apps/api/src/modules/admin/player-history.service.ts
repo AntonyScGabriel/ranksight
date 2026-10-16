@@ -107,6 +107,7 @@ export class PlayerHistoryService {
           dailyChallenge: { select: { id: true, date: true, slot: true } },
           infiniteRun: { select: { id: true, score: true, endedAt: true } },
           versusMatch: { select: { id: true, status: true, winnerId: true } },
+          room: { select: { id: true, code: true, status: true, players: { select: { userId: true, placement: true } } } },
         },
       }),
       this.prisma.guess.count({ where }),
@@ -132,7 +133,16 @@ export class PlayerHistoryService {
                 status: g.versusMatch.status,
                 outcome: g.versusMatch.status !== "FINISHED" ? null : !g.versusMatch.winnerId ? "DRAW" : g.versusMatch.winnerId === userId ? "WIN" : "LOSS",
               }
-            : { kind: "other" };
+            : g.room
+              ? {
+                  kind: "room",
+                  roomId: g.room.id,
+                  code: g.room.code,
+                  status: g.room.status,
+                  placement: g.room.players.find((p) => p.userId === userId)?.placement ?? null,
+                  players: g.room.players.length,
+                }
+              : { kind: "other" };
 
       return {
         id: g.id,
@@ -517,8 +527,8 @@ export class PlayerHistoryService {
       this.prisma.$queryRaw<{ ids: string[] }[]>`
         SELECT ARRAY_AGG(id::text ORDER BY created_at) AS ids FROM guesses
         WHERE user_id = ${userId}::uuid
-        GROUP BY clip_id, mode, COALESCE(daily_challenge_id, infinite_run_id, versus_match_id)
-        HAVING COUNT(*) > 1 AND COALESCE(daily_challenge_id, infinite_run_id, versus_match_id) IS NOT NULL`,
+        GROUP BY clip_id, mode, COALESCE(daily_challenge_id, infinite_run_id, versus_match_id, room_id)
+        HAVING COUNT(*) > 1 AND COALESCE(daily_challenge_id, infinite_run_id, versus_match_id, room_id) IS NOT NULL`,
       this.prisma.$queryRaw<{ id: string }[]>`
         SELECT g.id FROM guesses g JOIN daily_challenges d ON d.id = g.daily_challenge_id
         WHERE g.user_id = ${userId}::uuid AND g.created_at::date <> d.date`,

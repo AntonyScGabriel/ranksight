@@ -140,7 +140,25 @@ pour tester Google sur téléphone, expose l'API avec une adresse publique (tunn
   chez lui (bandeau « Rejoindre » sur toutes les pages, notification push sur mobile). La recherche et l'invitation restent
   ouvertes tant que leur auteur reste sur la page. Un seul duel en cours à la fois. Le serveur pilote le chrono (horloge
   des joueurs recalée sur la sienne) et refuse toute réponse hors délai. Bilan victoires / égalités / défaites sur le
-  profil ; succès « Duelliste ». Les duels rapportent de l'XP mais ne comptent pas dans les classements.
+  profil ; succès « Duelliste ». Les duels rapportent de l'XP mais ne comptent pas dans les classements. Pendant une manche,
+  l'API enregistre la réponse sans renvoyer le rang réel ni le score : tout est dévoilé à la fin de la manche.
+- **Salons privés** (onglet « Salons », ou depuis « Duels » sur téléphone) : jusqu'à **8 joueurs**, hôte compris, voient le
+  même clip au même moment. **Seul le créateur doit être VIP** : le droit est relu en base à la création (jamais un champ
+  envoyé par l'application ni le statut du jeton de connexion). Rejoindre, jouer et voir les résultats est gratuit, et une
+  partie lancée va toujours à son terme, même si le VIP du créateur se termine entre-temps.
+  - Création : jeu (LoL, Valorant, Rocket League, CS2), 3 / 5 / 7 / 10 manches, 20 / 30 / 45 / 60 s par manche (plus pour un
+    clip long). Code d'invitation de 8 caractères sans caractères ambigus (environ 40 bits d'aléa), bouton de copie du code
+    et du lien `/rooms/join/CODE` ; invitation d'un ami (bandeau sur le site, notification push sur mobile).
+  - Salle d'attente : joueurs, places libres, l'hôte peut retirer un joueur (qui ne peut plus revenir) et lance la partie à
+    2 joueurs ou plus. Les clips sont tirés au lancement, jamais parmi ceux proposés par un joueur du salon. Une salle
+    d'attente non lancée ferme au bout d'une heure. Un joueur n'est que dans un salon à la fois.
+  - Partie : même barème que les autres modes ; la manche se termine quand tous les joueurs restants ont répondu ou à la fin
+    du chrono. Un joueur qui quitte garde ses points mais ne répond plus ; si l'hôte part, le joueur arrivé le plus tôt
+    devient hôte (l'hôte ne peut ni modifier les réponses ni les scores). Totaux recalculés par le serveur, places partagées
+    en cas d'égalité, joueurs partis classés après les autres. Les salons rapportent de l'XP mais ne comptent dans aucun
+    classement ; les réponses apparaissent dans l'historique du joueur (administration).
+  - Limites : 20 salons créés par heure, 15 codes faux par joueur et par heure (puis blocage d'une heure), réponses en
+    double refusées (jeton à usage unique et contrainte d'unicité en base).
 - **Images des rangs** : chaque rang s'affiche avec un emblème (choix du rang, résultat). Par défaut, emblème RankGuess aux
   couleurs du rang ; l'administration peut envoyer sa propre image par rang (page « Rangs » : PNG, JPEG ou WebP, 512 Ko
   maximum, stockée en base). Utiliser uniquement des images dont vous détenez les droits.
@@ -186,8 +204,8 @@ pour tester Google sur téléphone, expose l'API avec une adresse publique (tunn
   (modération et administration) les traite dans la page « Suggestions » de l'administration (web et application) :
   statut, réponse facultative, suppression des messages hors sujet. L'auteur reçoit une notification sur son téléphone.
 - **Boutique VIP** (menu du compte, profil, application) : passes VIP 1 mois (4,99 €), 3 mois (12,99 €) et 12 mois (39,99 €),
-  paiement unique par carte via Stripe Checkout, sans abonnement. Avantages : +50 % d'XP sur chaque réponse et badge VIP
-  (classements, chat, profil). Un pass acheté pendant un VIP en cours s'ajoute à sa date de fin. Sans `STRIPE_SECRET_KEY`,
+  paiement unique par carte via Stripe Checkout, sans abonnement. Avantages : +50 % d'XP sur chaque réponse, badge VIP
+  (classements, chat, profil) et création de salons privés (voir « Salons privés »). Un pass acheté pendant un VIP en cours s'ajoute à sa date de fin. Sans `STRIPE_SECRET_KEY`,
   la boutique s'affiche mais l'achat est indisponible. L'administration peut offrir ou retirer le VIP (page Utilisateurs).
 - **Promo du moment** : réutilisable à chaque événement (lancement, Noël, anniversaire du site…). Nom affiché aux joueurs,
   prix promo par pass, fin automatique facultative (date et heure). Par défaut : « Offre de lancement » à moitié prix

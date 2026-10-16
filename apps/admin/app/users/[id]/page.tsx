@@ -3,7 +3,7 @@
 import { use, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  AUDIT_FIELD_LABEL, GAME_MODE_LABEL, GAME_NAMES, GAME_SLUGS, GUESS_RESULT_LABEL, HISTORY_FLAG_LABEL, INDICATOR_STATUS_LABEL, ROLE_LABEL,
+  AUDIT_FIELD_LABEL, GAME_MODE_LABEL, GAME_NAMES, GAME_SLUGS, GUESS_RESULT_LABEL, HISTORY_FLAG_LABEL, INDICATOR_STATUS_LABEL, ROLE_LABEL, formatRoomCode,
   type GameMode, type GuessAggregateDto, type GuessResult, type IndicatorStatus, type PlayerAuditDto, type PlayerAuditEntryDto,
   type PlayerHistoryDto, type PlayerHistoryItemDto, type PlayerIndicatorDto, type PlayerIndicatorsDto, type PlayerStatsDto, type UserRole,
 } from "@ranksight/shared";
@@ -216,6 +216,10 @@ function contextLabel(g: PlayerHistoryItemDto) {
   if (c.kind === "versus") {
     const outcome = c.outcome === "WIN" ? "victoire" : c.outcome === "LOSS" ? "défaite" : c.outcome === "DRAW" ? "égalité" : "non terminé";
     return `Duel ${c.matchId.slice(0, 8)} · ${outcome}`;
+  }
+  if (c.kind === "room") {
+    const place = c.placement ? `${c.placement}${c.placement === 1 ? "er" : "e"} sur ${c.players}` : c.status === "FINISHED" ? "sans place" : "non terminé";
+    return `Salon ${formatRoomCode(c.code)} · ${place}`;
   }
   return "—";
 }

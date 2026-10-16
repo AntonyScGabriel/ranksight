@@ -1,5 +1,6 @@
 import type { VipStatusDto } from "@ranksight/shared";
 import type { Prisma } from "../../generated/prisma/client.js";
+import type { PrismaService } from "../../prisma/prisma.service.js";
 
 const DAY_MS = 86_400_000;
 
@@ -35,4 +36,14 @@ export async function extendVip(
     update: { provider, plan, status: "ACTIVE", currentPeriodEnd, cancelAtPeriodEnd: false },
   });
   return currentPeriodEnd;
+}
+
+/**
+ * Droit d'héberger une partie VIP (salon privé…), lu en base à chaque création : jamais le statut envoyé par
+ * l'application ni celui du jeton de connexion, qui peut dater d'avant la fin du VIP. L'équipe (admin, fondateur) y a droit.
+ */
+export async function canHostVipGames(prisma: PrismaService, userId: string): Promise<boolean> {
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { role: true, status: true, ...vipSelect } });
+  if (!user || user.status !== "ACTIVE") return false;
+  return isVip(user.subscription) || user.role === "ADMIN" || user.role === "OWNER";
 }

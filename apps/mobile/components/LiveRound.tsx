@@ -4,7 +4,10 @@ import { useVideoPlayer, VideoView, type VideoPlayer } from "expo-video";
 import * as Haptics from "expo-haptics";
 import { api, ApiError, media } from "@/lib/api";
 import { colors, font, radius } from "@/lib/theme";
-import type { VersusClip } from "@/lib/versus";
+import type { PlayableClipDto } from "@ranksight/shared";
+
+/** Clip d'une manche en direct (duel ou salon) : position, nombre de manches et fin du chrono (dates du serveur) */
+export type LiveClip = PlayableClipDto & { position: number; rounds: number; endsAt: string; serverNow: string };
 import { errorMessage } from "./AuthUi";
 import { RankEmblem } from "./RankEmblem";
 import { Card, PrimaryButton } from "./ui";
@@ -13,7 +16,7 @@ function applySound(player: VideoPlayer, muted: boolean) {
   player.muted = muted;
 }
 
-/** Barre du chrono d'une manche de duel (rouge dans les 25 derniers pourcents). */
+/** Barre du chrono d'une manche en direct (rouge dans les 25 derniers pourcents). */
 export function TimerBar({ progress }: { progress: number }) {
   return (
     <View style={{ height: 6, borderRadius: 3, backgroundColor: colors.surface2, overflow: "hidden" }}>
@@ -22,10 +25,10 @@ export function TimerBar({ progress }: { progress: number }) {
   );
 }
 
-/** Manche de duel en direct : clip (avec le son), choix du rang, chrono. Le résultat est dévoilé à la fin de la manche. */
+/** Manche en direct (duel ou salon) : clip (avec le son), choix du rang, chrono. Le résultat est dévoilé à la fin de la manche. */
 export function LiveRound({
   clip, secondsLeft, progress, onSubmitted, onClosed,
-}: { clip: VersusClip; secondsLeft: number; progress: number; onSubmitted: () => void; onClosed: () => void }) {
+}: { clip: LiveClip; secondsLeft: number; progress: number; onSubmitted: () => void; onClosed: () => void }) {
   const [rankId, setRankId] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,7 +52,7 @@ export function LiveRound({
     setError(null);
     try {
       const watchedMs = Math.min(Date.now() - shownAt.current, 120_000);
-      await api.guess({ playToken: clip.playToken, rankId, watchedMs });
+      await api.liveGuess({ playToken: clip.playToken, rankId, watchedMs });
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       onSubmitted();
     } catch (e) {

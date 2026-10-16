@@ -5,13 +5,14 @@
 import { z } from "zod";
 import { GameSlug } from "./schemas.js";
 
-export const GameMode = z.enum(["DAILY", "INFINITE", "VERSUS", "EXCLUSIVE"]);
+export const GameMode = z.enum(["DAILY", "INFINITE", "VERSUS", "EXCLUSIVE", "ROOM"]);
 export type GameMode = z.infer<typeof GameMode>;
 export const GAME_MODE_LABEL: Record<GameMode, string> = {
   DAILY: "Défi du jour",
   INFINITE: "Infini",
   VERSUS: "Duel",
   EXCLUSIVE: "Mode VIP",
+  ROOM: "Salon privé",
 };
 
 /** Résultat d'une réponse : rang exact, proche (1 ou 2 rangs d'écart, des points quand même) ou manqué (0 point) */
@@ -91,6 +92,7 @@ export interface PlayerHistoryItemDto {
     | { kind: "daily"; challengeId: string; date: string; slot: number }
     | { kind: "infinite"; runId: string; runScore: number; ended: boolean }
     | { kind: "versus"; matchId: string; status: string; outcome: "WIN" | "LOSS" | "DRAW" | null }
+    | { kind: "room"; roomId: string; code: string; status: string; placement: number | null; players: number }
     | { kind: "other" };
   clip: { id: string; inGamePseudo: string | null; deleted: boolean; rank: RankRef };
   guessedRank: RankRef;

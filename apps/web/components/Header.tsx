@@ -20,11 +20,13 @@ const NAV = [
 ];
 /** Onglet affiché dans la barre du haut sur grand écran (et toujours dans le menu du compte) */
 const NAV_WIDE = { href: "/suggestions", label: "Suggestions" };
+/** Salons privés : dans la barre du haut sur grand écran ; sinon depuis l'écran Duels et le menu du compte */
+const NAV_ROOMS = { href: "/rooms", label: "Salons" };
 
 export function Header() {
   const pathname = usePathname();
   const { me, loading, logout } = useSession();
-  const { unread, versusPending } = useChat();
+  const { unread, versusPending, roomInvites } = useChat();
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -56,6 +58,15 @@ export function Header() {
                 </Link>
               </li>
             ))}
+            <li className="hidden lg:block">
+              <Link
+                href={NAV_ROOMS.href}
+                className={`relative rounded-lg px-3 py-2 text-sm transition hover:bg-surface hover:text-ink ${isActive(NAV_ROOMS.href) ? "text-ink" : "text-muted"}`}
+              >
+                {NAV_ROOMS.label}
+                {roomInvites > 0 && <Badge n={roomInvites} />}
+              </Link>
+            </li>
             <li className="hidden xl:block">
               <Link
                 href={NAV_WIDE.href}
@@ -97,6 +108,7 @@ export function Header() {
                       {me.newRewards > 0 && <span className="ml-2 rounded-full bg-neon px-1.5 text-[10px] font-bold text-void">{me.newRewards}</span>}
                     </MenuLink>
                     <MenuLink href="/achievements" onClick={() => setOpen(false)}>Mes succès</MenuLink>
+                    <MenuLink href="/rooms" onClick={() => setOpen(false)}>Salons privés</MenuLink>
                     <MenuLink href="/shop" onClick={() => setOpen(false)}>Boutique VIP</MenuLink>
                     <MenuLink href="/my-clips" onClick={() => setOpen(false)}>Mes clips</MenuLink>
                     <MenuLink href="/submit" onClick={() => setOpen(false)}>Proposer un clip</MenuLink>
@@ -124,10 +136,13 @@ export function Header() {
         <ul className="grid grid-cols-7">
           {[...NAV, { href: "/profile", label: "Profil", short: "Profil" }].map((n) => (
             <li key={n.href}>
-              <Link href={n.href} className={`relative flex h-16 items-center justify-center text-[11px] font-medium ${isActive(n.href) ? "text-neon" : "text-muted"}`}>
+              <Link
+                href={n.href}
+                className={`relative flex h-16 items-center justify-center text-[11px] font-medium ${isActive(n.href) || (n.href === "/versus" && isActive("/rooms")) ? "text-neon" : "text-muted"}`}
+              >
                 {n.short}
                 {n.href === "/friends" && unread > 0 && <Badge n={unread} />}
-                {n.href === "/versus" && versusPending > 0 && <Badge n={versusPending} />}
+                {n.href === "/versus" && versusPending + roomInvites > 0 && <Badge n={versusPending + roomInvites} />}
               </Link>
             </li>
           ))}

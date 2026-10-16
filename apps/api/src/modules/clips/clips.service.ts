@@ -215,7 +215,7 @@ export class ClipsService {
       game: { id: string; slug: string; name: string; iconUrl: string | null; ranks: (RankDto & { gameId: string })[] };
     },
     playToken: string,
-    mode: "DAILY" | "INFINITE" | "VERSUS",
+    mode: "DAILY" | "INFINITE" | "VERSUS" | "ROOM",
     dailyDate: Date | null,
   ): Promise<PlayableClipDto> {
     const { ranks, ...game } = clip.game;

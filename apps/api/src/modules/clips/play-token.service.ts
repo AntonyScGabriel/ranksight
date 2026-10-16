@@ -7,10 +7,11 @@ export interface PlayClaims {
   jti: string;
   uid: string;
   cid: string; // clip
-  mode: "DAILY" | "INFINITE" | "VERSUS";
+  mode: "DAILY" | "INFINITE" | "VERSUS" | "ROOM";
   did?: string; // daily challenge
   rid?: string; // infinite run
   vid?: string; // versus (duel)
+  rmid?: string; // salon privé
   iat?: number;
 }
 

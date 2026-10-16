@@ -7,6 +7,7 @@ import {
   xpForGuess,
   type GameSlug,
   type GuessResultDto,
+  type LiveGuessAckDto,
   type SubmitGuessInput,
   VIP_XP_MULTIPLIER,
 } from "@ranksight/shared";
@@ -19,6 +20,7 @@ import { LeaderboardsService } from "../leaderboards/leaderboards.service.js";
 import { AchievementEngine } from "../achievements/achievement-engine.service.js";
 import { isVip, vipSelect } from "../shop/vip.js";
 import { VersusService } from "../versus/versus.service.js";
+import { RoomsService } from "../rooms/rooms.service.js";
 
 const LIFE_LOST_FROM_DISTANCE = 2; // Infini : ≥ 2 rangs d'écart = une vie perdue
 const CLIPS_PER_DIFFICULTY_STEP = 3;
@@ -35,10 +37,11 @@ export class GuessesService {
     private readonly leaderboards: LeaderboardsService,
     private readonly achievements: AchievementEngine,
     private readonly versus: VersusService,
+    private readonly rooms: RoomsService,
     private readonly audit: AuditService,
   ) {}
 
-  async submit(userId: string, input: SubmitGuessInput): Promise<GuessResultDto & { run?: unknown; versus?: unknown }> {
+  async submit(userId: string, input: SubmitGuessInput): Promise<(GuessResultDto & { run?: unknown }) | LiveGuessAckDto> {
     // 1. Jeton de partie : authentique et émis pour ce joueur
     const claims = await this.playTokens.verify(input.playToken, userId);
 
@@ -63,6 +66,10 @@ export class GuessesService {
       if (!claims.vid) throw new BadRequestException({ code: "INVALID_PLAY_TOKEN" });
       await this.versus.assertCanAnswer(userId, claims.vid, clip.id);
     }
+    if (claims.mode === "ROOM") {
+      if (!claims.rmid) throw new BadRequestException({ code: "INVALID_PLAY_TOKEN" });
+      await this.rooms.assertCanAnswer(userId, claims.rmid, clip.id);
+    }
 
     // 4. Score (règle partagée avec les clients) : écart entre les positions des rangs dans l'échelle du jeu
     const { distance, score } = scoreGuess(guessed.order, clip.rank.order);
@@ -80,6 +87,9 @@ export class GuessesService {
     const fresh = await this.redis.set(`play:used:${claims.jti}`, "1", "EX", 3600, "NX");
     if (!fresh) throw new ConflictException({ code: "ALREADY_ANSWERED", message: alreadyAnswered(claims.mode) });
 
+    // Duel et salon : XP et statistiques appliquées à la révélation de la manche (GuessStatsService)
+    const live = claims.mode === "VERSUS" || claims.mode === "ROOM";
+
     // 6. Écriture atomique
     const result = await this.prisma.$transaction(async (tx) => {
       const guess = await tx.guess.create({
@@ -91,14 +101,17 @@ export class GuessesService {
           dailyChallengeId: claims.did ?? null,
           infiniteRunId: claims.rid ?? null,
           versusMatchId: claims.vid ?? null,
+          roomId: claims.rmid ?? null,
           distance,
           score,
           xpGained,
           watchedMs: input.watchedMs,
           // Mesuré par le serveur (le temps de visionnage, lui, est déclaré par l'application)
           responseMs: Math.max(0, elapsedMs),
+          statsPending: live,
         },
       });
+      if (live) return { guess, run: null };
 
       await tx.user.update({
         where: { id: userId },
@@ -152,6 +165,12 @@ export class GuessesService {
       throw e;
     });
 
+    // Duel et salon : le rang réel, le score et les gains ne sont dévoilés à personne avant la fin de la manche
+    if (live) {
+      const state = claims.mode === "VERSUS" ? await this.versus.afterAnswer(userId, claims.vid!) : await this.rooms.afterAnswer(userId, claims.rmid!);
+      return { guessId: result.guess.id, pending: true, live: { position: state.position, rounds: state.rounds } };
+    }
+
     // 7. Effets de bord hors transaction (non bloquants pour la cohérence)
     await this.redis.hincrby(`clip:dist:${clip.id}`, guessed.id, 1);
     if (claims.mode === "DAILY") await this.leaderboards.recordScore(userId, score, clip.game.slug as GameSlug);
@@ -170,7 +189,6 @@ export class GuessesService {
         });
       }
     }
-    const versus = claims.mode === "VERSUS" && claims.vid ? await this.versus.afterAnswer(userId, claims.vid) : undefined;
     const { achievements: unlockedAchievements, rewards: unlockedRewards } = await this.achievements.evaluateWithRewards(userId);
 
     const { gameId: _correctGameId, ...correctRank } = clip.rank;
@@ -191,7 +209,6 @@ export class GuessesService {
       unlockedAchievements,
       unlockedRewards,
       run: result.run ?? undefined,
-      versus,
     };
   }
 
@@ -213,7 +230,8 @@ export class GuessesService {
     // Gratuit : 30 derniers jours. Premium : historique complet.
     const since = opts.premium ? undefined : new Date(Date.now() - 30 * 86_400_000);
     return this.prisma.guess.findMany({
-      where: { userId, ...(since ? { createdAt: { gte: since } } : {}) },
+      // Réponses de duel ou de salon dont la manche n'est pas encore révélée : absentes de l'historique
+      where: { userId, statsPending: false, ...(since ? { createdAt: { gte: since } } : {}) },
       include: {
         clip: { select: { id: true, game: { select: { slug: true, name: true } }, rank: { select: { name: true, color: true } } } },
         guessedRank: { select: { name: true, color: true } },

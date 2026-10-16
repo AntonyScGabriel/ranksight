@@ -4,7 +4,10 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { io, type Socket } from "socket.io-client";
-import { CHAT_EVENTS, GLOBAL_CHAT_EVENTS, VERSUS_EVENT, type ChatMessageDto, type GlobalMessageDto, type VersusMatchDto } from "@ranksight/shared";
+import {
+  CHAT_EVENTS, GLOBAL_CHAT_EVENTS, ROOM_EVENT, ROOM_INVITE_EVENT, VERSUS_EVENT, formatRoomCode,
+  type ChatMessageDto, type GlobalMessageDto, type RoomInviteDto, type VersusMatchDto,
+} from "@ranksight/shared";
 import { api, WS_URL } from "./api";
 import { useSession } from "./session";
 
@@ -27,6 +30,10 @@ interface ChatValue {
   onVersus: (fn: Listener<{ id: string }>) => () => void;
   /** Invitations de duel en attente de réponse (badge de navigation) */
   versusPending: number;
+  /** Un salon privé du joueur a changé (arrivée, départ, manche, fin) ou une invitation est arrivée */
+  onRoom: (fn: Listener<{ id: string }>) => () => void;
+  /** Invitations dans un salon privé (badge de navigation) */
+  roomInvites: number;
 }
 
 type GlobalHandlers = Parameters<ChatValue["joinGlobal"]>[0];
@@ -34,6 +41,7 @@ type GlobalHandlers = Parameters<ChatValue["joinGlobal"]>[0];
 const noop = () => () => {};
 const ChatContext = createContext<ChatValue>({
   unread: 0, refreshUnread: () => {}, onMessage: noop, onTyping: noop, sendTyping: () => {}, joinGlobal: noop, onVersus: noop, versusPending: 0,
+  onRoom: noop, roomInvites: 0,
 });
 
 /**
@@ -73,6 +81,23 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     }, () => undefined);
   }, []);
 
+  const roomListeners = useRef(new Set<Listener<{ id: string }>>());
+  const [roomInvites, setRoomInvites] = useState(0);
+  // Invitation dans un salon privé : bandeau « Voir le salon » sur toutes les pages
+  const [roomInvite, setRoomInvite] = useState<RoomInviteDto | null>(null);
+  const seenRoomInvites = useRef(new Set<string>());
+  const refreshRooms = useCallback(() => {
+    api.rooms().then((r) => {
+      setRoomInvites(r.invites.length);
+      const fresh = r.invites.find((i) => !seenRoomInvites.current.has(i.roomId));
+      r.invites.forEach((i) => seenRoomInvites.current.add(i.roomId));
+      setRoomInvite((current) => {
+        if (fresh && !pathRef.current.startsWith("/rooms")) return fresh;
+        return current && r.invites.some((i) => i.roomId === current.roomId) ? current : null;
+      });
+    }, () => undefined);
+  }, []);
+
   const refreshUnread = useCallback(() => {
     api.unread().then((r) => setUnread(r.unread), () => undefined);
   }, []);
@@ -81,6 +106,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     if (!me) return;
     refreshUnread();
     refreshVersus();
+    refreshRooms();
     const s = io(`${WS_URL}/ws/chat`, { transports: ["websocket"], withCredentials: true });
     s.on(CHAT_EVENTS.message, (m: ChatMessageDto) => {
       messageListeners.current.forEach((fn) => fn(m));
@@ -97,6 +123,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       versusListeners.current.forEach((fn) => fn(e));
       refreshVersus();
     });
+    s.on(ROOM_EVENT, (e: { id: string }) => roomListeners.current.forEach((fn) => fn(e)));
+    s.on(ROOM_INVITE_EVENT, (e: { id: string }) => {
+      roomListeners.current.forEach((fn) => fn(e));
+      refreshRooms();
+    });
     s.on(GLOBAL_CHAT_EVENTS.message, (m: GlobalMessageDto) => globalHandlers.current.forEach((h) => h.onMessage(m)));
     s.on(GLOBAL_CHAT_EVENTS.deleted, (p: { id: string }) => globalHandlers.current.forEach((h) => h.onDeleted(p)));
     s.on(GLOBAL_CHAT_EVENTS.settings, (p: { slowModeSec: number }) => globalHandlers.current.forEach((h) => h.onSettings?.(p)));
@@ -109,7 +140,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       s.disconnect();
       socketRef.current = null;
     };
-  }, [me, refreshUnread, refreshVersus]);
+  }, [me, refreshUnread, refreshVersus, refreshRooms]);
 
   const onMessage = useCallback((fn: Listener<ChatMessageDto>) => {
     messageListeners.current.add(fn);
@@ -136,6 +167,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  const onRoom = useCallback((fn: Listener<{ id: string }>) => {
+    roomListeners.current.add(fn);
+    return () => {
+      roomListeners.current.delete(fn);
+    };
+  }, []);
+
   const joinGlobal = useCallback((handlers: GlobalHandlers) => {
     globalHandlers.current.add(handlers);
     if (socketRef.current?.connected) socketRef.current.emit(GLOBAL_CHAT_EVENTS.join);
@@ -146,7 +184,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <ChatContext.Provider value={{ unread: me ? unread : 0, refreshUnread, onMessage, onTyping, sendTyping, joinGlobal, onVersus, versusPending: me ? versusPending : 0 }}>
+    <ChatContext.Provider value={{ unread: me ? unread : 0, refreshUnread, onMessage, onTyping, sendTyping, joinGlobal, onVersus, versusPending: me ? versusPending : 0, onRoom, roomInvites: me ? roomInvites : 0 }}>
       {children}
       {invite && (
         <div role="alert" className="glass animate-rise fixed bottom-20 left-4 right-4 z-50 flex items-center gap-3 p-4 shadow-2xl sm:left-auto sm:max-w-sm md:bottom-6">
@@ -156,6 +194,18 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           </div>
           <Link href={`/versus/${invite.id}`} onClick={() => setInvite(null)} className="btn-primary !px-4 !py-2 text-sm">Rejoindre</Link>
           <button onClick={() => setInvite(null)} aria-label="Fermer" className="text-muted hover:text-ink">✕</button>
+        </div>
+      )}
+      {roomInvite && !invite && (
+        <div role="alert" className="glass animate-rise fixed bottom-20 left-4 right-4 z-50 flex items-center gap-3 p-4 shadow-2xl sm:left-auto sm:max-w-sm md:bottom-6">
+          <div className="min-w-0 flex-1">
+            <p className="hud-label text-neon">Salon privé</p>
+            <p className="mt-1 text-sm">
+              <strong>{roomInvite.from}</strong> t&apos;invite à jouer sur {roomInvite.game.name} ({roomInvite.players}/{roomInvite.maxPlayers} joueurs).
+            </p>
+          </div>
+          <Link href={`/rooms/join/${formatRoomCode(roomInvite.code)}`} onClick={() => setRoomInvite(null)} className="btn-primary !px-4 !py-2 text-sm">Voir</Link>
+          <button onClick={() => setRoomInvite(null)} aria-label="Fermer" className="text-muted hover:text-ink">✕</button>
         </div>
       )}
       {toast && (

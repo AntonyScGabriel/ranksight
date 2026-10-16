@@ -36,6 +36,11 @@ import {
   type EquipFlairInput,
   type FlairDto,
   type MyRewardsDto,
+  type LiveGuessAckDto,
+  type CreateRoomInput,
+  type RoomDto,
+  type RoomPreviewDto,
+  type RoomsOverviewDto,
 } from "@ranksight/shared";
 
 export const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/v1";
@@ -163,6 +168,8 @@ export const api = {
   nextInfinite: (runId: string) => request<PlayableClipDto>(`/play/infinite/runs/${runId}/next`),
   guess: (body: SubmitGuessInput) =>
     post<GuessResultDto & { run?: { lives: number; score: number; endedAt: string | null } }>("/guesses", body),
+  /** Réponse pendant un duel ou un salon : enregistrée sans rien dévoiler avant la fin de la manche */
+  liveGuess: (body: SubmitGuessInput) => post<LiveGuessAckDto>("/guesses", body),
   report: (clipId: string, reason: string) => post("/reports", { clipId, reason }),
   leaderboard: (period: string, scope: string, game: LeaderboardGame = "all", season?: string) =>
     request<{ entries: LeaderboardEntryDto[]; me: { rank: number; score: number } | null }>(
@@ -215,6 +222,20 @@ export const api = {
   acceptVersus: (id: string) => post<VersusMatchDto>(`/versus/${id}/accept`),
   declineVersus: (id: string) => post(`/versus/${id}/decline`),
   cancelVersus: (id: string) => del(`/versus/${id}`),
+
+  // Salons privés
+  rooms: () => request<RoomsOverviewDto>("/rooms"),
+  room: (id: string) => request<RoomDto>(`/rooms/${id}`),
+  createRoom: (body: CreateRoomInput) => post<RoomDto>("/rooms", body),
+  roomPreview: (code: string) => request<RoomPreviewDto>(`/rooms/code/${encodeURIComponent(code)}`),
+  joinRoom: (code: string) => post<RoomDto>("/rooms/join", { code }),
+  roomNext: (id: string) =>
+    request<PlayableClipDto & { position: number; rounds: number; endsAt: string; serverNow: string }>(`/rooms/${id}/next`),
+  startRoom: (id: string) => post<RoomDto>(`/rooms/${id}/start`),
+  leaveRoom: (id: string) => post(`/rooms/${id}/leave`),
+  inviteToRoom: (id: string, userId: string) => post<{ invited: boolean }>(`/rooms/${id}/invite`, { userId }),
+  declineRoomInvite: (id: string) => del(`/rooms/${id}/invite`),
+  kickFromRoom: (id: string, userId: string) => post<RoomDto>(`/rooms/${id}/kick/${userId}`),
 
   // Boutique VIP
   shop: () => request<ShopDto>("/shop"),

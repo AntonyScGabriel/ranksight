@@ -27,8 +27,10 @@ export default function RootLayout() {
       onNotificationTap((url) => {
         const chat = url?.match(/chat\/([0-9a-f-]{36})/);
         const versus = url?.match(/versus\/([0-9a-f-]{36})/);
+        const room = url?.match(/^rooms\/join\/([A-Z0-9]{8})$/);
         if (chat) router.push({ pathname: "/chat/[id]", params: { id: chat[1] } });
         else if (versus) router.push({ pathname: "/versus/[id]", params: { id: versus[1] } });
+        else if (room) router.push({ pathname: "/rooms/join/[code]", params: { code: room[1] } });
         else if (url === "my-clips") router.push("/my-clips");
         else if (url === "suggestions") router.push("/suggestions");
         else router.push("/");
@@ -56,6 +58,9 @@ export default function RootLayout() {
           <Stack.Screen name="shop" options={{ headerShown: true, title: Platform.OS === "android" ? "Boutique VIP" : "Mon VIP", ...header }} />
           <Stack.Screen name="player/[id]" options={{ headerShown: true, title: "Profil du joueur", ...header }} />
           <Stack.Screen name="versus/[id]" options={{ headerShown: true, title: "Duel", ...header }} />
+          <Stack.Screen name="rooms/index" options={{ headerShown: true, title: "Salons privés", ...header }} />
+          <Stack.Screen name="rooms/[id]" options={{ headerShown: true, title: "Salon privé", ...header }} />
+          <Stack.Screen name="rooms/join/[code]" options={{ headerShown: true, title: "Rejoindre un salon", ...header }} />
           <Stack.Screen name="submit" options={{ headerShown: true, title: "Proposer un clip", ...header }} />
           <Stack.Screen name="suggestions" options={{ headerShown: true, title: "Suggestions", ...header }} />
           <Stack.Screen name="admin" options={{ headerShown: false }} />

@@ -28,8 +28,9 @@ const vipRequired = () =>
   );
 
 /**
- * Plus haut / Plus bas (solo), mode réservé aux joueurs VIP : le droit est relu en base au lancement et à chaque réponse
- * (une requête envoyée directement à l'API sans VIP est refusée). L'état de la série est gardé par le serveur : le rang du clip à comparer n'est envoyé
+ * Plus haut / Plus bas (solo), mode réservé aux joueurs VIP : le droit est relu en base à chaque lancement (une requête
+ * envoyée directement à l'API sans VIP est refusée). Une série déjà lancée peut être terminée même si le VIP prend fin
+ * entre-temps, mais aucune nouvelle série ne peut être lancée sans VIP. L'état de la série est gardé par le serveur : le rang du clip à comparer n'est envoyé
  * qu'après la réponse, et chaque question n'accepte qu'une réponse (numéro de question vérifié en base).
  * Pas de classement public ni d'XP : seul le record personnel compte, le mode ne peut pas servir à gagner des avantages.
  */
@@ -91,8 +92,8 @@ export class HigherLowerService {
   }
 
   /** Réponse à la question `round` : comparée par le serveur, une seule fois (mise à jour conditionnée à la question en cours). */
+  // Pas de contrôle VIP ici : la série a été lancée avec le VIP, le joueur peut la terminer même si son VIP a pris fin
   async answer(userId: string, id: string, round: number, choice: "higher" | "lower"): Promise<HigherLowerAnswerDto> {
-    if (!(await canHostVipGames(this.prisma, userId))) throw vipRequired();
     const bestBefore = await this.best(userId);
     const result = await this.prisma.$transaction(async (tx) => {
       const [locked] = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM higher_lower_runs WHERE id = ${id}::uuid AND user_id = ${userId}::uuid FOR UPDATE`;

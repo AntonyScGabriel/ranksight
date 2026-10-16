@@ -70,7 +70,7 @@ export default function HigherLowerPage() {
   if (!me) return <LoginRequired next="/play/higher-lower" />;
   if (!overview) return error ? <p className="text-center text-danger">{error}</p> : <Skeleton />;
 
-  // Mode VIP : le serveur refuse lancement et réponses sans VIP ; l'écran l'explique et propose l'offre
+  // Mode VIP : le serveur refuse le lancement sans VIP (une série déjà lancée se termine) ; l'écran l'explique et propose l'offre
   const canStart = overview.vip;
   const shown = last ? last.run : run;
   // Après une bonne réponse, le joueur voit d'abord le rang dévoilé, puis passe au clip suivant

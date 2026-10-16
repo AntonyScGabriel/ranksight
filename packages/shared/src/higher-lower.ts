@@ -5,8 +5,6 @@
 import { z } from "zod";
 import { GameSlug, RankDto } from "./schemas.js";
 
-/** Séries gratuites par jour (jour UTC) ; illimitées pour les joueurs VIP */
-
 export const HigherLowerChoice = z.enum(["higher", "lower"]);
 export type HigherLowerChoice = z.infer<typeof HigherLowerChoice>;
 
@@ -63,7 +61,7 @@ export const HigherLowerAnswerDto = z.object({
 export type HigherLowerAnswerDto = z.infer<typeof HigherLowerAnswerDto>;
 
 export const HigherLowerOverviewDto = z.object({
-  /** Mode VIP : seuls les joueurs VIP peuvent lancer une série et y répondre (vérifié par le serveur) */
+  /** Mode VIP : seuls les joueurs VIP peuvent lancer une série (vérifié par le serveur) ; une série lancée peut être terminée */
   vip: z.boolean(),
   best: z.number().int(),
   active: HigherLowerRunDto.nullable(),

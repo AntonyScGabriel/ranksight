@@ -147,8 +147,8 @@ pour tester Google sur téléphone, expose l'API avec une adresse publique (tunn
   erreur termine la série. Deux clips du même rang ne sont jamais comparés, aucun clip n'est montré deux fois dans une
   série, jamais un clip proposé par le joueur. Le serveur garde l'état de la série : le rang du clip à comparer n'est
   envoyé qu'après la réponse, et chaque question n'accepte qu'une réponse. **Réservé aux joueurs VIP**, sans limite de
-  séries : le droit est relu en base au lancement et à chaque réponse (une requête envoyée directement à l'API sans VIP
-  reçoit 402). Les joueurs gratuits voient le mode, ses règles et un lien vers l'offre VIP. Pas d'XP ni de classement
+  séries : le droit est relu en base à chaque lancement (une requête envoyée directement à l'API sans VIP reçoit 402).
+  Une série déjà lancée peut être terminée même si le VIP prend fin entre-temps ; aucune nouvelle série sans VIP. Les joueurs gratuits voient le mode, ses règles et un lien vers l'offre VIP. Pas d'XP ni de classement
   public : seul le record personnel compte, le VIP ne donne donc aucun avantage de classement.
 - **Salons** (onglet « Salons », ou depuis « Duels » sur téléphone) : jusqu'à **8 joueurs**, hôte compris, voient le
   même clip au même moment. Parties personnalisées, **jamais classées** : elles rapportent de l'XP mais ne modifient pas

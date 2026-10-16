@@ -82,7 +82,7 @@ export default function HigherLowerScreen() {
   if (!me) return <View style={{ padding: 16 }}><LoginRequired /></View>;
   if (!overview) return error ? <View style={{ padding: 16 }}><Muted center>{error}</Muted></View> : <Loading />;
 
-  // Mode VIP : le serveur refuse lancement et réponses sans VIP ; l'écran l'explique et propose l'offre
+  // Mode VIP : le serveur refuse le lancement sans VIP (une série déjà lancée se termine) ; l'écran l'explique et propose l'offre
   const canStart = overview.vip;
   const shown = last ? last.run : run;
   const revealing = !!last && last.correct && last.run.status === "ACTIVE";

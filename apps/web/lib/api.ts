@@ -45,6 +45,7 @@ import {
   type HigherLowerChoice,
   type HigherLowerOverviewDto,
   type HigherLowerRunDto,
+  type TokensDto,
 } from "@ranksight/shared";
 
 export const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/v1";
@@ -233,6 +234,10 @@ export const api = {
   higherLowerRun: (id: string) => request<HigherLowerRunDto>(`/higher-lower/runs/${id}`),
   answerHigherLower: (id: string, round: number, choice: HigherLowerChoice) =>
     post<HigherLowerAnswerDto>(`/higher-lower/runs/${id}/answer`, { round, choice }),
+
+  // Jetons virtuels (mode Confiance)
+  tokens: () => request<TokensDto>("/tokens"),
+  refillTokens: () => post<TokensDto>("/tokens/refill"),
 
   // Salons privés
   rooms: () => request<RoomsOverviewDto>("/rooms"),

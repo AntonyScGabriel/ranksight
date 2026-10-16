@@ -4,7 +4,7 @@ import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  DECIDED_BY_LABEL, ROOM_MIN_PLAYERS, ROOM_RULES, SUDDEN_DEATH_RULES, formatRoomCode, type RoomDto, type RoomPlayerDto, type RoomRoundDto, type UserSummaryDto,
+  CONFIDENCE_RULES, DECIDED_BY_LABEL, ROOM_MIN_PLAYERS, ROOM_RULES, SUDDEN_DEATH_RULES, formatRoomCode, type RoomDto, type RoomPlayerDto, type RoomRoundDto, type UserSummaryDto,
 } from "@ranksight/shared";
 import { api } from "@/lib/api";
 import { useConfirm } from "@/lib/confirm";
@@ -104,6 +104,7 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
                 onSubmitted={() => live.markSubmitted(live.clip!.position)}
                 onClosed={live.load}
                 label={room.live?.suddenDeath ? "Mort subite · manche décisive" : undefined}
+                tokens={room.confidence && !room.live?.suddenDeath ? room.myTokens : undefined}
               />
             ) : (
               <Skeleton className="h-96" />
@@ -111,6 +112,7 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
             {(phase === "answered" || phase === "timeout") && room.live && (
               <div className="glass space-y-3 p-8 text-center">
                 <p className="font-display text-xl font-semibold">{phase === "timeout" && !room.live.answered ? "Temps écoulé !" : "Réponse envoyée"}</p>
+                {room.myStake !== null && <p className="text-sm text-warn">Mise engagée : {room.myStake} jeton{room.myStake > 1 ? "s" : ""}</p>}
                 <p className="text-sm text-muted">
                   {room.players.filter((p) => !p.left && p.answered).length}/{room.players.filter((p) => !p.left).length} joueurs ont répondu.
                   {phase === "answered" && ` Fin de la manche dans ${live.secondsLeft} s au plus tard.`}
@@ -153,6 +155,15 @@ function PlayerName({ p, meId }: { p: RoomPlayerDto; meId: string }) {
   );
 }
 
+/** Bénéfice net en jetons (mode Confiance) */
+function TokensNet({ n }: { n: number }) {
+  return (
+    <span title="Bénéfice net en jetons" className={`whitespace-nowrap text-xs font-semibold ${n > 0 ? "text-success" : n < 0 ? "text-danger" : "text-muted"}`}>
+      {n > 0 ? `+${n}` : n} jeton{Math.abs(n) > 1 ? "s" : ""}
+    </span>
+  );
+}
+
 /** Salle d'attente : code à partager, joueurs, invitations d'amis, réglages et règles ; l'hôte lance la partie. */
 function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () => Promise<unknown>) => Promise<void> }) {
   const [copied, setCopied] = useState<"code" | "link" | null>(null);
@@ -188,7 +199,8 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
           <button onClick={() => copy("link")} className="btn-ghost">{copied === "link" ? "Lien copié ✓" : "Copier le lien d'invitation"}</button>
         </div>
         <p className="text-sm text-muted">
-          {room.game.name} · {room.rounds} manches · {room.roundSec} s par manche{room.suddenDeath ? " · mort subite" : ""} · rejoindre est gratuit
+          {room.game.name} · {room.rounds} manches · {room.roundSec} s par manche{room.suddenDeath ? " · mort subite" : ""}
+          {room.confidence ? " · mode Confiance" : ""} · rejoindre est gratuit
         </p>
       </div>
 
@@ -253,7 +265,7 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
           <div className="glass space-y-2 p-6">
             <h2 className="font-display text-lg font-semibold">Règles</h2>
             <ul className="list-disc space-y-1 pl-5 text-sm text-muted">
-              {[...ROOM_RULES, ...(room.suddenDeath ? SUDDEN_DEATH_RULES : [])].map((r) => <li key={r}>{r}</li>)}
+              {[...ROOM_RULES, ...(room.suddenDeath ? SUDDEN_DEATH_RULES : []), ...(room.confidence ? CONFIDENCE_RULES : [])].map((r) => <li key={r}>{r}</li>)}
             </ul>
           </div>
         </div>
@@ -274,6 +286,7 @@ function Scoreboard({ room, meId }: { room: RoomDto; meId: string }) {
             <Avatar name={p.displayName} url={p.avatarUrl} size={24} frame={p.flair.frame} />
             <div className="min-w-0 flex-1"><PlayerName p={p} meId={meId} /></div>
             {p.left ? <span className="text-xs text-muted">parti</span> : p.answered && <span className="text-xs text-success" title="A répondu">✓</span>}
+            {p.tokensNet !== null && <TokensNet n={p.tokensNet} />}
             <span className="w-12 text-right font-display font-bold">{p.score}</span>
           </li>
         ))}
@@ -300,6 +313,7 @@ function RoundReveal({ round, players: all, meId }: { round: RoomRoundDto; playe
             <li key={p.id} className="flex items-center gap-2 rounded-lg bg-surface/60 px-3 py-2 text-sm">
               <div className="min-w-0 flex-1"><PlayerName p={p} meId={meId} /></div>
               <span className="text-muted">{a ? a.rank.name : "—"}</span>
+              {a?.stake != null && <TokensNet n={(a.payout ?? 0) - a.stake} />}
               <span className={`w-12 text-right font-bold ${a && a.score > 0 ? "text-success" : "text-muted"}`}>+{a?.score ?? 0}</span>
             </li>
           );
@@ -342,6 +356,7 @@ function FinalResult({ room, meId }: { room: RoomDto; meId: string }) {
               <div className="min-w-0 text-sm"><PlayerName p={p} meId={meId} /></div>
             </PlayerLink>
             {p.left && <span className="text-xs text-muted">parti en cours de partie</span>}
+            {p.tokensNet !== null && <TokensNet n={p.tokensNet} />}
             <span className="font-display text-xl font-bold">{p.score}</span>
           </li>
         ))}

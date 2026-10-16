@@ -170,6 +170,17 @@ pour tester Google sur téléphone, expose l'API avec une adresse publique (tunn
     réponse la plus rapide (temps mesuré par le serveur) parmi les meilleurs. Le résultat indique comment la victoire a
     été obtenue (aux points, en mort subite, à la rapidité, ou partagée sans l'option). Règles dans
     `packages/shared/src/room-rules.ts`, testées dans `room-rules.test.ts`.
+  - **Mode Confiance** (option à la création) : avant de valider, chaque joueur engage 1, 2 ou 3 **jetons virtuels** ;
+    mise et réponse sont verrouillées ensemble. Rang exact : mise rendue + 2 × la mise ; un rang d'écart : mise rendue ;
+    plus loin : seule la mise est perdue. Les mises restent cachées jusqu'à la fin de la manche. Les manches de mort
+    subite se jouent sans mise. Avec un solde vide, le joueur répond sans mise (il n'est jamais bloqué).
+  - **Jetons** (`/tokens`, carte « Mes jetons » de l'écran Salons) : 20 jetons au départ (comptes existants compris,
+    inscrits au journal par la migration), recharge gratuite une fois par jour jusqu'à 10 jetons, bénéfice net plafonné
+    à 100 jetons par jour. Les jetons ne s'achètent pas, ne se retirent pas, ne se transfèrent pas et ne donnent droit à
+    aucun prix. Le solde (`users.token_balance`, jamais négatif : contrainte en base) ne bouge que par des mouvements
+    inscrits dans `token_transactions`, chacun avec une clé unique : une mise, un gain ou une recharge ne peut pas être
+    compté deux fois. La mise est débitée dans la même transaction que la réponse (mise à jour conditionnelle au solde) ;
+    deux envois simultanés ne dépensent jamais les mêmes jetons.
   - Limites : 20 salons créés par heure, 15 codes faux par joueur et par heure (puis blocage d'une heure), réponses en
     double refusées (jeton à usage unique et contrainte d'unicité en base).
 - **Images des rangs** : chaque rang s'affiche avec un emblème (choix du rang, résultat). Par défaut, emblème RankGuess aux

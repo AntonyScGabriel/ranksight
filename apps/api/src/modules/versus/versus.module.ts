@@ -8,6 +8,7 @@ import { AchievementsModule } from "../achievements/achievements.module.js";
 import { ChatModule } from "../chat/chat.module.js";
 import { ClipsModule } from "../clips/clips.module.js";
 import { VersusService } from "./versus.service.js";
+import { RatingsModule } from "../ratings/ratings.module.js";
 
 @Controller("versus")
 export class VersusController {
@@ -72,7 +73,7 @@ export class VersusController {
 }
 
 @Module({
-  imports: [ClipsModule, ChatModule, AchievementsModule],
+  imports: [ClipsModule, ChatModule, AchievementsModule, RatingsModule],
   controllers: [VersusController],
   providers: [VersusService],
   exports: [VersusService],

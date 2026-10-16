@@ -15,6 +15,7 @@ import { PlayTokenService } from "../clips/play-token.service.js";
 import { PushService } from "../notifications/notifications.module.js";
 import { isVip, vipSelect } from "../shop/vip.js";
 import { flairSelect, toFlair } from "../cosmetics/flair.js";
+import { RatingsService } from "../ratings/ratings.service.js";
 
 const SEC = 1000;
 /** Marge accordée à une réponse envoyée juste avant la fin du chrono (latence réseau) */
@@ -53,6 +54,7 @@ export class VersusService {
     private readonly gateway: ChatGateway,
     private readonly push: PushService,
     private readonly achievements: AchievementEngine,
+    private readonly ratings: RatingsService,
     @Inject(REDIS) private readonly redis: Redis,
   ) {}
 
@@ -242,6 +244,7 @@ export class VersusService {
     });
     if (count) {
       await this.achievements.evaluate(winnerId);
+      await this.rate(id);
       await this.notifyMatch(id);
     }
   }
@@ -339,6 +342,7 @@ export class VersusService {
     });
     if (!count) return;
     if (winnerId) await this.achievements.evaluate(winnerId);
+    await this.rate(id);
     await this.notifyMatch(id);
   }
 
@@ -419,7 +423,8 @@ export class VersusService {
     });
     const currentClip = m.status === "ACTIVE" ? clips[m.currentRound - 1]?.clipId : undefined;
     const roundAnswers = currentClip ? answers.filter((a) => a.clipId === currentClip) : [];
-    return this.toDto(m, userId, details, roundAnswers);
+    const rating = m.random && m.status === "FINISHED" ? await this.ratings.forDuel(userId, id, m.game?.slug ?? null) : null;
+    return { ...this.toDto(m, userId, details, roundAnswers), rating };
   }
 
   /** Bilan des duels (depuis la dernière remise à zéro des statistiques du joueur, le cas échéant). */
@@ -478,7 +483,17 @@ export class VersusService {
       expiresAt: m.expiresAt.toISOString(),
       finishedAt: m.finishedAt?.toISOString() ?? null,
       details,
+      rating: null,
     };
+  }
+
+  /** Classement compétitif (duels au hasard seulement) ; une erreur ici ne bloque pas la fin du duel, le rattrapage s'en charge. */
+  private async rate(matchId: string) {
+    try {
+      await this.ratings.recordDuel(matchId);
+    } catch (e) {
+      this.logger.error(`Duel ${matchId} : cote non mise à jour`, e as Error);
+    }
   }
 
   // ---------- Temps réel ----------

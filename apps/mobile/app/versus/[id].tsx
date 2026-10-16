@@ -228,6 +228,23 @@ function FinalResult({ match }: { match: VersusMatchDto }) {
   }
   return (
     <>
+      {match.rating && (
+        <Pressable onPress={() => router.push("/ranked")} accessibilityRole="button">
+          <Card style={{ alignItems: "center", gap: 2 }}>
+            <Hud>Classement compétitif{match.rating.scope !== "global" && match.game ? ` · ${match.game.name}` : ""}</Hud>
+            {match.rating.counted ? (
+              <Text style={{ color: colors.ink, fontSize: 20, ...font.display }}>
+                {match.rating.after}{" "}
+                <Text style={{ color: match.rating.delta > 0 ? colors.success : match.rating.delta < 0 ? colors.danger : colors.muted, fontSize: 16 }}>
+                  ({match.rating.delta > 0 ? "+" : ""}{match.rating.delta})
+                </Text>
+              </Text>
+            ) : (
+              <Muted center>Ce duel ne compte pas : déjà 3 duels contre ce joueur en 24 heures.</Muted>
+            )}
+          </Card>
+        </Pressable>
+      )}
       {match.forfeit && <Muted center>{match.result === "me" ? `${opp?.displayName} a abandonné.` : "Tu as abandonné ce duel."}</Muted>}
       {match.details.length > 0 && (
         <Card style={{ gap: 10 }}>

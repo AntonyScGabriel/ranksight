@@ -91,6 +91,14 @@ export default function VersusPage() {
         <span className="btn-ghost">Ouvrir</span>
       </Link>
 
+      <Link href="/ranked" className="glass flex flex-wrap items-center justify-between gap-3 p-5 transition hover:border-violet">
+        <div>
+          <p className="font-display text-lg font-semibold">Classement compétitif</p>
+          <p className="text-sm text-muted">Les duels « au hasard » font monter ou descendre ta cote, globale et par jeu. Les duels entre amis ne comptent pas.</p>
+        </div>
+        <span className="btn-ghost">Voir</span>
+      </Link>
+
       <div className="glass space-y-4 p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="font-display text-xl font-semibold">Nouveau duel</h2>

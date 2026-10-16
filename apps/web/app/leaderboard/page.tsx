@@ -89,7 +89,10 @@ function Leaderboard() {
 
   return (
     <section className="space-y-6">
-      <h1 className="font-display text-3xl font-bold">Classements</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="font-display text-3xl font-bold">Classements</h1>
+        <Link href="/ranked" className="btn-ghost">Classement compétitif (duels) →</Link>
+      </div>
       <div className="flex flex-wrap gap-2">
         <Tabs items={SCOPES} value={scope} onChange={setScope} />
         <Tabs items={PERIODS} value={period} onChange={setPeriod} />

@@ -118,6 +118,8 @@ model User {
   tournamentsCreated Tournament[]     @relation("tournamentCreator")
   tournamentsHosted  Tournament[]     @relation("tournamentHost")
   tournamentSeats    TournamentPlayer[]
+  ratings          CompetitiveRating[]
+  ratingChanges    RatingChange[]
   higherLowerRuns  HigherLowerRun[]
   tokenTransactions TokenTransaction[]
   roomStakes       RoomStake[]
@@ -1436,4 +1438,51 @@ model TournamentMatch {
   @@unique([tournamentId, stage, slot])
   @@index([deadlineAt])
   @@map("tournament_matches")
+}
+
+// ----------------------------------------------------------------------------
+// Classement compétitif (cote Elo par jeu et globale), alimenté uniquement par les duels « au hasard ».
+// ----------------------------------------------------------------------------
+
+model CompetitiveRating {
+  userId    String   @map("user_id") @db.Uuid
+  /// "global" ou le slug d'un jeu
+  scope     String   @db.VarChar(20)
+  rating    Int      @default(1000)
+  peak      Int      @default(1000)
+  games     Int      @default(0)
+  wins      Int      @default(0)
+  losses    Int      @default(0)
+  draws     Int      @default(0)
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, scope])
+  @@index([scope, rating(sort: Desc)])
+  @@map("competitive_ratings")
+}
+
+/// Historique de la cote : une ligne par joueur, périmètre et duel (jamais deux fois le même duel)
+model RatingChange {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  scope      String   @db.VarChar(20)
+  matchId    String   @map("match_id") @db.Uuid
+  opponentId String   @map("opponent_id") @db.Uuid
+  /// WIN, LOSS ou DRAW
+  result     String   @db.VarChar(4)
+  before     Int
+  after      Int
+  delta      Int
+  /// false : au-delà de la limite de duels contre ce même adversaire, sans effet sur la cote
+  counted    Boolean
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, scope, matchId])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([userId, opponentId, createdAt])
+  @@map("rating_changes")
 }

@@ -30,6 +30,7 @@ import { ShopModule } from "./modules/shop/shop.module.js";
 import { VersusModule } from "./modules/versus/versus.module.js";
 import { RoomsModule } from "./modules/rooms/rooms.module.js";
 import { TournamentsModule } from "./modules/tournaments/tournaments.module.js";
+import { RatingsModule } from "./modules/ratings/ratings.module.js";
 import { HigherLowerModule } from "./modules/higher-lower/higher-lower.module.js";
 import { TokensModule } from "./modules/tokens/tokens.module.js";
 import { ModerationModule } from "./modules/moderation/moderation.module.js";
@@ -71,6 +72,7 @@ import { HealthController } from "./health.controller.js";
     VersusModule,
     RoomsModule,
     TournamentsModule,
+    RatingsModule,
     HigherLowerModule,
     TokensModule,
     ModerationModule,

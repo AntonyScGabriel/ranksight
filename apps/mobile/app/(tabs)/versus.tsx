@@ -77,6 +77,16 @@ export default function VersusScreen() {
         sont dévoilées. Le meilleur total l&apos;emporte.
       </Muted>
 
+      <Pressable onPress={() => router.push("/ranked")} accessibilityRole="button" accessibilityLabel="Classement compétitif">
+        <Card style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text style={{ color: colors.ink, fontSize: 17, fontWeight: "700" }}>Classement compétitif</Text>
+            <Muted>Les duels « au hasard » font bouger ta cote, globale et par jeu.</Muted>
+          </View>
+          <Text style={{ color: colors.neon, fontSize: 20 }}>›</Text>
+        </Card>
+      </Pressable>
+
       <Pressable onPress={() => router.push("/rooms")} accessibilityRole="button" accessibilityLabel="Salons privés">
         <Card style={{ flexDirection: "row", alignItems: "center", gap: 12, borderColor: roomInvites ? colors.neon : colors.line }}>
           <View style={{ flex: 1, gap: 2 }}>

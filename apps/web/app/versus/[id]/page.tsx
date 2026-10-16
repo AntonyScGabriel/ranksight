@@ -206,6 +206,21 @@ function FinalResult({ match }: { match: VersusMatchDto }) {
   }
   return (
     <div className="space-y-6">
+      {match.rating && (
+        <Link href="/ranked" className="glass flex flex-wrap items-center justify-center gap-x-3 gap-y-1 p-4 text-sm transition hover:border-violet">
+          <span className="hud-label">Classement compétitif{match.rating.scope !== "global" && match.game ? ` · ${match.game.name}` : ""}</span>
+          {match.rating.counted ? (
+            <span>
+              <span className="font-display text-lg font-bold">{match.rating.after}</span>{" "}
+              <span className={match.rating.delta > 0 ? "text-success" : match.rating.delta < 0 ? "text-danger" : "text-muted"}>
+                ({match.rating.delta > 0 ? "+" : ""}{match.rating.delta})
+              </span>
+            </span>
+          ) : (
+            <span className="text-muted">Ce duel ne compte pas : déjà 3 duels contre ce joueur en 24 heures.</span>
+          )}
+        </Link>
+      )}
       {match.forfeit && (
         <p className="text-center text-sm text-muted">
           {match.result === "me" ? `${opp?.displayName} a abandonné.` : "Tu as abandonné ce duel."}

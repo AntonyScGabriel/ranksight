@@ -43,7 +43,15 @@ export async function extendVip(
  * l'application ni celui du jeton de connexion, qui peut dater d'avant la fin du VIP. L'équipe (admin, fondateur) y a droit.
  */
 export async function canHostVipGames(prisma: PrismaService, userId: string): Promise<boolean> {
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { role: true, status: true, ...vipSelect } });
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: hostSelect });
+  return canHost(user);
+}
+
+/** Champs nécessaires à `canHost` (à sélectionner, par exemple, dans une transaction) */
+export const hostSelect = { role: true, status: true, ...vipSelect } as const;
+
+/** Même règle que `canHostVipGames`, sur un utilisateur déjà lu : compte actif et VIP, ou administrateur. */
+export function canHost(user: { role: string; status: string; subscription: Sub } | null | undefined): boolean {
   if (!user || user.status !== "ACTIVE") return false;
   return isVip(user.subscription) || user.role === "ADMIN" || user.role === "OWNER";
 }

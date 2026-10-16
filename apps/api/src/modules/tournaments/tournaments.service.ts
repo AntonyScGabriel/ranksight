@@ -18,7 +18,7 @@ import { ChatGateway } from "../chat/chat.gateway.js";
 import { flairSelect, toFlair } from "../cosmetics/flair.js";
 import { PushService } from "../notifications/notifications.module.js";
 import { RoomsService } from "../rooms/rooms.service.js";
-import { canHostVipGames, isVip, vipSelect } from "../shop/vip.js";
+import { canHost, canHostVipGames, hostSelect, isVip, vipSelect } from "../shop/vip.js";
 
 const SEC = 1000;
 /** Codes faux tolérés par joueur et par heure (compteur partagé avec les salons) */
@@ -46,9 +46,12 @@ const vipRequired = () =>
   );
 
 /**
- * Tournois privés à élimination directe. Les opérations de l'organisateur (création, lancement) exigent le VIP, relu en
- * base à chaque fois ; s'inscrire, jouer et gagner est gratuit, et un tournoi lancé va à son terme même si le créateur
- * perd son VIP.
+ * Tournois privés à élimination directe. Les opérations de l'organisateur (création, lancement, reprise de
+ * l'organisation) exigent le VIP, relu en base à chaque fois ; s'inscrire, jouer et gagner est gratuit, et un tournoi
+ * lancé va à son terme même si le créateur perd son VIP.
+ * Avant le lancement, l'organisation ne passe qu'à un inscrit VIP : sans VIP inscrit, le tournoi reste sans organisateur
+ * (`hostId` désigne alors un joueur qui n'est plus inscrit) jusqu'à ce qu'un VIP inscrit la reprenne ; à défaut, il est
+ * fermé au départ du dernier inscrit ou à l'expiration de la salle d'attente.
  * Chaque match est un salon à 2 avec mort subite (`RoomsService.createMatch`), lancé quand les deux joueurs sont prêts ;
  * absences et forfaits sont réglés par la boucle de suivi (une seule instance de l'API, verrou Redis).
  */
@@ -124,18 +127,34 @@ export class TournamentsService {
   }
 
   /**
-   * Quitter : avant le lancement, l'inscription est retirée (l'hôte est remplacé par le plus ancien inscrit) ;
-   * après, le joueur perd son match en cours ou à venir par forfait.
+   * Quitter : avant le lancement, l'inscription est retirée ; si c'était l'organisateur, l'organisation passe au plus
+   * ancien inscrit VIP (jamais à un joueur gratuit, qui ne pourrait pas lancer le tournoi). Le dernier départ ferme le
+   * tournoi. Après le lancement, le joueur perd son match en cours ou à venir par forfait.
    */
   async leave(userId: string, tournamentId: string) {
     const t = await this.memberTournament(userId, tournamentId);
     const seat = t.players.find((p) => p.userId === userId)!;
     if (t.status === "LOBBY") {
       await this.prisma.$transaction(async (tx) => {
-        await tx.tournamentPlayer.delete({ where: { tournamentId_userId: { tournamentId, userId } } });
-        const remaining = await tx.tournamentPlayer.findFirst({ where: { tournamentId }, orderBy: { joinedAt: "asc" }, select: { userId: true } });
-        if (!remaining) await tx.tournament.update({ where: { id: tournamentId }, data: { status: "CLOSED", finishedAt: new Date() } });
-        else if (t.hostId === userId) await tx.tournament.update({ where: { id: tournamentId }, data: { hostId: remaining.userId } });
+        // Verrou du tournoi : départs, reprises de l'organisation et lancement simultanés passent l'un après l'autre
+        const row = await this.lockTournament(tx, tournamentId);
+        if (row.status !== "LOBBY") {
+          throw new ConflictException({ code: "TOURNAMENT_STARTED", message: "Le tournoi vient de commencer : quitter maintenant compte comme un forfait, réessaie." });
+        }
+        const { count } = await tx.tournamentPlayer.deleteMany({ where: { tournamentId, userId } });
+        if (!count) return;
+        const remaining = await tx.tournamentPlayer.findMany({
+          where: { tournamentId },
+          orderBy: { joinedAt: "asc" },
+          select: { userId: true, user: { select: hostSelect } },
+        });
+        if (!remaining.length) {
+          await tx.tournament.update({ where: { id: tournamentId }, data: { status: "CLOSED", finishedAt: new Date() } });
+        } else if (row.hostId === userId) {
+          // Sans inscrit VIP, personne n'est désigné : un VIP inscrit pourra reprendre l'organisation (claimHost)
+          const heir = remaining.find((p) => canHost(p.user));
+          if (heir) await tx.tournament.update({ where: { id: tournamentId }, data: { hostId: heir.userId } });
+        }
       });
       this.gateway.emitToUser(userId, TOURNAMENT_EVENT, { id: tournamentId });
       await this.notify(tournamentId);
@@ -152,6 +171,33 @@ export class TournamentsService {
       if (other) await this.resolve(match.id, other, "FORFEIT");
     }
     await this.notify(tournamentId);
+  }
+
+  /**
+   * Reprise de l'organisation d'un tournoi resté sans organisateur (il est parti sans inscrit VIP pour le remplacer) :
+   * réservée à un inscrit VIP, avant le lancement. Sous verrou : une seule reprise aboutit si plusieurs VIP essaient.
+   */
+  async claimHost(userId: string, tournamentId: string): Promise<TournamentDto> {
+    await this.memberTournament(userId, tournamentId);
+    if (!(await canHostVipGames(this.prisma, userId))) {
+      throw new HttpException(
+        { code: "PREMIUM_REQUIRED", message: "Reprendre l'organisation d'un tournoi est réservé aux joueurs VIP. Tu peux rester inscrit ou quitter le tournoi." },
+        HttpStatus.PAYMENT_REQUIRED,
+      );
+    }
+    await this.prisma.$transaction(async (tx) => {
+      const row = await this.lockTournament(tx, tournamentId);
+      if (row.status !== "LOBBY") throw new ConflictException({ code: "TOURNAMENT_STARTED", message: "Le tournoi a déjà commencé." });
+      if (row.hostId === userId) return;
+      const seats = await tx.tournamentPlayer.findMany({ where: { tournamentId, userId: { in: [userId, row.hostId] } }, select: { userId: true } });
+      if (!seats.some((s) => s.userId === userId)) throw notFound();
+      if (seats.some((s) => s.userId === row.hostId)) {
+        throw new ConflictException({ code: "TOURNAMENT_HAS_HOST", message: "Ce tournoi a déjà un organisateur." });
+      }
+      await tx.tournament.update({ where: { id: tournamentId }, data: { hostId: userId } });
+    });
+    await this.notify(tournamentId);
+    return this.detail(userId, tournamentId);
   }
 
   /** Lancement par l'hôte (3 joueurs au moins) : têtes de série au hasard, tableau complet, qualifiés d'office. */
@@ -185,6 +231,11 @@ export class TournamentsService {
         data: { status: "ACTIVE", startedAt: new Date(), bracketSize: size },
       });
       if (!count) return false;
+      // Un départ simultané (traité sous le même verrou) a changé les inscrits : on annule le lancement
+      const seats = await tx.tournamentPlayer.findMany({ where: { tournamentId }, select: { userId: true } });
+      if (seats.length !== players.length || seats.some((s) => !players.includes(s.userId))) {
+        throw new ConflictException({ code: "TOURNAMENT_PLAYERS_CHANGED", message: "Les inscrits viennent de changer : vérifie la liste et relance le tournoi." });
+      }
       for (const [i, userId_] of order.entries()) {
         await tx.tournamentPlayer.update({ where: { tournamentId_userId: { tournamentId, userId: userId_ } }, data: { seed: i + 1 } });
       }
@@ -427,6 +478,8 @@ export class TournamentsService {
       };
     };
     const myMatch = t.matches.find((m) => !m.winnerId && (m.player1Id === userId || m.player2Id === userId));
+    // Salle d'attente sans organisateur : il est parti et aucun inscrit VIP n'a pu le remplacer
+    const hostLeft = t.status === "LOBBY" && !t.players.some((p) => p.userId === t.hostId);
     const players = [...t.players].sort((a, b) =>
       t.status === "FINISHED" ? (a.placement ?? 99) - (b.placement ?? 99) : t.status === "ACTIVE" ? (a.seed ?? 99) - (b.seed ?? 99) : 0,
     );
@@ -440,6 +493,8 @@ export class TournamentsService {
       roundSec: t.roundSec,
       bracketSize: t.bracketSize,
       isHost: t.hostId === userId,
+      hostLeft,
+      canClaimHost: hostLeft && !me.leftAt && (await canHostVipGames(this.prisma, userId)),
       left: !!me.leftAt,
       canStart: t.status === "LOBBY" && t.hostId === userId && t.players.length >= TOURNAMENT_MIN_PLAYERS,
       players: players.map((p) => ({
@@ -500,6 +555,14 @@ export class TournamentsService {
       throw new NotFoundException({ code: "TOURNAMENT_NOT_FOUND", message: "Aucun tournoi ouvert avec ce code." });
     }
     return t;
+  }
+
+  /** Verrouille la ligne du tournoi jusqu'à la fin de la transaction et renvoie son état à jour. */
+  private async lockTournament(tx: Prisma.TransactionClient, tournamentId: string) {
+    const [row] = await tx.$queryRaw<{ status: string; host_id: string }[]>`
+      SELECT status::text, host_id::text FROM tournaments WHERE id = ${tournamentId}::uuid FOR UPDATE`;
+    if (!row) throw notFound();
+    return { status: row.status, hostId: row.host_id };
   }
 
   private async memberTournament(userId: string, tournamentId: string): Promise<TournamentRow> {

@@ -221,3 +221,71 @@ test("hôte parti : un joueur VIP reprend un salon qui l'exige", async () => {
   const [{ host_id: hostId }] = await sql("SELECT host_id FROM rooms WHERE id = $1", [room.id]);
   assert.equal(hostId, vip2.id, "le VIP devient hôte, même arrivé après le joueur gratuit");
 });
+
+test("tournoi : l'organisateur qui part est remplacé par un inscrit VIP, jamais par un joueur gratuit", async () => {
+  const [host, free1, vip2, free3] = await Promise.all([vipUser("th1"), newUser("th2"), vipUser("th3"), newUser("th4")]);
+  const t = (await host.s.post("/tournaments", { game: GAME, capacity: 8, rounds: 3 })).body;
+  // Le plus ancien inscrit est gratuit : l'organisation passe au VIP inscrit après lui
+  for (const u of [free1, vip2, free3]) assert.equal((await u.s.post("/tournaments/join", { code: t.code })).status, 200);
+  assert.equal((await host.s.post(`/tournaments/${t.id}/leave`)).status, 204);
+  let r = await vip2.s.get(`/tournaments/${t.id}`);
+  assert.equal(r.body.isHost, true, "le VIP inscrit devient organisateur");
+  assert.equal(r.body.hostLeft, false);
+  r = await free1.s.get(`/tournaments/${t.id}`);
+  assert.equal(r.body.isHost, false, "le plus ancien inscrit, gratuit, n'est pas désigné");
+  assert.equal((await vip2.s.post(`/tournaments/${t.id}/start`)).status, 200, "le nouvel organisateur lance le tournoi");
+});
+
+test("tournoi sans inscrit VIP : reste en attente, un VIP inscrit reprend l'organisation (une seule reprise)", async () => {
+  const [host, a, b, c] = await Promise.all([vipUser("to1"), newUser("to2"), newUser("to3"), newUser("to4")]);
+  const t = (await host.s.post("/tournaments", { game: GAME, capacity: 8, rounds: 3 })).body;
+  for (const u of [a, b, c]) assert.equal((await u.s.post("/tournaments/join", { code: t.code })).status, 200);
+  assert.equal((await host.s.post(`/tournaments/${t.id}/leave`)).status, 204);
+  let r = await a.s.get(`/tournaments/${t.id}`);
+  assert.equal(r.body.status, "LOBBY", "le tournoi reste en attente");
+  assert.equal(r.body.hostLeft, true, "sans organisateur");
+  assert.equal(r.body.canClaimHost, false, "un joueur gratuit ne peut pas reprendre");
+  assert.ok(r.body.players.every((p) => !p.isHost), "aucun joueur gratuit désigné");
+  r = await a.s.post(`/tournaments/${t.id}/claim-host`);
+  assert.equal(r.status, 402, "reprise refusée sans VIP, même par l'API");
+  assert.equal((await a.s.post(`/tournaments/${t.id}/start`)).status, 403, "lancement refusé sans être organisateur");
+  // L'ancien organisateur, parti, ne peut rien faire sans se réinscrire
+  assert.equal((await host.s.post(`/tournaments/${t.id}/start`)).status, 404);
+  // Deux joueurs devenus VIP essaient de reprendre en même temps : une seule reprise aboutit
+  await Promise.all([grantVip(a.id), grantVip(b.id)]);
+  assert.equal((await b.s.get(`/tournaments/${t.id}`)).body.canClaimHost, true);
+  const claims = await Promise.all([a.s.post(`/tournaments/${t.id}/claim-host`), b.s.post(`/tournaments/${t.id}/claim-host`)]);
+  assert.deepEqual(claims.map((x) => x.status).sort(), [200, 409], claims.map((x) => JSON.stringify(x.body)).join(" | "));
+  const winner = claims[0].status === 200 ? a : b;
+  r = await c.s.get(`/tournaments/${t.id}`);
+  assert.equal(r.body.hostLeft, false);
+  assert.equal(r.body.players.filter((p) => p.isHost).length, 1);
+  assert.equal(r.body.players.find((p) => p.isHost).id, winner.id);
+  assert.equal((await winner.s.post(`/tournaments/${t.id}/start`)).status, 200, "le VIP qui a repris lance le tournoi");
+  assert.equal((await winner.s.post(`/tournaments/${t.id}/claim-host`)).status, 409, "plus de reprise après le lancement");
+});
+
+test("tournoi sans organisateur : fermé au départ du dernier inscrit", async () => {
+  const [host, a] = await Promise.all([vipUser("tz1"), newUser("tz2")]);
+  const t = (await host.s.post("/tournaments", { game: GAME, capacity: 4, rounds: 3 })).body;
+  assert.equal((await a.s.post("/tournaments/join", { code: t.code })).status, 200);
+  assert.equal((await host.s.post(`/tournaments/${t.id}/leave`)).status, 204);
+  assert.equal((await a.s.get(`/tournaments/${t.id}`)).body.hostLeft, true);
+  assert.equal((await a.s.post(`/tournaments/${t.id}/leave`)).status, 204);
+  const [row] = await sql("SELECT status FROM tournaments WHERE id = $1::uuid", [t.id]);
+  assert.equal(row.status, "CLOSED");
+});
+
+test("tournoi : lancement et départ simultanés restent cohérents", async () => {
+  for (let round = 0; round < 3; round++) {
+    const [host, a, b, c] = await Promise.all([vipUser(`tr${round}a`), newUser(`tr${round}b`), newUser(`tr${round}c`), newUser(`tr${round}d`)]);
+    const t = (await host.s.post("/tournaments", { game: GAME, capacity: 8, rounds: 3 })).body;
+    for (const u of [a, b, c]) assert.equal((await u.s.post("/tournaments/join", { code: t.code })).status, 200);
+    const [start, leave] = await Promise.all([host.s.post(`/tournaments/${t.id}/start`), c.s.post(`/tournaments/${t.id}/leave`)]);
+    assert.ok([200, 409].includes(start.status), `lancement : ${start.status} ${JSON.stringify(start.body)}`);
+    assert.ok([204, 409].includes(leave.status), `départ : ${leave.status} ${JSON.stringify(leave.body)}`);
+    const [row] = await sql("SELECT status, (SELECT count(*)::int FROM tournament_players WHERE tournament_id = $1::uuid) AS seats, (SELECT count(*)::int FROM tournament_players WHERE tournament_id = $1::uuid AND seed IS NOT NULL) AS seeded FROM tournaments WHERE id = $1::uuid", [t.id]);
+    if (row.status === "ACTIVE") assert.equal(row.seeded, row.seats, "tous les inscrits ont une tête de série");
+    else assert.equal(row.status, "LOBBY");
+  }
+});

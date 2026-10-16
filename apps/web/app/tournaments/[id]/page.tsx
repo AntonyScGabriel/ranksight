@@ -109,7 +109,11 @@ export default function TournamentPage({ params }: { params: Promise<{ id: strin
             onClick={async () => {
               const ok = await confirm({
                 title: "Quitter le tournoi ?",
-                message: t.status === "ACTIVE" ? "Tu perdras ton match en cours ou à venir par forfait." : "Tu pourras te réinscrire avec le code tant que le tournoi n'a pas commencé.",
+                message: t.status === "ACTIVE"
+                  ? "Tu perdras ton match en cours ou à venir par forfait."
+                  : t.isHost
+                    ? "L'organisation passera à un inscrit VIP. S'il n'y en a aucun, le tournoi restera en attente : un joueur VIP inscrit pourra reprendre l'organisation."
+                    : "Tu pourras te réinscrire avec le code tant que le tournoi n'a pas commencé.",
                 confirmLabel: "Quitter",
                 danger: true,
               });
@@ -152,6 +156,19 @@ export default function TournamentPage({ params }: { params: Promise<{ id: strin
               <div className="space-y-2">
                 <button disabled={!t.canStart} onClick={() => act(() => api.startTournament(id))} className="btn-primary w-full sm:w-auto">Lancer le tournoi</button>
                 {!t.canStart && <p className="text-sm text-muted">Il faut au moins {TOURNAMENT_MIN_PLAYERS} inscrits pour lancer le tournoi.</p>}
+              </div>
+            ) : t.hostLeft ? (
+              <div className="space-y-3 rounded-xl border border-warn/40 bg-warn/10 p-4 text-sm">
+                <p>
+                  L&apos;organisateur a quitté le tournoi et aucun inscrit VIP ne pouvait le remplacer. Un joueur VIP inscrit peut reprendre
+                  l&apos;organisation pour le lancer. Sinon, le tournoi sera fermé au départ du dernier inscrit ou à l&apos;expiration de la salle
+                  d&apos;attente ({new Date(t.expiresAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}).
+                </p>
+                {t.canClaimHost ? (
+                  <button onClick={() => act(() => api.claimTournamentHost(id))} className="btn-primary">Reprendre l&apos;organisation</button>
+                ) : (
+                  <Link href="/shop" className="inline-flex items-center gap-2 text-neon hover:underline">Organiser un tournoi est réservé aux VIP <VipBadge /></Link>
+                )}
               </div>
             ) : (
               <p className="text-sm text-muted">En attente du lancement par {t.players.find((p) => p.isHost)?.displayName ?? "l'hôte"}…</p>

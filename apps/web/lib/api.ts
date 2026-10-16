@@ -264,6 +264,7 @@ export const api = {
   startTournament: (id: string) => post<TournamentDto>(`/tournaments/${id}/start`),
   readyForMatch: (id: string) => post<TournamentDto>(`/tournaments/${id}/ready`),
   leaveTournament: (id: string) => post(`/tournaments/${id}/leave`),
+  claimTournamentHost: (id: string) => post<TournamentDto>(`/tournaments/${id}/claim-host`),
 
   // Salons (publics et privés)
   rooms: () => request<RoomsOverviewDto>("/rooms"),

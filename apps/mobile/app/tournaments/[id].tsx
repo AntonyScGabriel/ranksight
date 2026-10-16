@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AppState, Pressable, ScrollView, Share, Text, View } from "react-native";
+import { AppState, Platform, Pressable, ScrollView, Share, Text, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import {
   STAGE_NAME, TOURNAMENT_DECIDED_BY_LABEL, TOURNAMENT_MIN_PLAYERS, TOURNAMENT_RULES, TOURNAMENT_STATUS_LABEL, formatRoomCode, stageCount,
@@ -130,6 +130,19 @@ export default function TournamentScreen() {
                 <PrimaryButton label="Lancer le tournoi" disabled={!t.canStart} onPress={() => act(() => api.startTournament(id))} />
                 {!t.canStart && <Muted center>Il faut au moins {TOURNAMENT_MIN_PLAYERS} inscrits pour lancer le tournoi.</Muted>}
               </>
+            ) : t.hostLeft ? (
+              <View style={{ gap: 10, borderWidth: 1, borderColor: `${colors.warn}66`, backgroundColor: `${colors.warn}14`, borderRadius: 12, padding: 12 }}>
+                <Text style={{ color: colors.ink, lineHeight: 20 }}>
+                  L&apos;organisateur a quitté le tournoi et aucun inscrit VIP ne pouvait le remplacer. Un joueur VIP inscrit peut reprendre
+                  l&apos;organisation pour le lancer. Sinon, le tournoi sera fermé au départ du dernier inscrit ou à l&apos;expiration de la salle
+                  d&apos;attente ({new Date(t.expiresAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}).
+                </Text>
+                {t.canClaimHost ? (
+                  <PrimaryButton label="Reprendre l'organisation" onPress={() => act(() => api.claimTournamentHost(id))} />
+                ) : (
+                  <GhostButton label={Platform.OS === "android" ? "Devenir VIP" : "Mon VIP"} onPress={() => router.push("/shop")} />
+                )}
+              </View>
             ) : (
               <Muted center>En attente du lancement par {t.players.find((p) => p.isHost)?.displayName ?? "l'hôte"}…</Muted>
             )}
@@ -156,7 +169,11 @@ export default function TournamentScreen() {
           onPress={async () => {
             const ok = await confirm({
               title: "Quitter le tournoi ?",
-              message: t.status === "ACTIVE" ? "Tu perdras ton match en cours ou à venir par forfait." : "Tu pourras te réinscrire avec le code tant que le tournoi n'a pas commencé.",
+              message: t.status === "ACTIVE"
+                ? "Tu perdras ton match en cours ou à venir par forfait."
+                : t.isHost
+                  ? "L'organisation passera à un inscrit VIP. S'il n'y en a aucun, le tournoi restera en attente : un joueur VIP inscrit pourra reprendre l'organisation."
+                  : "Tu pourras te réinscrire avec le code tant que le tournoi n'a pas commencé.",
               confirmLabel: "Quitter",
               danger: true,
             });

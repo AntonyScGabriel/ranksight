@@ -271,7 +271,11 @@ pour tester Google sur téléphone, expose l'API avec une adresse publique (tunn
     (3e pour les demi-finalistes, 5e pour les quarts, 9e pour les huitièmes). Statistiques : victoires (hors
     qualifications d'office) et points marqués en match. Suivi des matchs et des heures limites par une boucle d'une
     seconde (une seule instance de l'API, verrou Redis) ; notifications en direct et push quand un match est prêt.
-  - Inscriptions non lancées fermées au bout de deux heures ; 10 tournois créés par heure au plus.
+  - Organisateur qui quitte avant le lancement : l'organisation passe au plus ancien inscrit VIP, jamais à un joueur
+    gratuit (qui ne pourrait pas lancer). Sans inscrit VIP, le tournoi reste en attente sans organisateur ; un inscrit VIP
+    peut reprendre l'organisation (`POST /tournaments/:id/claim-host`, VIP relu en base, une seule reprise aboutit en cas
+    de demandes simultanées). Départs, reprises et lancement passent sous verrou du tournoi.
+  - Inscriptions non lancées fermées au bout de deux heures (ou au départ du dernier inscrit) ; 10 tournois créés par heure au plus.
 - **Images des rangs** : chaque rang s'affiche avec un emblème (choix du rang, résultat). Par défaut, emblème RankGuess aux
   couleurs du rang ; l'administration peut envoyer sa propre image par rang (page « Rangs » : PNG, JPEG ou WebP, 512 Ko
   maximum, stockée en base). Utiliser uniquement des images dont vous détenez les droits.

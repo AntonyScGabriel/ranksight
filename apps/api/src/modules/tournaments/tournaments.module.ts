@@ -61,6 +61,14 @@ export class TournamentsController {
     return this.tournaments.ready(u.sub, id);
   }
 
+  /** POST /v1/tournaments/:id/claim-host — un inscrit VIP reprend l'organisation d'un tournoi resté sans organisateur */
+  @Post(":id/claim-host")
+  @HttpCode(200)
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
+  claimHost(@CurrentUser() u: AuthUser, @Param("id", ParseUUIDPipe) id: string) {
+    return this.tournaments.claimHost(u.sub, id);
+  }
+
   @Post(":id/leave")
   @HttpCode(204)
   leave(@CurrentUser() u: AuthUser, @Param("id", ParseUUIDPipe) id: string) {

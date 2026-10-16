@@ -13,7 +13,8 @@
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:seed": "prisma db seed",
     "promote": "tsx prisma/promote.ts",
-    "account:password": "tsx prisma/set-password.ts"
+    "account:password": "tsx prisma/set-password.ts",
+    "test:integration": "node --env-file-if-exists=../../.env --test --test-concurrency=1 test/integration/*.test.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1146.0",
@@ -51,6 +52,7 @@
     "@types/node": "^22.18.0",
     "@types/nodemailer": "^8.0.2",
     "concurrently": "^9.2.0",
+    "pg": "^8.23.1",
     "typescript": "~5.9.3"
   }
 }

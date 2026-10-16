@@ -26,14 +26,27 @@ test("durée de manche : jamais moins que le clip + 10 s", () => {
 });
 
 test("création : paramètres proposés uniquement, aucun champ ajouté par le client", () => {
-  assert.deepEqual(CreateRoomInput.parse({ game: "valorant" }), { game: "valorant", rounds: 5, roundSec: 30, suddenDeath: false, confidence: false, teamSize: 0, impostor: false });
+  assert.deepEqual(CreateRoomInput.parse({ game: "valorant" }), { game: "valorant", visibility: "PRIVATE", rounds: 5, roundSec: 30, suddenDeath: false, teamSize: 0, impostor: false });
   assert.equal(CreateRoomInput.safeParse({ game: "valorant", rounds: 4 }).success, false);
   assert.equal(CreateRoomInput.safeParse({ game: "valorant", roundSec: 5 }).success, false);
   assert.equal(CreateRoomInput.safeParse({ game: "fortnite" }).success, false);
   assert.equal(CreateRoomInput.safeParse({ game: "valorant", isVip: true }).success, false);
   assert.equal(CreateRoomInput.safeParse({ game: "valorant", impostor: true, teamSize: 2 }).success, false, "Intrus : chacun pour soi");
-  assert.equal(CreateRoomInput.safeParse({ game: "valorant", impostor: true, confidence: true }).success, false, "Intrus : sans mises");
+  assert.equal(CreateRoomInput.safeParse({ game: "valorant", confidence: true }).success, false, "mode Confiance supprimé : champ refusé");
+  assert.equal(CreateRoomInput.safeParse({ game: "valorant", visibility: "PUBLIC" }).success, true);
+  assert.equal(CreateRoomInput.safeParse({ game: "valorant", visibility: "SECRET" }).success, false);
+  assert.equal(CreateRoomInput.safeParse({ game: "valorant", ranked: true }).success, false, "aucun champ « classé » accepté du client");
   assert.equal(CreateRoomInput.safeParse({ game: "valorant", impostor: true }).success, true);
   assert.equal(JoinRoomInput.parse({ code: "k7qm-2xpa" }).code, "K7QM2XPA");
   assert.equal(JoinRoomInput.safeParse({ code: "nope" }).success, false);
+});
+
+test("modes de salon : déduits des paramètres et réciproques", async () => {
+  const { roomMode, modeSettings, ROOM_MODES, QuickPlayInput, PublicRoomsQuery } = await import("./rooms.js");
+  for (const mode of ROOM_MODES) assert.equal(roomMode({ ...modeSettings(mode), teamSize: modeSettings(mode).teamSize || null }), mode);
+  assert.equal(roomMode({ teamSize: null, impostor: false }), "CLASSIC");
+  assert.deepEqual(QuickPlayInput.parse({ game: "valorant" }), { game: "valorant", mode: "CLASSIC", create: false });
+  assert.equal(QuickPlayInput.safeParse({ game: "valorant", visibility: "PRIVATE" }).success, false, "jamais de salon privé via « Jouer maintenant »");
+  assert.deepEqual(PublicRoomsQuery.parse({ available: "true", mode: "IMPOSTOR" }), { available: true, mode: "IMPOSTOR" });
+  assert.deepEqual(PublicRoomsQuery.parse({}), { available: false });
 });

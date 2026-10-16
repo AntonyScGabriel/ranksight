@@ -10,7 +10,6 @@ import { GuessesService } from "./guesses.service.js";
 import { GuessStatsService } from "./guess-stats.service.js";
 import { VersusModule } from "../versus/versus.module.js";
 import { RoomsModule } from "../rooms/rooms.module.js";
-import { TokensModule } from "../tokens/tokens.module.js";
 
 @Controller("guesses")
 export class GuessesController {
@@ -39,7 +38,7 @@ export class GuessesController {
 }
 
 @Module({
-  imports: [ClipsModule, LeaderboardsModule, AchievementsModule, VersusModule, RoomsModule, TokensModule],
+  imports: [ClipsModule, LeaderboardsModule, AchievementsModule, VersusModule, RoomsModule],
   controllers: [GuessesController],
   providers: [GuessesService, GuessStatsService],
 })

@@ -86,8 +86,6 @@ model User {
   totpRecovery    String[]   @default([]) @map("totp_recovery")
 
   notifyDaily     Boolean    @default(true) @map("notify_daily")
-  /// Jetons virtuels du mode Confiance : jamais achetables, transférables ni convertibles ; ne descend jamais sous 0
-  tokenBalance    Int        @default(20) @map("token_balance")
   createdAt       DateTime   @default(now()) @map("created_at")
   updatedAt       DateTime   @updatedAt @map("updated_at")
   deletedAt       DateTime?  @map("deleted_at")
@@ -121,8 +119,7 @@ model User {
   ratings          CompetitiveRating[]
   ratingChanges    RatingChange[]
   higherLowerRuns  HigherLowerRun[]
-  tokenTransactions TokenTransaction[]
-  roomStakes       RoomStake[]
+  seasonResults    CompetitiveSeasonResult[]
   grantedPurchases Purchase[]         @relation("granter")
   giftsReceived    Purchase[]         @relation("giftRecipient")
   giftCodesCreated GiftCode[]         @relation("giftCodeCreator")
@@ -1101,8 +1098,12 @@ model Season {
   rewards        Json
   /// Clôture : classement archivé et récompenses attribuées
   closedAt       DateTime? @map("closed_at")
+  /// Fin de saison du classement compétitif : résultats archivés et cotes réinitialisées (une seule fois)
+  competitiveResetAt DateTime? @map("competitive_reset_at")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  competitiveResults CompetitiveSeasonResult[]
 
   @@index([startsAt])
   @@map("seasons")
@@ -1112,6 +1113,11 @@ model Season {
 // Salons privés : partie entre amis jusqu'à 8 joueurs, créée par un joueur VIP.
 // Seul le créateur doit être VIP ; rejoindre, jouer et voir les résultats est gratuit.
 // ----------------------------------------------------------------------------
+
+enum RoomVisibility {
+  PUBLIC  // liste des salons, rejoignable sans invitation
+  PRIVATE // code ou invitation uniquement
+}
 
 enum RoomStatus {
   LOBBY    // salle d'attente : les joueurs rejoignent avec le code
@@ -1136,8 +1142,10 @@ model Room {
   maxPlayers    Int        @default(8) @map("max_players")
   /// Option mort subite : en cas d'égalité en tête à la fin des manches prévues, manches décisives entre les ex aequo
   suddenDeath   Boolean    @default(false) @map("sudden_death")
-  /// Option Confiance : chaque réponse engage 1 à 3 jetons virtuels
-  confidence    Boolean    @default(false)
+  /// Public : listé et rejoignable sans invitation ; privé : code ou invitation seulement (salons existants : privés)
+  visibility    RoomVisibility @default(PRIVATE)
+  /// Revanche : salon terminé dont celui-ci reprend les réglages (une seule revanche par salon)
+  rematchOfId   String?    @unique @map("rematch_of_id") @db.Uuid
   /// Duel par équipes : 2 (2 contre 2) ou 3 (3 contre 3) joueurs par équipe ; NULL = chacun pour soi
   teamSize      Int?       @map("team_size")
   /// Mode Intrus : à chaque manche, un joueur reçoit un autre clip ; après les réponses, tout le monde vote
@@ -1165,15 +1173,18 @@ model Room {
   roundList RoomRound[]
   invites   RoomInvite[]
   guesses   Guess[]
-  stakes    RoomStake[]
   votes     RoomVote[]
   tournamentMatch TournamentMatch?
   bonuses   RoomBonus[]
-  tokenTransactions TokenTransaction[]
+  /// Revanche : salon qui rejoue celui-ci (un seul), et salon d'origine
+  rematch    Room?        @relation("roomRematch")
+  rematchOf  Room?        @relation("roomRematch", fields: [rematchOfId], references: [id], onDelete: SetNull)
 
   @@index([status, expiresAt])
   @@index([status, roundEndsAt])
   @@index([createdById, createdAt(sort: Desc)])
+  /// Liste publique et « Jouer maintenant » : salons publics par état et par jeu
+  @@index([visibility, status, gameId, createdAt])
   @@map("rooms")
 }
 
@@ -1264,58 +1275,6 @@ model HigherLowerRun {
   @@index([userId, startedAt(sort: Desc)])
   @@index([userId, score(sort: Desc)])
   @@map("higher_lower_runs")
-}
-
-// ----------------------------------------------------------------------------
-// Jetons virtuels (mode Confiance). Ce ne sont pas de l'argent : ni achat, ni retrait, ni transfert entre comptes.
-// Le solde (users.token_balance) ne bouge que par des mouvements inscrits ici, chacun avec une clé unique.
-// ----------------------------------------------------------------------------
-
-enum TokenReason {
-  WELCOME      // solde de départ
-  DAILY_REFILL // recharge quotidienne gratuite (jusqu'à 10 jetons)
-  STAKE        // mise engagée sur une réponse
-  PAYOUT       // gain versé à la fin de la manche
-}
-
-model TokenTransaction {
-  id           String      @id @default(uuid(7)) @db.Uuid
-  userId       String      @map("user_id") @db.Uuid
-  /// Variation du solde (négative pour une mise)
-  delta        Int
-  balanceAfter Int         @map("balance_after")
-  reason       TokenReason
-  roomId       String?     @map("room_id") @db.Uuid
-  /// Manche du salon (1 = première)
-  round        Int?
-  /// Clé d'unicité : un même mouvement ne peut jamais être inscrit deux fois
-  key          String      @unique @db.VarChar(120)
-  createdAt    DateTime    @default(now()) @map("created_at")
-
-  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  room Room? @relation(fields: [roomId], references: [id], onDelete: SetNull)
-
-  @@index([userId, createdAt(sort: Desc)])
-  @@map("token_transactions")
-}
-
-/// Mise d'un joueur sur une manche d'un salon en mode Confiance (réglée à la fin de la manche)
-model RoomStake {
-  roomId    String    @map("room_id") @db.Uuid
-  round     Int
-  userId    String    @map("user_id") @db.Uuid
-  stake     Int
-  /// Jetons rendus à la fin de la manche (mise comprise) ; NULL tant que la manche n'est pas réglée
-  payout    Int?
-  settledAt DateTime? @map("settled_at")
-  createdAt DateTime  @default(now()) @map("created_at")
-
-  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@id([roomId, round, userId])
-  @@index([roomId, round, settledAt])
-  @@map("room_stakes")
 }
 
 /// Mode Intrus : vote d'un joueur pour désigner l'intrus d'une manche (un seul vote par joueur et par manche)
@@ -1448,12 +1407,16 @@ model CompetitiveRating {
   userId    String   @map("user_id") @db.Uuid
   /// "global" ou le slug d'un jeu
   scope     String   @db.VarChar(20)
-  rating    Int      @default(1000)
-  peak      Int      @default(1000)
+  rating    Int      @default(500)
+  /// Meilleure cote de la saison en cours
+  peak      Int      @default(500)
+  /// Duels admissibles comptés dans la saison en cours (éligibilité au classement : 5 au moins)
   games     Int      @default(0)
   wins      Int      @default(0)
   losses    Int      @default(0)
   draws     Int      @default(0)
+  /// Duels admissibles comptés depuis le premier duel, toutes saisons confondues (coefficient de placement)
+  careerGames Int    @default(0) @map("career_games")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1475,8 +1438,10 @@ model RatingChange {
   before     Int
   after      Int
   delta      Int
-  /// false : au-delà de la limite de duels contre ce même adversaire, sans effet sur la cote
+  /// false : sans effet sur la cote (voir reason)
   counted    Boolean
+  /// Duel non compté : PAIR_LIMIT (plus de 3 duels contre ce même adversaire en 24 h) ou EARLY_FORFEIT (abandon avant la fin de la 1re manche)
+  reason     String?  @db.VarChar(16)
   createdAt  DateTime @default(now()) @map("created_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1485,4 +1450,32 @@ model RatingChange {
   @@index([userId, createdAt(sort: Desc)])
   @@index([userId, opponentId, createdAt])
   @@map("rating_changes")
+}
+
+/// Archive du classement compétitif à la fin d'une saison : cote finale, rang, place et cote de départ de la saison suivante
+model CompetitiveSeasonResult {
+  seasonId  String   @map("season_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  scope     String   @db.VarChar(20)
+  rating    Int
+  peak      Int
+  /// Rang atteint (clé de l'échelle partagée : BRONZE … MASTER)
+  tier      String   @db.VarChar(12)
+  /// Place finale (NULL : moins de 5 duels dans la saison, non classé)
+  placement Int?
+  games     Int
+  wins      Int
+  losses    Int
+  draws     Int
+  /// Cote de départ de la saison suivante (seuil du rang atteint)
+  resetTo   Int      @map("reset_to")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  season Season @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([seasonId, userId, scope])
+  @@index([seasonId, scope, placement])
+  @@index([userId])
+  @@map("competitive_season_results")
 }

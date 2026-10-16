@@ -170,6 +170,13 @@ pour tester Google sur téléphone, expose l'API avec une adresse publique (tunn
     réponse la plus rapide (temps mesuré par le serveur) parmi les meilleurs. Le résultat indique comment la victoire a
     été obtenue (aux points, en mort subite, à la rapidité, ou partagée sans l'option). Règles dans
     `packages/shared/src/room-rules.ts`, testées dans `room-rules.test.ts`.
+  - **Duels par équipes** (format choisi à la création : 2 contre 2 ou 3 contre 3) : deux équipes de même taille, chacun
+    répond seul au même clip. Un nouveau joueur va dans l'équipe la moins remplie ; il peut en changer tant qu'il y a de
+    la place, l'hôte peut placer les joueurs. Lancement quand les deux équipes sont complètes. Score d'équipe = somme
+    des points de ses joueurs (un joueur parti garde ses points). Égalité : mort subite entre les deux équipes si
+    l'option est active (somme des points de la manche décisive, puis temps de réponse moyen), sinon match nul. Une
+    équipe dont tous les joueurs sont partis perd aussitôt par abandon. Seul l'hôte est VIP : les joueurs des deux
+    équipes jouent gratuitement.
   - **Mode Confiance** (option à la création) : avant de valider, chaque joueur engage 1, 2 ou 3 **jetons virtuels** ;
     mise et réponse sont verrouillées ensemble. Rang exact : mise rendue + 2 × la mise ; un rang d'écart : mise rendue ;
     plus loin : seule la mise est perdue. Les mises restent cachées jusqu'à la fin de la manche. Les manches de mort

@@ -26,7 +26,7 @@ test("durée de manche : jamais moins que le clip + 10 s", () => {
 });
 
 test("création : paramètres proposés uniquement, aucun champ ajouté par le client", () => {
-  assert.deepEqual(CreateRoomInput.parse({ game: "valorant" }), { game: "valorant", rounds: 5, roundSec: 30, suddenDeath: false, confidence: false });
+  assert.deepEqual(CreateRoomInput.parse({ game: "valorant" }), { game: "valorant", rounds: 5, roundSec: 30, suddenDeath: false, confidence: false, teamSize: 0 });
   assert.equal(CreateRoomInput.safeParse({ game: "valorant", rounds: 4 }).success, false);
   assert.equal(CreateRoomInput.safeParse({ game: "valorant", roundSec: 5 }).success, false);
   assert.equal(CreateRoomInput.safeParse({ game: "fortnite" }).success, false);

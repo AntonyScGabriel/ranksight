@@ -64,6 +64,8 @@ export const CreateRoomInput = z
     suddenDeath: z.boolean().default(false),
     /** Mode Confiance : chaque réponse engage 1 à 3 jetons virtuels */
     confidence: z.boolean().default(false),
+    /** Duel par équipes : 2 (2 contre 2) ou 3 (3 contre 3) ; 0 = chacun pour soi */
+    teamSize: z.union([z.literal(0), z.literal(2), z.literal(3)]).default(0),
   })
   .strict();
 export type CreateRoomInput = z.input<typeof CreateRoomInput>;
@@ -83,6 +85,10 @@ export const JoinRoomInput = z
 export type JoinRoomInput = z.input<typeof JoinRoomInput>;
 
 export const InviteToRoomInput = z.object({ userId: z.string().uuid() }).strict();
+
+/** Choix d'équipe dans la salle d'attente : pour soi, ou pour un autre joueur (hôte seulement) */
+export const SetRoomTeamInput = z.object({ team: z.union([z.literal(1), z.literal(2)]), userId: z.string().uuid().optional() }).strict();
+export type SetRoomTeamInput = z.infer<typeof SetRoomTeamInput>;
 
 // ---------- Réponses de l'API ----------
 
@@ -115,6 +121,8 @@ export const RoomPlayerDto = z.object({
   finalist: z.boolean(),
   /** Mode Confiance : bénéfice net en jetons sur les manches terminées (null hors mode Confiance) */
   tokensNet: z.number().int().nullable(),
+  /** Duel par équipes : 1 ou 2 (null = chacun pour soi) */
+  team: z.number().int().nullable(),
 });
 export type RoomPlayerDto = z.infer<typeof RoomPlayerDto>;
 
@@ -155,6 +163,10 @@ export const RoomDto = z.object({
   maxPlayers: z.number().int(),
   suddenDeath: z.boolean(),
   confidence: z.boolean(),
+  /** Duel par équipes : joueurs par équipe (null = chacun pour soi) */
+  teamSize: z.number().int().nullable(),
+  /** Duel par équipes : total et place de chaque équipe */
+  teams: z.array(z.object({ team: z.number().int(), name: z.string(), score: z.number().int(), placement: z.number().int().nullable(), players: z.number().int() })),
   /** Solde de jetons du joueur connecté (mode Confiance) */
   myTokens: z.number().int(),
   /** Mise du joueur connecté sur la manche en cours, une fois sa réponse envoyée */
@@ -162,7 +174,7 @@ export const RoomDto = z.object({
   /** Manches de mort subite jouées */
   suddenDeathRounds: z.number().int(),
   /** Comment la première place a été attribuée (partie terminée) */
-  decidedBy: z.enum(["POINTS", "SUDDEN_DEATH", "SPEED", "SHARED"]).nullable(),
+  decidedBy: z.enum(["POINTS", "SUDDEN_DEATH", "SPEED", "SHARED", "FORFEIT"]).nullable(),
   isHost: z.boolean(),
   /** Le joueur connecté a quitté la partie (il peut encore voir les résultats) */
   left: z.boolean(),
@@ -188,6 +200,7 @@ export const RoomPreviewDto = z.object({
   roundSec: z.number().int(),
   suddenDeath: z.boolean(),
   confidence: z.boolean(),
+  teamSize: z.number().int().nullable(),
   players: z.number().int(),
   maxPlayers: z.number().int(),
   status: RoomStatus,

@@ -1,6 +1,6 @@
 import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Module, Param, ParseUUIDPipe, Post } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
-import { CreateRoomInput, InviteToRoomInput, JoinRoomInput, normalizeRoomCode } from "@ranksight/shared";
+import { CreateRoomInput, InviteToRoomInput, JoinRoomInput, SetRoomTeamInput, normalizeRoomCode } from "@ranksight/shared";
 import type { z } from "zod";
 import { CurrentUser, type AuthUser } from "../../common/decorators/current-user.decorator.js";
 import { ZodPipe } from "../../common/pipes/zod.pipe.js";
@@ -82,6 +82,14 @@ export class RoomsController {
   @HttpCode(204)
   declineInvite(@CurrentUser() u: AuthUser, @Param("id", ParseUUIDPipe) id: string) {
     return this.rooms.declineInvite(u.sub, id);
+  }
+
+  /** POST /v1/rooms/:id/team — { team, userId? } : changer d'équipe (ou placer un joueur, pour l'hôte) */
+  @Post(":id/team")
+  @HttpCode(200)
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
+  team(@CurrentUser() u: AuthUser, @Param("id", ParseUUIDPipe) id: string, @Body(new ZodPipe(SetRoomTeamInput)) body: SetRoomTeamInput) {
+    return this.rooms.setTeam(u.sub, id, body.team, body.userId);
   }
 
   /** POST /v1/rooms/:id/kick/:userId — l'hôte retire un joueur de la salle d'attente */

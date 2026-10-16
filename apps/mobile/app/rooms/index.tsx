@@ -44,6 +44,7 @@ export default function RoomsScreen() {
   const [roundSec, setRoundSec] = useState<number>(ROOM_DEFAULT_TIME);
   const [suddenDeath, setSuddenDeath] = useState(true);
   const [confidence, setConfidence] = useState(false);
+  const [teamSize, setTeamSize] = useState<0 | 2 | 3>(0);
   const [tokens, setTokens] = useState<TokensDto | null>(null);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
@@ -81,7 +82,7 @@ export default function RoomsScreen() {
     setBusy(true);
     setError(null);
     try {
-      open((await api.createRoom({ game, rounds, roundSec, suddenDeath, confidence })).id);
+      open((await api.createRoom({ game, rounds, roundSec, suddenDeath, confidence, teamSize })).id);
     } catch (e) {
       setError(errorMessage(e, "Le salon n'a pas pu être créé."));
     } finally {
@@ -153,6 +154,8 @@ export default function RoomsScreen() {
           <Text style={{ color: colors.ink, fontSize: 18, fontWeight: "700" }}>Créer un salon</Text>
           <Text style={{ color: "black", backgroundColor: colors.warn, borderRadius: 4, paddingHorizontal: 5, fontSize: 10, fontWeight: "800", overflow: "hidden" }}>VIP</Text>
         </View>
+        <Hud>Format</Hud>
+        <Chips value={teamSize} options={[0, 2, 3] as const} onChange={setTeamSize} label={(n) => (n === 0 ? "Chacun pour soi" : `${n} contre ${n}`)} />
         <Hud>Jeu</Hud>
         <Chips value={game} options={GAME_SLUGS} onChange={setGame} label={(s) => GAME_NAMES[s]} />
         <Hud>Manches</Hud>

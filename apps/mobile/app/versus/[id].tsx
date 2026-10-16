@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
-import { VERSUS_STATUS_LABEL, type FlairDto, type VersusMatchDto, type VersusRoundDto } from "@ranksight/shared";
+import { RATING_UNCOUNTED_LABEL, VERSUS_STATUS_LABEL, ratingTier, type FlairDto, type VersusMatchDto, type VersusRoundDto } from "@ranksight/shared";
 import { api } from "@/lib/api";
 import { useConfirm } from "@/lib/confirm";
 import { useSession } from "@/lib/session";
@@ -233,14 +233,16 @@ function FinalResult({ match }: { match: VersusMatchDto }) {
           <Card style={{ alignItems: "center", gap: 2 }}>
             <Hud>Classement compétitif{match.rating.scope !== "global" && match.game ? ` · ${match.game.name}` : ""}</Hud>
             {match.rating.counted ? (
-              <Text style={{ color: colors.ink, fontSize: 20, ...font.display }}>
-                {match.rating.after}{" "}
-                <Text style={{ color: match.rating.delta > 0 ? colors.success : match.rating.delta < 0 ? colors.danger : colors.muted, fontSize: 16 }}>
-                  ({match.rating.delta > 0 ? "+" : ""}{match.rating.delta})
+              <>
+                <Text style={{ color: match.rating.delta > 0 ? colors.success : match.rating.delta < 0 ? colors.danger : colors.muted, fontSize: 18, fontWeight: "800" }}>
+                  {match.rating.delta > 0 ? "+" : ""}{match.rating.delta} point{Math.abs(match.rating.delta) > 1 ? "s" : ""}
                 </Text>
-              </Text>
+                <Text style={{ color: colors.ink, fontSize: 20, ...font.display }}>
+                  {match.rating.after} · <Text style={{ color: ratingTier(match.rating.after).color }}>{ratingTier(match.rating.after).name}</Text>
+                </Text>
+              </>
             ) : (
-              <Muted center>Ce duel ne compte pas : déjà 3 duels contre ce joueur en 24 heures.</Muted>
+              <Muted center>{RATING_UNCOUNTED_LABEL[match.rating.reason ?? "PAIR_LIMIT"]}</Muted>
             )}
           </Card>
         </Pressable>

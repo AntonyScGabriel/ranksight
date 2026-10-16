@@ -61,10 +61,12 @@ export default function RootLayout() {
           <Stack.Screen name="player/[id]" options={{ headerShown: true, title: "Profil du joueur", ...header }} />
           <Stack.Screen name="versus/[id]" options={{ headerShown: true, title: "Duel", ...header }} />
           <Stack.Screen name="higher-lower" options={{ headerShown: true, title: "Plus haut / Plus bas", ...header }} />
-          <Stack.Screen name="rooms/index" options={{ headerShown: true, title: "Salons privés", ...header }} />
-          <Stack.Screen name="rooms/[id]" options={{ headerShown: true, title: "Salon privé", ...header }} />
+          <Stack.Screen name="rooms/index" options={{ headerShown: true, title: "Salons", ...header }} />
+          <Stack.Screen name="rooms/[id]" options={{ headerShown: true, title: "Salon", ...header }} />
+          <Stack.Screen name="rooms/history" options={{ headerShown: true, title: "Historique des salons", ...header }} />
           <Stack.Screen name="rooms/join/[code]" options={{ headerShown: true, title: "Rejoindre un salon", ...header }} />
           <Stack.Screen name="ranked" options={{ headerShown: true, title: "Classement compétitif", ...header }} />
+          <Stack.Screen name="ranked-seasons" options={{ headerShown: true, title: "Saisons précédentes", ...header }} />
           <Stack.Screen name="tournaments/index" options={{ headerShown: true, title: "Tournois privés", ...header }} />
           <Stack.Screen name="tournaments/[id]" options={{ headerShown: true, title: "Tournoi", ...header }} />
           <Stack.Screen name="tournaments/join/[code]" options={{ headerShown: true, title: "S'inscrire au tournoi", ...header }} />

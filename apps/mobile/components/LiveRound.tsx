@@ -4,7 +4,7 @@ import { useVideoPlayer, VideoView, type VideoPlayer } from "expo-video";
 import * as Haptics from "expo-haptics";
 import { api, ApiError, media } from "@/lib/api";
 import { colors, font, radius } from "@/lib/theme";
-import { CONFIDENCE_STAKES, CONFIDENCE_STAKE_LABEL, type PlayableClipDto } from "@ranksight/shared";
+import type { PlayableClipDto } from "@ranksight/shared";
 
 /** Clip d'une manche en direct (duel ou salon) : position, nombre de manches et fin du chrono (dates du serveur) */
 export type LiveClip = PlayableClipDto & { position: number; rounds: number; endsAt: string; serverNow: string };
@@ -27,14 +27,11 @@ export function TimerBar({ progress }: { progress: number }) {
 
 /** Manche en direct (duel ou salon) : clip (avec le son), choix du rang, chrono. Le résultat est dévoilé à la fin de la manche. */
 export function LiveRound({
-  clip, secondsLeft, progress, onSubmitted, onClosed, label, tokens,
+  clip, secondsLeft, progress, onSubmitted, onClosed, label,
 }: {
   clip: LiveClip; secondsLeft: number; progress: number; onSubmitted: () => void; onClosed: () => void; label?: string;
-  /** Mode Confiance : solde du joueur ; la réponse engage alors 1 à 3 jetons (0 seulement avec un solde vide) */
-  tokens?: number;
 }) {
   const [rankId, setRankId] = useState<string | null>(null);
-  const [stake, setStake] = useState(tokens === undefined ? 0 : Math.min(1, tokens));
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [muted, setMuted] = useState(false);
@@ -52,12 +49,12 @@ export function LiveRound({
   }, [clip.id]);
 
   const submit = async () => {
-    if (!rankId) return;
+    if (!rankId || pending) return;
     setPending(true);
     setError(null);
     try {
       const watchedMs = Math.min(Date.now() - shownAt.current, 120_000);
-      await api.liveGuess({ playToken: clip.playToken, rankId, watchedMs, ...(tokens !== undefined ? { stake } : {}) });
+      await api.liveGuess({ playToken: clip.playToken, rankId, watchedMs });
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       onSubmitted();
     } catch (e) {
@@ -109,33 +106,6 @@ export function LiveRound({
             );
           })}
         </View>
-        {tokens !== undefined && (
-          <View style={{ gap: 6 }}>
-            <Text style={font.hud}>Ta mise · {tokens} jeton{tokens > 1 ? "s" : ""}</Text>
-            {tokens === 0 ? (
-              <Text style={{ color: colors.muted }}>Solde vide : tu réponds sans mise. Recharge gratuite chaque jour dans « Salons privés ».</Text>
-            ) : (
-              <View style={{ flexDirection: "row", gap: 8 }} accessibilityRole="radiogroup">
-                {CONFIDENCE_STAKES.map((n) => {
-                  const active = stake === n;
-                  return (
-                    <Pressable
-                      key={n}
-                      disabled={pending || n > tokens}
-                      onPress={() => setStake(n)}
-                      accessibilityRole="radio"
-                      accessibilityState={{ checked: active, disabled: n > tokens }}
-                      style={[styles.chip, { flex: 1, width: undefined, opacity: n > tokens ? 0.4 : 1 }, active && { borderColor: colors.warn, backgroundColor: `${colors.warn}26` }]}
-                    >
-                      <Text style={{ color: colors.ink, fontSize: 18, fontWeight: "800" }}>{n}</Text>
-                      <Text style={styles.chipText}>{CONFIDENCE_STAKE_LABEL[n]}</Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            )}
-          </View>
-        )}
         {error && <Text style={{ color: colors.danger }}>{error}</Text>}
         <PrimaryButton label={pending ? "Envoi…" : "Valider"} onPress={submit} disabled={!rankId || pending} />
       </Card>

@@ -21,6 +21,7 @@ import { AchievementEngine } from "../achievements/achievement-engine.service.js
 import { isVip, vipSelect } from "../shop/vip.js";
 import { VersusService } from "../versus/versus.service.js";
 import { RoomsService } from "../rooms/rooms.service.js";
+import { TokensService } from "../tokens/tokens.module.js";
 
 const LIFE_LOST_FROM_DISTANCE = 2; // Infini : ≥ 2 rangs d'écart = une vie perdue
 const CLIPS_PER_DIFFICULTY_STEP = 3;
@@ -38,6 +39,7 @@ export class GuessesService {
     private readonly achievements: AchievementEngine,
     private readonly versus: VersusService,
     private readonly rooms: RoomsService,
+    private readonly tokens: TokensService,
     private readonly audit: AuditService,
   ) {}
 
@@ -66,9 +68,17 @@ export class GuessesService {
       if (!claims.vid) throw new BadRequestException({ code: "INVALID_PLAY_TOKEN" });
       await this.versus.assertCanAnswer(userId, claims.vid, clip.id);
     }
+    let stake: { round: number; amount: number } | null = null;
     if (claims.mode === "ROOM") {
       if (!claims.rmid) throw new BadRequestException({ code: "INVALID_PLAY_TOKEN" });
-      await this.rooms.assertCanAnswer(userId, claims.rmid, clip.id);
+      const room = await this.rooms.assertCanAnswer(userId, claims.rmid, clip.id);
+      if (room.staked) {
+        if (input.stake === undefined) throw new BadRequestException({ code: "STAKE_REQUIRED", message: "Choisis ta mise (1 à 3 jetons) avant de valider." });
+        stake = { round: room.round, amount: input.stake };
+      }
+    }
+    if (!stake && input.stake !== undefined) {
+      throw new BadRequestException({ code: "STAKE_NOT_ALLOWED", message: "Les mises ne servent que dans les salons en mode Confiance." });
     }
 
     // 4. Score (règle partagée avec les clients) : écart entre les positions des rangs dans l'échelle du jeu
@@ -92,6 +102,8 @@ export class GuessesService {
 
     // 6. Écriture atomique
     const result = await this.prisma.$transaction(async (tx) => {
+      // Mode Confiance : mise débitée dans la même transaction que la réponse (tout ou rien)
+      if (stake) await this.tokens.stake(tx, userId, claims.rmid!, stake.round, stake.amount);
       const guess = await tx.guess.create({
         data: {
           userId,
@@ -159,9 +171,11 @@ export class GuessesService {
         });
       }
       return { guess, run };
-    }).catch((e: { code?: string }) => {
+    }).catch(async (e: { code?: string; response?: { code?: string } }) => {
       // Contrainte unique (joueur, défi) : une seule réponse par jeu et par jour, même avec un nouveau jeton
       if (e?.code === "P2002") throw new ConflictException({ code: "ALREADY_ANSWERED", message: alreadyAnswered(claims.mode) });
+      // Mise refusée (solde insuffisant) : rien n'est enregistré, le joueur peut répondre avec une mise plus petite
+      if (e?.response?.code === "NOT_ENOUGH_TOKENS" || e?.response?.code === "STAKE_REQUIRED") await this.redis.del(`play:used:${claims.jti}`);
       throw e;
     });
 

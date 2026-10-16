@@ -86,6 +86,8 @@ model User {
   totpRecovery    String[]   @default([]) @map("totp_recovery")
 
   notifyDaily     Boolean    @default(true) @map("notify_daily")
+  /// Jetons virtuels du mode Confiance : jamais achetables, transférables ni convertibles ; ne descend jamais sous 0
+  tokenBalance    Int        @default(20) @map("token_balance")
   createdAt       DateTime   @default(now()) @map("created_at")
   updatedAt       DateTime   @updatedAt @map("updated_at")
   deletedAt       DateTime?  @map("deleted_at")
@@ -113,6 +115,14 @@ model User {
   roomSeats        RoomPlayer[]
   roomInvites      RoomInvite[]       @relation("roomInvitee")
   roomInvitesSent  RoomInvite[]       @relation("roomInviter")
+  tournamentsCreated Tournament[]     @relation("tournamentCreator")
+  tournamentsHosted  Tournament[]     @relation("tournamentHost")
+  tournamentSeats    TournamentPlayer[]
+  ratings          CompetitiveRating[]
+  ratingChanges    RatingChange[]
+  higherLowerRuns  HigherLowerRun[]
+  tokenTransactions TokenTransaction[]
+  roomStakes       RoomStake[]
   grantedPurchases Purchase[]         @relation("granter")
   giftsReceived    Purchase[]         @relation("giftRecipient")
   giftCodesCreated GiftCode[]         @relation("giftCodeCreator")
@@ -266,6 +276,8 @@ model Game {
   dailies     DailyChallenge[]
   versus      VersusMatch[]
   rooms       Room[]
+  tournaments Tournament[]
+  higherLowerRuns HigherLowerRun[]
 
   @@map("games")
 }
@@ -1122,6 +1134,20 @@ model Room {
   /// Temps de réponse par manche (secondes) ; allongé pour un clip plus long
   roundSec      Int        @map("round_sec")
   maxPlayers    Int        @default(8) @map("max_players")
+  /// Option mort subite : en cas d'égalité en tête à la fin des manches prévues, manches décisives entre les ex aequo
+  suddenDeath   Boolean    @default(false) @map("sudden_death")
+  /// Option Confiance : chaque réponse engage 1 à 3 jetons virtuels
+  confidence    Boolean    @default(false)
+  /// Duel par équipes : 2 (2 contre 2) ou 3 (3 contre 3) joueurs par équipe ; NULL = chacun pour soi
+  teamSize      Int?       @map("team_size")
+  /// Mode Intrus : à chaque manche, un joueur reçoit un autre clip ; après les réponses, tout le monde vote
+  impostor      Boolean    @default(false)
+  /// Étape de la manche en cours : ANSWER (réponses) ou VOTE (mode Intrus) ; la fin de l'étape est round_ends_at
+  phase         String     @default("ANSWER") @db.VarChar(8)
+  /// Manches de mort subite déjà lancées (3 au maximum)
+  suddenDeathRounds Int    @default(0) @map("sudden_death_rounds")
+  /// Comment la première place a été attribuée : POINTS, SUDDEN_DEATH, SPEED (réponse la plus rapide), SHARED (égalité conservée)
+  decidedBy     String?    @map("decided_by") @db.VarChar(16)
   /// Manche en cours (0 = pas commencé), début (après le compte à rebours) et fin de la manche
   currentRound  Int        @default(0) @map("current_round")
   roundStartsAt DateTime?  @map("round_starts_at")
@@ -1139,6 +1165,11 @@ model Room {
   roundList RoomRound[]
   invites   RoomInvite[]
   guesses   Guess[]
+  stakes    RoomStake[]
+  votes     RoomVote[]
+  tournamentMatch TournamentMatch?
+  bonuses   RoomBonus[]
+  tokenTransactions TokenTransaction[]
 
   @@index([status, expiresAt])
   @@index([status, roundEndsAt])
@@ -1156,6 +1187,10 @@ model RoomPlayer {
   score     Int       @default(0)
   /// Place finale (1 = vainqueur, places partagées en cas d'égalité)
   placement Int?
+  /// Joueur à égalité en tête qui dispute la mort subite
+  finalist  Boolean   @default(false)
+  /// Duel par équipes : équipe 1 (bleue) ou 2 (rouge)
+  team      Int?
 
   room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1169,6 +1204,11 @@ model RoomRound {
   roomId   String @map("room_id") @db.Uuid
   position Int
   clipId   String @map("clip_id") @db.Uuid
+  /// Manche décisive (mort subite) : seuls les joueurs à égalité en tête y répondent, ses points ne s'ajoutent pas au total
+  suddenDeath Boolean @default(false) @map("sudden_death")
+  /// Mode Intrus : joueur qui reçoit l'autre clip, et ce clip (jamais dévoilés avant la fin du vote)
+  impostorId  String? @map("impostor_id") @db.Uuid
+  altClipId   String? @map("alt_clip_id") @db.Uuid
 
   room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
   clip Clip @relation(fields: [clipId], references: [id])
@@ -1192,4 +1232,257 @@ model RoomInvite {
   @@id([roomId, userId])
   @@index([userId])
   @@map("room_invites")
+}
+
+// ----------------------------------------------------------------------------
+// Plus haut / Plus bas : le rang du clip suivant est-il plus haut ou plus bas que celui du clip affiché ?
+// Une erreur termine la série. 3 séries gratuites par jour, illimitées en VIP.
+// ----------------------------------------------------------------------------
+
+model HigherLowerRun {
+  id            String    @id @default(uuid(7)) @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  gameId        String    @map("game_id") @db.Uuid
+  /// Bonnes réponses d'affilée
+  score         Int       @default(0)
+  /// Question en cours (1 = première comparaison) : une réponse n'est acceptée qu'une fois par question
+  round         Int       @default(1)
+  /// Clip affiché avec son rang
+  currentClipId String    @map("current_clip_id") @db.Uuid
+  /// Clip à comparer (rang caché jusqu'à la réponse) ; NULL une fois la série terminée
+  nextClipId    String?   @map("next_clip_id") @db.Uuid
+  /// Clips déjà montrés dans la série (jamais deux fois le même)
+  usedClipIds   String[]  @default([]) @map("used_clip_ids") @db.Uuid
+  /// Fin de la série : WRONG (mauvaise réponse), COMPLETE (plus de clip à comparer), ABANDONED (nouvelle série lancée)
+  endReason     String?   @map("end_reason") @db.VarChar(16)
+  startedAt     DateTime  @default(now()) @map("started_at")
+  endedAt       DateTime? @map("ended_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  game Game @relation(fields: [gameId], references: [id])
+
+  @@index([userId, startedAt(sort: Desc)])
+  @@index([userId, score(sort: Desc)])
+  @@map("higher_lower_runs")
+}
+
+// ----------------------------------------------------------------------------
+// Jetons virtuels (mode Confiance). Ce ne sont pas de l'argent : ni achat, ni retrait, ni transfert entre comptes.
+// Le solde (users.token_balance) ne bouge que par des mouvements inscrits ici, chacun avec une clé unique.
+// ----------------------------------------------------------------------------
+
+enum TokenReason {
+  WELCOME      // solde de départ
+  DAILY_REFILL // recharge quotidienne gratuite (jusqu'à 10 jetons)
+  STAKE        // mise engagée sur une réponse
+  PAYOUT       // gain versé à la fin de la manche
+}
+
+model TokenTransaction {
+  id           String      @id @default(uuid(7)) @db.Uuid
+  userId       String      @map("user_id") @db.Uuid
+  /// Variation du solde (négative pour une mise)
+  delta        Int
+  balanceAfter Int         @map("balance_after")
+  reason       TokenReason
+  roomId       String?     @map("room_id") @db.Uuid
+  /// Manche du salon (1 = première)
+  round        Int?
+  /// Clé d'unicité : un même mouvement ne peut jamais être inscrit deux fois
+  key          String      @unique @db.VarChar(120)
+  createdAt    DateTime    @default(now()) @map("created_at")
+
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  room Room? @relation(fields: [roomId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("token_transactions")
+}
+
+/// Mise d'un joueur sur une manche d'un salon en mode Confiance (réglée à la fin de la manche)
+model RoomStake {
+  roomId    String    @map("room_id") @db.Uuid
+  round     Int
+  userId    String    @map("user_id") @db.Uuid
+  stake     Int
+  /// Jetons rendus à la fin de la manche (mise comprise) ; NULL tant que la manche n'est pas réglée
+  payout    Int?
+  settledAt DateTime? @map("settled_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([roomId, round, userId])
+  @@index([roomId, round, settledAt])
+  @@map("room_stakes")
+}
+
+/// Mode Intrus : vote d'un joueur pour désigner l'intrus d'une manche (un seul vote par joueur et par manche)
+model RoomVote {
+  roomId    String   @map("room_id") @db.Uuid
+  round     Int
+  voterId   String   @map("voter_id") @db.Uuid
+  targetId  String   @map("target_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@id([roomId, round, voterId])
+  @@map("room_votes")
+}
+
+/// Points attribués en plus des réponses (mode Intrus : intrus démasqué ou non), une ligne par joueur et par manche
+model RoomBonus {
+  roomId String @map("room_id") @db.Uuid
+  round  Int
+  userId String @map("user_id") @db.Uuid
+  points Int
+  /// IMPOSTOR_FOUND (bon vote) ou IMPOSTOR_HIDDEN (intrus non démasqué)
+  reason String @db.VarChar(20)
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@id([roomId, round, userId])
+  @@map("room_bonuses")
+}
+
+// ----------------------------------------------------------------------------
+// Tournois privés : tableau à élimination directe, matchs joués dans des salons à 2.
+// Seul le créateur doit être VIP ; les participants s'inscrivent et jouent gratuitement.
+// ----------------------------------------------------------------------------
+
+enum TournamentStatus {
+  LOBBY    // inscriptions ouvertes (code d'invitation)
+  ACTIVE   // tableau en cours
+  FINISHED // vainqueur connu, classement final
+  CLOSED   // fermé avant le lancement
+}
+
+model Tournament {
+  id          String           @id @default(uuid(7)) @db.Uuid
+  /// Code d'invitation (même format que les salons), unique
+  code        String           @unique @db.VarChar(8)
+  /// Joueur VIP qui a créé le tournoi (droit vérifié en base à la création)
+  createdById String           @map("created_by_id") @db.Uuid
+  /// Hôte actuel : lance le tableau ; le joueur inscrit le plus tôt s'il part avant le lancement
+  hostId      String           @map("host_id") @db.Uuid
+  gameId      String           @map("game_id") @db.Uuid
+  /// Places : 4, 8 ou 16
+  capacity    Int
+  /// Taille du tableau au lancement (puissance de 2 suffisante pour les inscrits)
+  bracketSize Int?             @map("bracket_size")
+  /// Manches par match et temps de réponse par manche
+  rounds      Int
+  roundSec    Int              @map("round_sec")
+  status      TournamentStatus @default(LOBBY)
+  expiresAt   DateTime         @map("expires_at")
+  createdAt   DateTime         @default(now()) @map("created_at")
+  startedAt   DateTime?        @map("started_at")
+  finishedAt  DateTime?        @map("finished_at")
+
+  createdBy User               @relation("tournamentCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  host      User               @relation("tournamentHost", fields: [hostId], references: [id], onDelete: Cascade)
+  game      Game               @relation(fields: [gameId], references: [id])
+  players   TournamentPlayer[]
+  matches   TournamentMatch[]
+
+  @@index([status, expiresAt])
+  @@map("tournaments")
+}
+
+model TournamentPlayer {
+  tournamentId String    @map("tournament_id") @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  joinedAt     DateTime  @default(now()) @map("joined_at")
+  /// Tête de série tirée au sort au lancement (1 = meilleure)
+  seed         Int?
+  /// A quitté le tournoi après le lancement (ses matchs sont perdus par forfait)
+  leftAt       DateTime? @map("left_at")
+  /// Place finale (1 = vainqueur ; places partagées entre éliminés d'un même tour)
+  placement    Int?
+
+  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([tournamentId, userId])
+  @@index([userId, joinedAt(sort: Desc)])
+  @@map("tournament_players")
+}
+
+model TournamentMatch {
+  id           String    @id @default(uuid(7)) @db.Uuid
+  tournamentId String    @map("tournament_id") @db.Uuid
+  /// Tour (1 = premier tour) et emplacement dans le tour
+  stage        Int
+  slot         Int
+  player1Id    String?   @map("player1_id") @db.Uuid
+  player2Id    String?   @map("player2_id") @db.Uuid
+  /// « Je suis prêt » de chaque joueur ; le match démarre quand les deux le sont
+  ready1At     DateTime? @map("ready1_at")
+  ready2At     DateTime? @map("ready2_at")
+  /// Heure limite pour être prêt, une fois les deux adversaires connus
+  deadlineAt   DateTime? @map("deadline_at")
+  /// Salon du match (créé et lancé quand les deux joueurs sont prêts)
+  roomId       String?   @unique @map("room_id") @db.Uuid
+  winnerId     String?   @map("winner_id") @db.Uuid
+  /// POINTS, SUDDEN_DEATH, SPEED, SEED, FORFEIT, NO_SHOW ou BYE
+  decidedBy    String?   @map("decided_by") @db.VarChar(12)
+  score1       Int?
+  score2       Int?
+  finishedAt   DateTime? @map("finished_at")
+
+  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  room       Room?      @relation(fields: [roomId], references: [id], onDelete: SetNull)
+
+  @@unique([tournamentId, stage, slot])
+  @@index([deadlineAt])
+  @@map("tournament_matches")
+}
+
+// ----------------------------------------------------------------------------
+// Classement compétitif (cote Elo par jeu et globale), alimenté uniquement par les duels « au hasard ».
+// ----------------------------------------------------------------------------
+
+model CompetitiveRating {
+  userId    String   @map("user_id") @db.Uuid
+  /// "global" ou le slug d'un jeu
+  scope     String   @db.VarChar(20)
+  rating    Int      @default(1000)
+  peak      Int      @default(1000)
+  games     Int      @default(0)
+  wins      Int      @default(0)
+  losses    Int      @default(0)
+  draws     Int      @default(0)
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, scope])
+  @@index([scope, rating(sort: Desc)])
+  @@map("competitive_ratings")
+}
+
+/// Historique de la cote : une ligne par joueur, périmètre et duel (jamais deux fois le même duel)
+model RatingChange {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  scope      String   @db.VarChar(20)
+  matchId    String   @map("match_id") @db.Uuid
+  opponentId String   @map("opponent_id") @db.Uuid
+  /// WIN, LOSS ou DRAW
+  result     String   @db.VarChar(4)
+  before     Int
+  after      Int
+  delta      Int
+  /// false : au-delà de la limite de duels contre ce même adversaire, sans effet sur la cote
+  counted    Boolean
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, scope, matchId])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([userId, opponentId, createdAt])
+  @@map("rating_changes")
 }

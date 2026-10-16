@@ -1,38 +1,22 @@
 import { useCallback, useEffect, useState } from "react";
-import { Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { Platform, Pressable, ScrollView, Switch, Text, TextInput, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import {
   GAME_NAMES, GAME_SLUGS, ROOM_DEFAULT_ROUNDS, ROOM_DEFAULT_TIME, ROOM_MAX_PLAYERS, ROOM_ROUND_CHOICES, ROOM_RULES, ROOM_STATUS_LABEL,
-  ROOM_TIME_CHOICES, normalizeRoomCode, type GameSlug, type RoomsOverviewDto,
+  ROOM_TIME_CHOICES, TOKEN_REASON_LABEL, normalizeRoomCode, type GameSlug, type RoomsOverviewDto, type TokensDto,
 } from "@ranksight/shared";
 import { api } from "@/lib/api";
 import { useChat } from "@/lib/chat";
 import { useSession } from "@/lib/session";
-import { colors, radius } from "@/lib/theme";
+import { colors } from "@/lib/theme";
 import { errorMessage } from "@/components/AuthUi";
 import { Card, GhostButton, Hud, Loading, LoginRequired, Muted, PrimaryButton } from "@/components/ui";
+import { Chips } from "@/components/Chips";
 
-/** Choix parmi quelques valeurs (jeu, manches, temps) */
-function Chips<T extends string | number>({ value, options, onChange, label }: { value: T; options: readonly T[]; onChange: (v: T) => void; label: (v: T) => string }) {
-  return (
-    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-      {options.map((o) => {
-        const active = o === value;
-        return (
-          <Pressable
-            key={String(o)}
-            onPress={() => onChange(o)}
-            accessibilityRole="radio"
-            accessibilityState={{ checked: active }}
-            style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: radius.chip, borderWidth: 1.5, borderColor: active ? colors.neon : colors.line, backgroundColor: active ? `${colors.neon}1A` : colors.surface2 }}
-          >
-            <Text style={{ color: active ? colors.neon : colors.ink, fontWeight: "600" }}>{label(o)}</Text>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
-}
+
+type Format = "solo" | "teams2" | "teams3" | "impostor";
+const FORMATS: readonly Format[] = ["solo", "teams2", "teams3", "impostor"];
+const FORMAT_LABEL: Record<Format, string> = { solo: "Chacun pour soi", teams2: "2 contre 2", teams3: "3 contre 3", impostor: "Intrus" };
 
 /** Salons privés : rejoindre avec un code (gratuit), créer un salon (VIP), invitations reçues, dernières parties. */
 export default function RoomsScreen() {
@@ -42,6 +26,10 @@ export default function RoomsScreen() {
   const [game, setGame] = useState<GameSlug>(GAME_SLUGS[0]);
   const [rounds, setRounds] = useState<number>(ROOM_DEFAULT_ROUNDS);
   const [roundSec, setRoundSec] = useState<number>(ROOM_DEFAULT_TIME);
+  const [suddenDeath, setSuddenDeath] = useState(true);
+  const [confidence, setConfidence] = useState(false);
+  const [format, setFormat] = useState<Format>("solo");
+  const [tokens, setTokens] = useState<TokensDto | null>(null);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,6 +38,7 @@ export default function RoomsScreen() {
   const load = useCallback(() => {
     if (!me) return;
     api.rooms().then(setData, () => setData((d) => d ?? { canHost: false, current: null, invites: [], recent: [] }));
+    api.tokens().then(setTokens, () => undefined);
   }, [me]);
   useFocusEffect(load);
   useEffect(() => onRoom(load), [onRoom, load]);
@@ -77,7 +66,12 @@ export default function RoomsScreen() {
     setBusy(true);
     setError(null);
     try {
-      open((await api.createRoom({ game, rounds, roundSec })).id);
+      open((await api.createRoom({
+        game, rounds, roundSec, suddenDeath,
+        confidence: format !== "impostor" && confidence,
+        teamSize: format === "teams2" ? 2 : format === "teams3" ? 3 : 0,
+        impostor: format === "impostor",
+      })).id);
     } catch (e) {
       setError(errorMessage(e, "Le salon n'a pas pu être créé."));
     } finally {
@@ -101,6 +95,16 @@ export default function RoomsScreen() {
         Jusqu&apos;à {ROOM_MAX_PLAYERS} amis devinent le même clip au même moment. Seul le joueur qui crée le salon doit être VIP : rejoindre, jouer et
         voir les résultats est gratuit pour tout le monde.
       </Muted>
+
+      <Pressable onPress={() => router.push("/tournaments")} accessibilityRole="button" accessibilityLabel="Tournois privés">
+        <Card style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text style={{ color: colors.ink, fontSize: 17, fontWeight: "700" }}>Tournois privés · 4 à 16 joueurs</Text>
+            <Muted>Tableau à élimination directe entre amis. Seul le créateur doit être VIP.</Muted>
+          </View>
+          <Text style={{ color: colors.neon, fontSize: 20 }}>›</Text>
+        </Card>
+      </Pressable>
 
       {data.current && (
         <Card style={{ gap: 10, borderColor: colors.neon }}>
@@ -149,12 +153,29 @@ export default function RoomsScreen() {
           <Text style={{ color: colors.ink, fontSize: 18, fontWeight: "700" }}>Créer un salon</Text>
           <Text style={{ color: "black", backgroundColor: colors.warn, borderRadius: 4, paddingHorizontal: 5, fontSize: 10, fontWeight: "800", overflow: "hidden" }}>VIP</Text>
         </View>
+        <Hud>Format</Hud>
+        <Chips value={format} options={FORMATS} onChange={setFormat} label={(f) => FORMAT_LABEL[f]} />
+        {format === "impostor" && <Muted>Un joueur reçoit un autre clip sans le savoir ; après les réponses, tout le monde vote pour le démasquer. 4 joueurs minimum.</Muted>}
         <Hud>Jeu</Hud>
         <Chips value={game} options={GAME_SLUGS} onChange={setGame} label={(s) => GAME_NAMES[s]} />
         <Hud>Manches</Hud>
         <Chips value={rounds} options={ROOM_ROUND_CHOICES} onChange={setRounds} label={(n) => String(n)} />
         <Hud>Temps de réponse</Hud>
         <Chips value={roundSec} options={ROOM_TIME_CHOICES} onChange={setRoundSec} label={(n) => `${n} s`} />
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: colors.ink, fontWeight: "700" }}>Mort subite</Text>
+            <Muted>En cas d&apos;égalité en tête, manche décisive entre les ex aequo.</Muted>
+          </View>
+          <Switch value={suddenDeath} onValueChange={setSuddenDeath} trackColor={{ true: colors.violet, false: colors.line }} accessibilityLabel="Mort subite" />
+        </View>
+        {format !== "impostor" && <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: colors.ink, fontWeight: "700" }}>Mode Confiance</Text>
+            <Muted>Chaque réponse engage 1 à 3 jetons virtuels, jamais achetables.</Muted>
+          </View>
+          <Switch value={confidence} onValueChange={setConfidence} trackColor={{ true: colors.violet, false: colors.line }} accessibilityLabel="Mode Confiance" />
+        </View>}
         {data.canHost ? (
           <PrimaryButton label="Créer le salon" disabled={busy} onPress={create} />
         ) : (
@@ -167,6 +188,30 @@ export default function RoomsScreen() {
         )}
         {error && <Text style={{ color: colors.danger }}>{error}</Text>}
       </Card>
+
+      {tokens && (
+        <Card style={{ gap: 8 }}>
+          <View style={{ flexDirection: "row", alignItems: "center" }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: colors.ink, fontSize: 16, fontWeight: "700" }}>Mes jetons</Text>
+              <Muted>Virtuels : ni achat, ni retrait, ni échange.</Muted>
+            </View>
+            <Text style={{ color: colors.warn, fontSize: 28, fontWeight: "800" }}>{tokens.balance}</Text>
+          </View>
+          {tokens.canRefill && (
+            <GhostButton
+              label={`Recharge gratuite du jour (jusqu'à ${tokens.refillTo})`}
+              onPress={() => void api.refillTokens().then(setTokens, (e) => setError(errorMessage(e)))}
+            />
+          )}
+          {tokens.history.slice(0, 5).map((t) => (
+            <View key={t.id} style={{ flexDirection: "row", justifyContent: "space-between" }}>
+              <Text style={{ color: colors.muted, flex: 1 }} numberOfLines={1}>{TOKEN_REASON_LABEL[t.reason]}{t.round ? ` · manche ${t.round}` : ""}</Text>
+              <Text style={{ color: t.delta >= 0 ? colors.success : colors.danger, fontWeight: "700" }}>{t.delta >= 0 ? `+${t.delta}` : t.delta}</Text>
+            </View>
+          ))}
+        </Card>
+      )}
 
       <Card style={{ gap: 6 }}>
         <Text style={{ color: colors.ink, fontSize: 16, fontWeight: "700" }}>Règles</Text>

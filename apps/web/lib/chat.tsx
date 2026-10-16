@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { io, type Socket } from "socket.io-client";
 import {
-  CHAT_EVENTS, GLOBAL_CHAT_EVENTS, ROOM_EVENT, ROOM_INVITE_EVENT, VERSUS_EVENT, formatRoomCode,
+  CHAT_EVENTS, GLOBAL_CHAT_EVENTS, ROOM_EVENT, ROOM_INVITE_EVENT, TOURNAMENT_EVENT, VERSUS_EVENT, formatRoomCode,
   type ChatMessageDto, type GlobalMessageDto, type RoomInviteDto, type VersusMatchDto,
 } from "@ranksight/shared";
 import { api, WS_URL } from "./api";
@@ -34,6 +34,8 @@ interface ChatValue {
   onRoom: (fn: Listener<{ id: string }>) => () => void;
   /** Invitations dans un salon privé (badge de navigation) */
   roomInvites: number;
+  /** Un tournoi du joueur a changé (inscription, match prêt, résultat) */
+  onTournament: (fn: Listener<{ id: string }>) => () => void;
 }
 
 type GlobalHandlers = Parameters<ChatValue["joinGlobal"]>[0];
@@ -41,7 +43,7 @@ type GlobalHandlers = Parameters<ChatValue["joinGlobal"]>[0];
 const noop = () => () => {};
 const ChatContext = createContext<ChatValue>({
   unread: 0, refreshUnread: () => {}, onMessage: noop, onTyping: noop, sendTyping: () => {}, joinGlobal: noop, onVersus: noop, versusPending: 0,
-  onRoom: noop, roomInvites: 0,
+  onRoom: noop, roomInvites: 0, onTournament: noop,
 });
 
 /**
@@ -82,6 +84,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const roomListeners = useRef(new Set<Listener<{ id: string }>>());
+  const tournamentListeners = useRef(new Set<Listener<{ id: string }>>());
   const [roomInvites, setRoomInvites] = useState(0);
   // Invitation dans un salon privé : bandeau « Voir le salon » sur toutes les pages
   const [roomInvite, setRoomInvite] = useState<RoomInviteDto | null>(null);
@@ -124,6 +127,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       refreshVersus();
     });
     s.on(ROOM_EVENT, (e: { id: string }) => roomListeners.current.forEach((fn) => fn(e)));
+    s.on(TOURNAMENT_EVENT, (e: { id: string }) => tournamentListeners.current.forEach((fn) => fn(e)));
     s.on(ROOM_INVITE_EVENT, (e: { id: string }) => {
       roomListeners.current.forEach((fn) => fn(e));
       refreshRooms();
@@ -174,6 +178,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  const onTournament = useCallback((fn: Listener<{ id: string }>) => {
+    tournamentListeners.current.add(fn);
+    return () => {
+      tournamentListeners.current.delete(fn);
+    };
+  }, []);
+
   const joinGlobal = useCallback((handlers: GlobalHandlers) => {
     globalHandlers.current.add(handlers);
     if (socketRef.current?.connected) socketRef.current.emit(GLOBAL_CHAT_EVENTS.join);
@@ -184,7 +195,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <ChatContext.Provider value={{ unread: me ? unread : 0, refreshUnread, onMessage, onTyping, sendTyping, joinGlobal, onVersus, versusPending: me ? versusPending : 0, onRoom, roomInvites: me ? roomInvites : 0 }}>
+    <ChatContext.Provider value={{ unread: me ? unread : 0, refreshUnread, onMessage, onTyping, sendTyping, joinGlobal, onVersus, versusPending: me ? versusPending : 0, onRoom, roomInvites: me ? roomInvites : 0, onTournament }}>
       {children}
       {invite && (
         <div role="alert" className="glass animate-rise fixed bottom-20 left-4 right-4 z-50 flex items-center gap-3 p-4 shadow-2xl sm:left-auto sm:max-w-sm md:bottom-6">

@@ -4,7 +4,7 @@ import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  ROOM_MIN_PLAYERS, ROOM_RULES, formatRoomCode, type RoomDto, type RoomPlayerDto, type RoomRoundDto, type UserSummaryDto,
+  CONFIDENCE_RULES, DECIDED_BY_LABEL, IMPOSTOR_MIN_PLAYERS, IMPOSTOR_RULES, ROOM_MIN_PLAYERS, ROOM_RULES, SUDDEN_DEATH_RULES, TEAM_COLORS, TEAM_NAMES, TEAM_RULES, formatRoomCode, type RoomDto, type RoomPlayerDto, type RoomRoundDto, type UserSummaryDto,
 } from "@ranksight/shared";
 import { api } from "@/lib/api";
 import { useConfirm } from "@/lib/confirm";
@@ -68,7 +68,9 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
   return (
     <section className="space-y-6">
       <div className="flex items-center justify-between gap-3">
-        <Link href="/rooms" className="text-sm text-muted hover:text-ink">← Salons</Link>
+        {room.tournamentId
+          ? <Link href={`/tournaments/${room.tournamentId}`} className="text-sm text-muted hover:text-ink">← Tournoi</Link>
+          : <Link href="/rooms" className="text-sm text-muted hover:text-ink">← Salons</Link>}
         {canLeave && <button onClick={leave} className="text-sm text-muted hover:text-danger">Quitter</button>}
       </div>
       {live.offline && <p role="status" className="text-center text-sm text-warn">Connexion perdue : reconnexion en cours…</p>}
@@ -83,8 +85,15 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
               <>
                 {lastRound && <RoundReveal round={lastRound} players={room.players} meId={me.id} />}
                 <div className="glass p-8 text-center">
-                  <p className="hud-label">{room.live!.round === 1 ? "La partie commence" : `Manche ${room.live!.round}/${room.rounds}`}</p>
+                  <p className={`hud-label ${room.live!.suddenDeath ? "!text-warn" : ""}`}>
+                    {room.live!.round === 1 ? "La partie commence" : room.live!.suddenDeath ? "Mort subite · manche décisive" : `Manche ${room.live!.round}/${room.rounds}`}
+                  </p>
                   <p className="font-display text-6xl font-bold text-neon" aria-live="polite">{live.secondsLeft}</p>
+                  {room.live!.suddenDeath && (
+                    <p className="mt-2 text-sm text-muted">
+                      Égalité en tête : {room.players.filter((p) => p.finalist).map((p) => (p.id === me.id ? "toi" : p.displayName)).join(" contre ")}. Le meilleur score de cette manche l&apos;emporte.
+                    </p>
+                  )}
                 </div>
               </>
             )}
@@ -96,6 +105,8 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
                 progress={live.roundProgress}
                 onSubmitted={() => live.markSubmitted(live.clip!.position)}
                 onClosed={live.load}
+                label={room.live?.suddenDeath ? "Mort subite · manche décisive" : undefined}
+                tokens={room.confidence && !room.live?.suddenDeath ? room.myTokens : undefined}
               />
             ) : (
               <Skeleton className="h-96" />
@@ -103,12 +114,26 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
             {(phase === "answered" || phase === "timeout") && room.live && (
               <div className="glass space-y-3 p-8 text-center">
                 <p className="font-display text-xl font-semibold">{phase === "timeout" && !room.live.answered ? "Temps écoulé !" : "Réponse envoyée"}</p>
+                {room.myStake !== null && <p className="text-sm text-warn">Mise engagée : {room.myStake} jeton{room.myStake > 1 ? "s" : ""}</p>}
                 <p className="text-sm text-muted">
                   {room.players.filter((p) => !p.left && p.answered).length}/{room.players.filter((p) => !p.left).length} joueurs ont répondu.
                   {phase === "answered" && ` Fin de la manche dans ${live.secondsLeft} s au plus tard.`}
                 </p>
                 <TimerBar progress={live.roundProgress} />
               </div>
+            )}
+            {phase === "spectating" && room.live && (
+              <div className="glass space-y-3 p-8 text-center">
+                <p className="hud-label !text-warn">Mort subite</p>
+                <p className="font-display text-xl font-semibold">
+                  {room.players.filter((p) => p.finalist).map((p) => p.displayName).join(" contre ")} se départagent
+                </p>
+                <p className="text-sm text-muted">Seuls les joueurs à égalité en tête répondent à cette manche. Résultat dans {live.secondsLeft} s au plus tard.</p>
+                <TimerBar progress={live.roundProgress} />
+              </div>
+            )}
+            {phase === "voting" && room.live && (
+              <VotePanel room={room} meId={me.id} act={act} secondsLeft={live.secondsLeft} progress={live.roundProgress} />
             )}
             {phase === "left" && (
               <Panel title="Tu as quitté la partie" text="Tes points sont conservés. Le classement final s'affichera ici à la fin de la partie." />
@@ -126,10 +151,76 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
 function PlayerName({ p, meId }: { p: RoomPlayerDto; meId: string }) {
   return (
     <span className="flex min-w-0 items-center gap-1.5">
+      {p.team && <span aria-label={TEAM_NAMES[p.team]} title={TEAM_NAMES[p.team]} className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: TEAM_COLORS[p.team] }} />}
       <span className="truncate">{p.id === meId ? "Toi" : p.displayName}</span>
       <FlairBadge flair={p.flair} size={11} />
       {p.vip && <VipBadge />}
       {p.isHost && <span title="Hôte du salon" className="text-xs text-warn">★</span>}
+      {p.finalist && <span title="Dispute la mort subite" className="rounded bg-warn/15 px-1 text-[10px] font-bold text-warn">MS</span>}
+    </span>
+  );
+}
+
+/** Duel par équipes : total de chaque équipe */
+function TeamTotals({ room }: { room: RoomDto }) {
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {room.teams.map((t) => (
+        <div key={t.team} className="rounded-xl border p-3 text-center" style={{ borderColor: `${TEAM_COLORS[t.team]}88`, background: `${TEAM_COLORS[t.team]}14` }}>
+          <p className="text-xs font-semibold" style={{ color: TEAM_COLORS[t.team] }}>{t.name}{t.placement === 1 && room.status === "FINISHED" ? " 🏆" : ""}</p>
+          <p className="font-display text-2xl font-bold">{t.score}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Salle d'attente d'un duel par équipes : une colonne par équipe, changement d'équipe, placement par l'hôte */
+function TeamsLobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () => Promise<unknown>) => Promise<void> }) {
+  const mine = room.players.find((p) => p.id === meId)?.team;
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      {([1, 2] as const).map((t) => {
+        const members = room.players.filter((p) => !p.left && p.team === t);
+        const freeSeats = room.teamSize! - members.length;
+        return (
+          <div key={t} className="space-y-2 rounded-xl border p-3" style={{ borderColor: `${TEAM_COLORS[t]}66` }}>
+            <div className="flex items-center justify-between">
+              <p className="font-semibold" style={{ color: TEAM_COLORS[t] }}>{TEAM_NAMES[t]}</p>
+              <p className="text-xs text-muted">{members.length}/{room.teamSize}</p>
+            </div>
+            <ul className="space-y-2">
+              {members.map((p) => (
+                <li key={p.id} className="flex items-center gap-2 text-sm">
+                  <Avatar name={p.displayName} url={p.avatarUrl} size={28} frame={p.flair.frame} />
+                  <div className="min-w-0 flex-1"><PlayerName p={p} meId={meId} /></div>
+                  {room.isHost && p.id !== meId && (
+                    <>
+                      <button onClick={() => act(() => api.setRoomTeam(room.id, t === 1 ? 2 : 1, p.id))} className="text-xs text-muted hover:text-ink" aria-label={`Changer ${p.displayName} d'équipe`}>⇄</button>
+                      <button onClick={() => act(() => api.kickFromRoom(room.id, p.id))} className="text-xs text-muted hover:text-danger" aria-label={`Retirer ${p.displayName}`}>Retirer</button>
+                    </>
+                  )}
+                </li>
+              ))}
+              {Array.from({ length: freeSeats }, (_, i) => (
+                <li key={i} className="rounded-lg border border-dashed border-line/60 p-2 text-center text-xs text-muted">Place libre</li>
+              ))}
+            </ul>
+            {mine !== t && freeSeats > 0 && (
+              <button onClick={() => act(() => api.setRoomTeam(room.id, t))} className="btn-ghost w-full !py-1.5 text-sm">Rejoindre {TEAM_NAMES[t]?.toLowerCase()}</button>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Bénéfice net en jetons (mode Confiance) */
+function TokensNet({ n }: { n: number }) {
+  return (
+    <span title="Bénéfice net en jetons" className={`whitespace-nowrap text-xs font-semibold ${n > 0 ? "text-success" : n < 0 ? "text-danger" : "text-muted"}`}>
+      {n > 0 ? `+${n}` : n} jeton{Math.abs(n) > 1 ? "s" : ""}
     </span>
   );
 }
@@ -168,7 +259,10 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
           <button onClick={() => copy("code")} className="btn-ghost">{copied === "code" ? "Code copié ✓" : "Copier le code"}</button>
           <button onClick={() => copy("link")} className="btn-ghost">{copied === "link" ? "Lien copié ✓" : "Copier le lien d'invitation"}</button>
         </div>
-        <p className="text-sm text-muted">{room.game.name} · {room.rounds} manches · {room.roundSec} s par manche · rejoindre est gratuit</p>
+        <p className="text-sm text-muted">
+          {room.game.name} · {room.rounds} manches · {room.roundSec} s par manche{room.suddenDeath ? " · mort subite" : ""}
+          {room.confidence ? " · mode Confiance" : ""}{room.teamSize ? ` · ${room.teamSize} contre ${room.teamSize}` : ""} · rejoindre est gratuit
+        </p>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
@@ -177,6 +271,9 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
             <h2 className="font-display text-lg font-semibold">Joueurs</h2>
             <p className="text-sm text-muted">{active.length}/{room.maxPlayers} · {free > 0 ? `${free} place${free > 1 ? "s" : ""} libre${free > 1 ? "s" : ""}` : "complet"}</p>
           </div>
+          {room.teamSize ? (
+            <TeamsLobby room={room} meId={meId} act={act} />
+          ) : (
           <ul className="grid gap-2 sm:grid-cols-2">
             {active.map((p) => (
               <li key={p.id} className="flex items-center gap-3 rounded-xl border border-line/60 bg-surface/60 p-3">
@@ -193,10 +290,15 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
               <li key={`free-${i}`} className="rounded-xl border border-dashed border-line/60 p-3 text-center text-sm text-muted">Place libre</li>
             ))}
           </ul>
+          )}
           {room.isHost ? (
             <div className="space-y-2">
               <button disabled={!room.canStart} onClick={() => act(() => api.startRoom(room.id))} className="btn-primary w-full sm:w-auto">Lancer la partie</button>
-              {!room.canStart && <p className="text-sm text-muted">Il faut au moins {ROOM_MIN_PLAYERS} joueurs pour lancer la partie.</p>}
+              {!room.canStart && (
+                <p className="text-sm text-muted">
+                  {room.teamSize ? `Il faut ${room.teamSize} joueurs dans chaque équipe pour lancer la partie.` : `Il faut au moins ${room.impostor ? IMPOSTOR_MIN_PLAYERS : ROOM_MIN_PLAYERS} joueurs pour lancer la partie.`}
+                </p>
+              )}
             </div>
           ) : (
             <p className="text-sm text-muted">En attente du lancement par {host?.displayName ?? "l'hôte"}…</p>
@@ -231,7 +333,9 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
           </div>
           <div className="glass space-y-2 p-6">
             <h2 className="font-display text-lg font-semibold">Règles</h2>
-            <ul className="list-disc space-y-1 pl-5 text-sm text-muted">{ROOM_RULES.map((r) => <li key={r}>{r}</li>)}</ul>
+            <ul className="list-disc space-y-1 pl-5 text-sm text-muted">
+              {[...ROOM_RULES, ...(room.impostor ? IMPOSTOR_RULES : []), ...(room.teamSize ? TEAM_RULES : []), ...(room.suddenDeath ? SUDDEN_DEATH_RULES : []), ...(room.confidence ? CONFIDENCE_RULES : [])].map((r) => <li key={r}>{r}</li>)}
+            </ul>
           </div>
         </div>
       </div>
@@ -243,7 +347,8 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
 function Scoreboard({ room, meId }: { room: RoomDto; meId: string }) {
   return (
     <aside className="glass h-fit space-y-3 p-5">
-      <p className="hud-label">{room.game.name} · manche {room.live?.round ?? room.rounds}/{room.rounds}</p>
+      <p className="hud-label">{room.game.name} · {room.live?.suddenDeath ? "mort subite" : `manche ${room.live?.round ?? room.rounds}/${room.rounds}`}</p>
+      {room.teamSize && <TeamTotals room={room} />}
       <ol className="space-y-2">
         {room.players.map((p, i) => (
           <li key={p.id} className={`flex items-center gap-2 text-sm ${p.left ? "opacity-50" : ""}`}>
@@ -251,6 +356,7 @@ function Scoreboard({ room, meId }: { room: RoomDto; meId: string }) {
             <Avatar name={p.displayName} url={p.avatarUrl} size={24} frame={p.flair.frame} />
             <div className="min-w-0 flex-1"><PlayerName p={p} meId={meId} /></div>
             {p.left ? <span className="text-xs text-muted">parti</span> : p.answered && <span className="text-xs text-success" title="A répondu">✓</span>}
+            {p.tokensNet !== null && <TokensNet n={p.tokensNet} />}
             <span className="w-12 text-right font-display font-bold">{p.score}</span>
           </li>
         ))}
@@ -259,15 +365,98 @@ function Scoreboard({ room, meId }: { room: RoomDto; meId: string }) {
   );
 }
 
+/**
+ * Mode Intrus : vote d'après les rangs proposés par chacun (sans rang réel ni points).
+ * L'intrus ne sait pas qu'il l'est : tout le monde vote de la même façon, jamais pour soi.
+ */
+function VotePanel({
+  room, meId, act, secondsLeft, progress,
+}: { room: RoomDto; meId: string; act: (a: () => Promise<unknown>) => Promise<void>; secondsLeft: number; progress: number }) {
+  const live = room.live!;
+  const inGame = room.players.filter((p) => !p.left);
+  const guessOf = (id: string) => live.guesses.find((g) => g.userId === id);
+  return (
+    <div className="glass space-y-4 p-6">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="hud-label text-neon">Manche {live.round} · vote</p>
+          <h2 className="font-display text-xl font-semibold">Qui a vu un autre clip&nbsp;?</h2>
+        </div>
+        <p className={`font-display text-2xl font-bold ${secondsLeft <= 5 ? "text-danger" : ""}`} aria-live="polite">{secondsLeft} s</p>
+      </div>
+      <TimerBar progress={progress} />
+      <p className="text-sm text-muted">
+        Compare les rangs proposés : l&apos;intrus a regardé un clip d&apos;un autre rang. {live.voted.length}/{inGame.length} votes.
+      </p>
+      <ul className="grid gap-2 sm:grid-cols-2">
+        {inGame.map((p) => {
+          const g = guessOf(p.id);
+          const mine = live.myVote === p.id;
+          return (
+            <li key={p.id}>
+              <button
+                disabled={p.id === meId || !!live.myVote}
+                onClick={() => act(() => api.voteInRoom(room.id, p.id))}
+                aria-pressed={mine}
+                className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left text-sm transition ${mine ? "border-neon bg-neon/10" : "border-line/60 bg-surface/60 enabled:hover:border-violet"} disabled:cursor-default`}
+              >
+                <Avatar name={p.displayName} url={p.avatarUrl} size={32} frame={p.flair.frame} />
+                <div className="min-w-0 flex-1"><PlayerName p={p} meId={meId} /></div>
+                {g ? (
+                  <span className="flex items-center gap-1.5" style={{ color: g.rank.color }}><RankEmblem rank={g.rank} size={22} />{g.rank.name}</span>
+                ) : (
+                  <span className="text-muted">pas de réponse</span>
+                )}
+                {live.voted.includes(p.id) && <span className="text-xs text-success" title="A voté">✓</span>}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+      <p className="text-sm">
+        {live.myVote
+          ? <>Ton vote : <strong>{room.players.find((p) => p.id === live.myVote)?.displayName}</strong>. Résultat quand tout le monde aura voté.</>
+          : <span className="text-muted">Choisis un joueur (pas toi). Un seul vote par manche.</span>}
+      </p>
+    </div>
+  );
+}
+
+/** Mode Intrus : qui était l'intrus, son clip, les votes et les points du vote. */
+function ImpostorReveal({ round, players, meId }: { round: RoomRoundDto; players: RoomPlayerDto[]; meId: string }) {
+  const imp = round.impostor!;
+  const who = players.find((p) => p.id === imp.userId);
+  const name = imp.userId === meId ? "Toi" : who?.displayName ?? "Un joueur parti";
+  const against = imp.votes.filter((v) => v.targetId === imp.userId).length;
+  return (
+    <div className={`rounded-xl border p-4 text-sm ${imp.caught ? "border-success/50 bg-success/10" : "border-warn/50 bg-warn/10"}`}>
+      <p className="font-semibold">
+        {imp.userId === meId ? "Tu étais" : `${name} était`} l&apos;intrus{" "}
+        <span className="font-normal text-muted">
+          (clip <span style={{ color: imp.rank.color }}>{imp.rank.name}</span>, {against} vote{against > 1 ? "s" : ""} contre {imp.userId === meId ? "toi" : "lui"})
+        </span>
+      </p>
+      <p className="mt-1">
+        {imp.caught
+          ? `Démasqué : +${imp.bonuses[0]?.points ?? 0} pour ${imp.bonuses.map((b) => (b.userId === meId ? "toi" : players.find((p) => p.id === b.userId)?.displayName ?? "?")).join(", ")}.`
+          : `Pas démasqué : +${imp.bonuses[0]?.points ?? 0} pour ${name === "Toi" ? "toi" : name}.`}
+      </p>
+    </div>
+  );
+}
+
 /** Fin de manche : rang réel et réponse de chaque joueur. */
-function RoundReveal({ round, players, meId }: { round: RoomRoundDto; players: RoomPlayerDto[]; meId: string }) {
+function RoundReveal({ round, players: all, meId }: { round: RoomRoundDto; players: RoomPlayerDto[]; meId: string }) {
+  // Manche décisive : seuls les finalistes y ont répondu
+  const players = round.suddenDeath ? all.filter((p) => round.answers.some((a) => a.userId === p.id) || p.finalist) : all;
   return (
     <div className="glass space-y-4 p-6">
       <div className="flex flex-col items-center gap-1 text-center">
-        <p className="hud-label">Manche {round.position} · rang réel</p>
+        <p className="hud-label">{round.suddenDeath ? "Mort subite" : `Manche ${round.position}`} · rang réel</p>
         <RankEmblem rank={round.correctRank} size={64} />
         <p className="font-display text-lg font-bold" style={{ color: round.correctRank.color }}>{round.correctRank.name}</p>
       </div>
+      {round.impostor && <ImpostorReveal round={round} players={all} meId={meId} />}
       <ul className="grid gap-2 sm:grid-cols-2">
         {players.map((p) => {
           const a = round.answers.find((x) => x.userId === p.id);
@@ -275,6 +464,7 @@ function RoundReveal({ round, players, meId }: { round: RoomRoundDto; players: R
             <li key={p.id} className="flex items-center gap-2 rounded-lg bg-surface/60 px-3 py-2 text-sm">
               <div className="min-w-0 flex-1"><PlayerName p={p} meId={meId} /></div>
               <span className="text-muted">{a ? a.rank.name : "—"}</span>
+              {a?.stake != null && <TokensNet n={(a.payout ?? 0) - a.stake} />}
               <span className={`w-12 text-right font-bold ${a && a.score > 0 ? "text-success" : "text-muted"}`}>+{a?.score ?? 0}</span>
             </li>
           );
@@ -299,12 +489,24 @@ function FinalResult({ room, meId }: { room: RoomDto; meId: string }) {
     <div className="space-y-6">
       <div className="glass space-y-2 p-8 text-center">
         <p className="hud-label">Partie terminée · {room.game.name}</p>
-        <p className="font-display text-3xl font-bold">
-          {me?.placement === 1 ? (winners.length > 1 ? "Victoire partagée !" : "Victoire !") : me?.placement ? `${me.placement}e place` : "Partie terminée"}
-        </p>
-        <p className="text-sm text-muted">
-          {winners.length > 1 ? `Égalité en tête : ${winners.map((w) => w.displayName).join(", ")}` : `Vainqueur : ${winners[0]?.displayName ?? "—"}`}
-        </p>
+        {room.teamSize ? (
+          <>
+            <p className="font-display text-3xl font-bold">
+              {room.teams.every((t) => t.placement === 1) ? "Match nul" : me?.placement === 1 ? "Victoire de ton équipe !" : "Défaite de ton équipe"}
+            </p>
+            <TeamTotals room={room} />
+          </>
+        ) : (
+          <>
+            <p className="font-display text-3xl font-bold">
+              {me?.placement === 1 ? (winners.length > 1 ? "Victoire partagée !" : "Victoire !") : me?.placement ? `${me.placement}e place` : "Partie terminée"}
+            </p>
+            <p className="text-sm text-muted">
+              {winners.length > 1 ? `Égalité en tête : ${winners.map((w) => w.displayName).join(", ")}` : `Vainqueur : ${winners[0]?.displayName ?? "—"}`}
+            </p>
+          </>
+        )}
+        {room.decidedBy && room.decidedBy !== "POINTS" && <p className="text-sm text-warn">{DECIDED_BY_LABEL[room.decidedBy]}</p>}
       </div>
 
       <ol className="glass divide-y divide-line/60 p-2">
@@ -316,6 +518,7 @@ function FinalResult({ room, meId }: { room: RoomDto; meId: string }) {
               <div className="min-w-0 text-sm"><PlayerName p={p} meId={meId} /></div>
             </PlayerLink>
             {p.left && <span className="text-xs text-muted">parti en cours de partie</span>}
+            {p.tokensNet !== null && <TokensNet n={p.tokensNet} />}
             <span className="font-display text-xl font-bold">{p.score}</span>
           </li>
         ))}
@@ -331,7 +534,7 @@ function FinalResult({ room, meId }: { room: RoomDto; meId: string }) {
                 {room.details.map((d) => (
                   <th key={d.position} className="font-normal">
                     <span className="flex items-center gap-1" style={{ color: d.correctRank.color }}>
-                      #{d.position} <RankEmblem rank={d.correctRank} size={18} /> {d.correctRank.name}
+                      {d.suddenDeath ? "MS" : `#${d.position}`} <RankEmblem rank={d.correctRank} size={18} /> {d.correctRank.name}
                     </span>
                   </th>
                 ))}
@@ -343,7 +546,14 @@ function FinalResult({ room, meId }: { room: RoomDto; meId: string }) {
                   <td className="py-2 pr-3">{p.id === meId ? "Toi" : p.displayName}</td>
                   {room.details.map((d) => {
                     const a = d.answers.find((x) => x.userId === p.id);
-                    return <td key={d.position} className="pr-3">{a ? `${a.rank.name} · ${a.score}` : "—"}</td>;
+                    const bonus = d.impostor?.bonuses.find((b) => b.userId === p.id)?.points ?? 0;
+                    return (
+                      <td key={d.position} className="pr-3">
+                        {a ? `${a.rank.name} · ${a.score}` : "—"}
+                        {bonus > 0 && <span className="text-success"> +{bonus}</span>}
+                        {d.impostor?.userId === p.id && <span className="ml-1 rounded bg-warn/20 px-1 text-[10px] font-bold uppercase text-warn">intrus</span>}
+                      </td>
+                    );
                   })}
                 </tr>
               ))}
@@ -352,7 +562,9 @@ function FinalResult({ room, meId }: { room: RoomDto; meId: string }) {
         </div>
       )}
       <div className="text-center">
-        <Link href="/rooms" className="btn-primary">Nouveau salon</Link>
+        {room.tournamentId
+          ? <Link href={`/tournaments/${room.tournamentId}`} className="btn-primary">Retour au tournoi</Link>
+          : <Link href="/rooms" className="btn-primary">Nouveau salon</Link>}
       </div>
     </div>
   );

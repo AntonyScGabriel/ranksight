@@ -5,7 +5,7 @@ import type { LiveClip } from "@/components/LiveRound";
 import { api, ApiError } from "./api";
 import { useChat } from "./chat";
 
-export type RoomPhase = "lobby" | "countdown" | "playing" | "answered" | "timeout" | "left" | "over";
+export type RoomPhase = "lobby" | "countdown" | "playing" | "answered" | "timeout" | "spectating" | "voting" | "left" | "over";
 
 /**
  * État d'un salon en direct : horloge recalée sur celle du serveur, mises à jour en temps réel (Socket.IO),
@@ -59,7 +59,8 @@ export function useLiveRoom(id: string, enabled: boolean) {
   let phase: RoomPhase = "over";
   if (room?.status === "LOBBY") phase = "lobby";
   else if (room?.status === "ACTIVE" && room.left) phase = "left";
-  else if (live) phase = now < startsAt ? "countdown" : answered ? "answered" : now < endsAt ? "playing" : "timeout";
+  else if (live?.phase === "VOTE") phase = "voting";
+  else if (live) phase = now < startsAt ? "countdown" : !live.playing ? "spectating" : answered ? "answered" : now < endsAt ? "playing" : "timeout";
 
   const round = live?.round ?? 0;
   useEffect(() => {
@@ -72,7 +73,7 @@ export function useLiveRoom(id: string, enabled: boolean) {
   }, [phase, round, clip, id, load]);
 
   // Filet de sécurité : fin de manche non reçue en direct (réseau coupé) → rechargement régulier
-  const stalled = (phase === "timeout" && now > endsAt + 4000) || offline;
+  const stalled = ((phase === "timeout" || phase === "spectating" || phase === "voting") && now > endsAt + 4000) || offline;
   useEffect(() => {
     if (!stalled) return;
     const t = setInterval(load, 2000);

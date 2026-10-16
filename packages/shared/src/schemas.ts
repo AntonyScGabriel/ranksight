@@ -80,6 +80,8 @@ export const SubmitGuessInput = z.object({
   playToken: z.string().min(10),
   rankId: z.string().uuid(),
   watchedMs: z.number().int().min(0).max(120_000),
+  /** Salon en mode Confiance : jetons engagés sur cette réponse (1 à 3 ; 0 seulement avec un solde vide) */
+  stake: z.number().int().min(0).max(3).optional(),
 });
 export type SubmitGuessInput = z.infer<typeof SubmitGuessInput>;
 
@@ -918,6 +920,8 @@ export const VersusMatchDto = z.object({
   finishedAt: z.string().nullable(),
   /** Manches terminées, réponses des deux joueurs comprises */
   details: z.array(VersusRoundDto),
+  /** Duel au hasard terminé : variation de la cote du joueur connecté (classement compétitif) */
+  rating: z.object({ scope: z.string(), before: z.number().int(), after: z.number().int(), delta: z.number().int(), counted: z.boolean() }).nullable(),
 });
 export type VersusMatchDto = z.infer<typeof VersusMatchDto>;
 

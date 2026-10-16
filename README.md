@@ -142,6 +142,13 @@ pour tester Google sur téléphone, expose l'API avec une adresse publique (tunn
   des joueurs recalée sur la sienne) et refuse toute réponse hors délai. Bilan victoires / égalités / défaites sur le
   profil ; succès « Duelliste ». Les duels rapportent de l'XP mais ne comptent pas dans les classements. Pendant une manche,
   l'API enregistre la réponse sans renvoyer le rang réel ni le score : tout est dévoilé à la fin de la manche.
+- **Plus haut / Plus bas** (`/play/higher-lower`, lien depuis le mode Infini) : un clip est affiché avec son rang, le
+  joueur dit si le rang du clip suivant est plus haut ou plus bas. Bonne réponse : ce clip devient la référence ; une
+  erreur termine la série. Deux clips du même rang ne sont jamais comparés, aucun clip n'est montré deux fois dans une
+  série, jamais un clip proposé par le joueur. Le serveur garde l'état de la série : le rang du clip à comparer n'est
+  envoyé qu'après la réponse, et chaque question n'accepte qu'une réponse. **3 séries gratuites par jour** (jour UTC,
+  limite tenue même avec des lancements simultanés), illimitées en VIP. Pas d'XP ni de classement public : seul le
+  record personnel compte, le VIP ne donne donc aucun avantage de classement.
 - **Salons privés** (onglet « Salons », ou depuis « Duels » sur téléphone) : jusqu'à **8 joueurs**, hôte compris, voient le
   même clip au même moment. **Seul le créateur doit être VIP** : le droit est relu en base à la création (jamais un champ
   envoyé par l'application ni le statut du jeton de connexion). Rejoindre, jouer et voir les résultats est gratuit, et une
@@ -157,8 +164,69 @@ pour tester Google sur téléphone, expose l'API avec une adresse publique (tunn
     devient hôte (l'hôte ne peut ni modifier les réponses ni les scores). Totaux recalculés par le serveur, places partagées
     en cas d'égalité, joueurs partis classés après les autres. Les salons rapportent de l'XP mais ne comptent dans aucun
     classement ; les réponses apparaissent dans l'historique du joueur (administration).
+  - **Mort subite** (option à la création, cochée par défaut) : en cas d'égalité en tête à la fin des manches prévues,
+    les ex aequo disputent une manche décisive sur un nouveau clip (les autres regardent). Le meilleur score de la manche
+    l'emporte ; ses points ne s'ajoutent pas au total. Toujours à égalité : nouvelle manche, 3 au maximum, puis la
+    réponse la plus rapide (temps mesuré par le serveur) parmi les meilleurs. Le résultat indique comment la victoire a
+    été obtenue (aux points, en mort subite, à la rapidité, ou partagée sans l'option). Règles dans
+    `packages/shared/src/room-rules.ts`, testées dans `room-rules.test.ts`.
+  - **Duels par équipes** (format choisi à la création : 2 contre 2 ou 3 contre 3) : deux équipes de même taille, chacun
+    répond seul au même clip. Un nouveau joueur va dans l'équipe la moins remplie ; il peut en changer tant qu'il y a de
+    la place, l'hôte peut placer les joueurs. Lancement quand les deux équipes sont complètes. Score d'équipe = somme
+    des points de ses joueurs (un joueur parti garde ses points). Égalité : mort subite entre les deux équipes si
+    l'option est active (somme des points de la manche décisive, puis temps de réponse moyen), sinon match nul. Une
+    équipe dont tous les joueurs sont partis perd aussitôt par abandon. Seul l'hôte est VIP : les joueurs des deux
+    équipes jouent gratuitement.
+  - **Intrus** (format choisi à la création, 4 à 8 joueurs, chacun pour soi, sans mises) : à chaque manche, un joueur
+    tiré au sort reçoit un autre clip du même jeu (rang éloigné d'au moins 2 crans, difficulté proche si possible), sans
+    le savoir. Personne n'est intrus deux fois tant que d'autres ne l'ont pas été. Chacun répond comme d'habitude
+    (points sur son propre clip), puis vote 25 s pour l'intrus d'après les rangs proposés par chacun (pas de texte
+    libre, donc rien à modérer ; pas de vote pour soi, un seul vote). Intrus démasqué (strictement le plus de votes) :
+    +100 à chaque bon votant ; sinon +200 pour l'intrus. Points du vote enregistrés une seule fois (`room_bonuses`,
+    clé joueur + manche). L'intrus, son clip et les votes ne sont dévoilés qu'à la fin du vote ; pendant une manche,
+    les scores affichés n'incluent pas encore la manche en cours (sinon on pourrait en déduire le rang réel).
+  - **Mode Confiance** (option à la création) : avant de valider, chaque joueur engage 1, 2 ou 3 **jetons virtuels** ;
+    mise et réponse sont verrouillées ensemble. Rang exact : mise rendue + 2 × la mise ; un rang d'écart : mise rendue ;
+    plus loin : seule la mise est perdue. Les mises restent cachées jusqu'à la fin de la manche. Les manches de mort
+    subite se jouent sans mise. Avec un solde vide, le joueur répond sans mise (il n'est jamais bloqué).
+  - **Jetons** (`/tokens`, carte « Mes jetons » de l'écran Salons) : 20 jetons au départ (comptes existants compris,
+    inscrits au journal par la migration), recharge gratuite une fois par jour jusqu'à 10 jetons, bénéfice net plafonné
+    à 100 jetons par jour. Les jetons ne s'achètent pas, ne se retirent pas, ne se transfèrent pas et ne donnent droit à
+    aucun prix. Le solde (`users.token_balance`, jamais négatif : contrainte en base) ne bouge que par des mouvements
+    inscrits dans `token_transactions`, chacun avec une clé unique : une mise, un gain ou une recharge ne peut pas être
+    compté deux fois. La mise est débitée dans la même transaction que la réponse (mise à jour conditionnelle au solde) ;
+    deux envois simultanés ne dépensent jamais les mêmes jetons.
   - Limites : 20 salons créés par heure, 15 codes faux par joueur et par heure (puis blocage d'une heure), réponses en
     double refusées (jeton à usage unique et contrainte d'unicité en base).
+- **Classement compétitif** (`/ranked`, depuis Duels et Classements) : cote RankSight (Elo), globale et par jeu, distincte
+  du rang réel dans les jeux. **Seuls les duels « au hasard » comptent** : jamais les duels entre amis, les salons ni
+  les tournois privés, pour qu'on ne puisse pas monter en jouant entre amis. Un duel sur un jeu compte pour ce jeu et
+  pour le global ; « Tous les jeux » pour le global seulement.
+  - Cote de départ 1000 (plancher 100) ; facteur K de 32 pendant les 20 premiers duels, puis 20. Victoire, nul ou
+    défaite selon le résultat du duel ; un abandon compte comme une défaite.
+  - Anti-arrangement : contre un même adversaire, seuls 3 duels par 24 heures font bouger la cote (les suivants sont
+    inscrits à l'historique, sans effet). Le VIP n'intervient pas dans le calcul.
+  - Chaque duel n'est compté qu'une fois par joueur et par classement (`rating_changes`, clé joueur + classement +
+    duel ; contrôle « avant + variation = après » en base). Calcul à la fin du duel ; rattrapage chaque minute des duels
+    terminés sans cote (une seule instance de l'API, verrou Redis).
+  - Classement : 5 duels classés minimum, joueurs bannis ou supprimés exclus, places partagées à cote égale ; paliers
+    affichés (Bronze à Maître) à titre indicatif. Écran de fin de duel : nouvelle cote et variation.
+- **Tournois privés** (`/tournaments`, depuis l'écran Salons) : tableau à élimination directe de 4, 8 ou 16 places.
+  **Seul le créateur doit être VIP** (relu en base à la création) ; s'inscrire avec le code ou le lien
+  `/tournaments/join/CODE`, jouer et gagner est gratuit, et un tournoi lancé va à son terme même si le VIP du créateur se
+  termine. Réglages : jeu, places, 3 ou 5 manches par match, temps de réponse.
+  - Lancement par l'hôte à partir de 3 inscrits ; têtes de série tirées au sort (aléa cryptographique), tableau à la
+    puissance de 2 suffisante, meilleures têtes de série qualifiées d'office s'il manque des joueurs (1 et 2 ne peuvent
+    se rencontrer qu'en finale).
+  - Match : dès que les deux adversaires sont connus, ils ont 5 minutes pour cliquer sur « Je suis prêt » ; le salon du
+    match (2 joueurs, mort subite, clips jamais proposés par l'un d'eux) est alors créé et lancé, et les deux joueurs y
+    sont envoyés. Un seul joueur prêt à l'heure limite : il gagne par forfait ; aucun : la meilleure tête de série passe.
+    Égalité parfaite après la mort subite : meilleure tête de série. Quitter le tournoi = forfait.
+  - Le gagnant passe au tour suivant dès la fin de son match ; places finales : 1er, 2e, puis places partagées par tour
+    (3e pour les demi-finalistes, 5e pour les quarts, 9e pour les huitièmes). Statistiques : victoires (hors
+    qualifications d'office) et points marqués en match. Suivi des matchs et des heures limites par une boucle d'une
+    seconde (une seule instance de l'API, verrou Redis) ; notifications en direct et push quand un match est prêt.
+  - Inscriptions non lancées fermées au bout de deux heures ; 10 tournois créés par heure au plus.
 - **Images des rangs** : chaque rang s'affiche avec un emblème (choix du rang, résultat). Par défaut, emblème RankGuess aux
   couleurs du rang ; l'administration peut envoyer sa propre image par rang (page « Rangs » : PNG, JPEG ou WebP, 512 Ko
   maximum, stockée en base). Utiliser uniquement des images dont vous détenez les droits.

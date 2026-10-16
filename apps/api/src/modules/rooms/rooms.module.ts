@@ -1,12 +1,13 @@
 import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Module, Param, ParseUUIDPipe, Post } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
-import { CreateRoomInput, InviteToRoomInput, JoinRoomInput, normalizeRoomCode } from "@ranksight/shared";
+import { CreateRoomInput, InviteToRoomInput, JoinRoomInput, SetRoomTeamInput, VoteInput, normalizeRoomCode } from "@ranksight/shared";
 import type { z } from "zod";
 import { CurrentUser, type AuthUser } from "../../common/decorators/current-user.decorator.js";
 import { ZodPipe } from "../../common/pipes/zod.pipe.js";
 import { ChatModule } from "../chat/chat.module.js";
 import { ClipsModule } from "../clips/clips.module.js";
 import { RoomsService } from "./rooms.service.js";
+import { TokensModule } from "../tokens/tokens.module.js";
 
 @Controller("rooms")
 export class RoomsController {
@@ -83,6 +84,22 @@ export class RoomsController {
     return this.rooms.declineInvite(u.sub, id);
   }
 
+  /** POST /v1/rooms/:id/team — { team, userId? } : changer d'équipe (ou placer un joueur, pour l'hôte) */
+  @Post(":id/team")
+  @HttpCode(200)
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
+  team(@CurrentUser() u: AuthUser, @Param("id", ParseUUIDPipe) id: string, @Body(new ZodPipe(SetRoomTeamInput)) body: SetRoomTeamInput) {
+    return this.rooms.setTeam(u.sub, id, body.team, body.userId);
+  }
+
+  /** POST /v1/rooms/:id/vote — { targetId } : mode Intrus, vote pour l'intrus de la manche */
+  @Post(":id/vote")
+  @HttpCode(200)
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
+  vote(@CurrentUser() u: AuthUser, @Param("id", ParseUUIDPipe) id: string, @Body(new ZodPipe(VoteInput)) body: VoteInput) {
+    return this.rooms.vote(u.sub, id, body.targetId);
+  }
+
   /** POST /v1/rooms/:id/kick/:userId — l'hôte retire un joueur de la salle d'attente */
   @Post(":id/kick/:userId")
   @HttpCode(200)
@@ -92,7 +109,7 @@ export class RoomsController {
 }
 
 @Module({
-  imports: [ClipsModule, ChatModule],
+  imports: [ClipsModule, ChatModule, TokensModule],
   controllers: [RoomsController],
   providers: [RoomsService],
   exports: [RoomsService],

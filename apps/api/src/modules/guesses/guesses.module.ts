@@ -10,14 +10,19 @@ import { GuessesService } from "./guesses.service.js";
 import { GuessStatsService } from "./guess-stats.service.js";
 import { VersusModule } from "../versus/versus.module.js";
 import { RoomsModule } from "../rooms/rooms.module.js";
+import { TokensModule } from "../tokens/tokens.module.js";
 
 @Controller("guesses")
 export class GuessesController {
   constructor(private readonly guesses: GuessesService) {}
 
-  /** POST /v1/guesses — { playToken, rankId, watchedMs } → résultat, score, XP, succès */
+  /**
+   * POST /v1/guesses — { playToken, rankId, watchedMs } → résultat, score, XP, succès.
+   * Limite par adresse IP : un salon de 8 amis sur la même box envoie jusqu'à 8 réponses toutes les dizaines de secondes.
+   * Chaque réponse exige de toute façon un jeton de partie à usage unique délivré par le serveur.
+   */
   @Post()
-  @Throttle({ default: { ttl: 60_000, limit: 30 } })
+  @Throttle({ default: { ttl: 60_000, limit: 90 } })
   submit(@CurrentUser() user: AuthUser, @Body(new ZodPipe(SubmitGuessInput)) body: SubmitGuessInput) {
     return this.guesses.submit(user.sub, body);
   }
@@ -34,7 +39,7 @@ export class GuessesController {
 }
 
 @Module({
-  imports: [ClipsModule, LeaderboardsModule, AchievementsModule, VersusModule, RoomsModule],
+  imports: [ClipsModule, LeaderboardsModule, AchievementsModule, VersusModule, RoomsModule, TokensModule],
   controllers: [GuessesController],
   providers: [GuessesService, GuessStatsService],
 })

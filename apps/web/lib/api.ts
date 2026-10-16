@@ -41,6 +41,18 @@ import {
   type RoomDto,
   type RoomPreviewDto,
   type RoomsOverviewDto,
+  type HigherLowerAnswerDto,
+  type HigherLowerChoice,
+  type HigherLowerOverviewDto,
+  type HigherLowerRunDto,
+  type TokensDto,
+  type CreateTournamentInput,
+  type TournamentDto,
+  type TournamentPreviewDto,
+  type TournamentsOverviewDto,
+  type MyRatingsDto,
+  type RatingBoardDto,
+  type RatingScope,
 } from "@ranksight/shared";
 
 export const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/v1";
@@ -223,6 +235,31 @@ export const api = {
   declineVersus: (id: string) => post(`/versus/${id}/decline`),
   cancelVersus: (id: string) => del(`/versus/${id}`),
 
+  // Plus haut / Plus bas
+  higherLower: () => request<HigherLowerOverviewDto>("/higher-lower"),
+  startHigherLower: (game: string) => post<HigherLowerRunDto>("/higher-lower/runs", { game }),
+  higherLowerRun: (id: string) => request<HigherLowerRunDto>(`/higher-lower/runs/${id}`),
+  answerHigherLower: (id: string, round: number, choice: HigherLowerChoice) =>
+    post<HigherLowerAnswerDto>(`/higher-lower/runs/${id}/answer`, { round, choice }),
+
+  // Jetons virtuels (mode Confiance)
+  tokens: () => request<TokensDto>("/tokens"),
+  refillTokens: () => post<TokensDto>("/tokens/refill"),
+
+  // Classement compétitif
+  ratingBoard: (scope: RatingScope) => request<RatingBoardDto>(`/ratings/leaderboard?scope=${scope}`),
+  myRatings: () => request<MyRatingsDto>("/ratings/me"),
+
+  // Tournois privés
+  tournaments: () => request<TournamentsOverviewDto>("/tournaments"),
+  tournament: (id: string) => request<TournamentDto>(`/tournaments/${id}`),
+  createTournament: (body: CreateTournamentInput) => post<TournamentDto>("/tournaments", body),
+  tournamentPreview: (code: string) => request<TournamentPreviewDto>(`/tournaments/code/${encodeURIComponent(code)}`),
+  joinTournament: (code: string) => post<TournamentDto>("/tournaments/join", { code }),
+  startTournament: (id: string) => post<TournamentDto>(`/tournaments/${id}/start`),
+  readyForMatch: (id: string) => post<TournamentDto>(`/tournaments/${id}/ready`),
+  leaveTournament: (id: string) => post(`/tournaments/${id}/leave`),
+
   // Salons privés
   rooms: () => request<RoomsOverviewDto>("/rooms"),
   room: (id: string) => request<RoomDto>(`/rooms/${id}`),
@@ -236,6 +273,8 @@ export const api = {
   inviteToRoom: (id: string, userId: string) => post<{ invited: boolean }>(`/rooms/${id}/invite`, { userId }),
   declineRoomInvite: (id: string) => del(`/rooms/${id}/invite`),
   kickFromRoom: (id: string, userId: string) => post<RoomDto>(`/rooms/${id}/kick/${userId}`),
+  voteInRoom: (id: string, targetId: string) => post<RoomDto>(`/rooms/${id}/vote`, { targetId }),
+  setRoomTeam: (id: string, team: 1 | 2, userId?: string) => post<RoomDto>(`/rooms/${id}/team`, { team, ...(userId ? { userId } : {}) }),
 
   // Boutique VIP
   shop: () => request<ShopDto>("/shop"),

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import type { PlayableClipDto } from "@ranksight/shared";
+import { CONFIDENCE_STAKES, CONFIDENCE_STAKE_LABEL, type PlayableClipDto } from "@ranksight/shared";
 import { api, ApiError, media } from "@/lib/api";
 import { errorMessage } from "@/components/AuthForm";
 import { ClipPlayer } from "@/components/ClipPlayer";
@@ -23,9 +23,14 @@ export function TimerBar({ progress }: { progress: number }) {
  * La réponse est enregistrée sans rien dévoiler : le rang réel n'apparaît qu'à la fin de la manche, pour tout le monde.
  */
 export function LiveRound({
-  clip, secondsLeft, progress, onSubmitted, onClosed, label,
-}: { clip: LiveClip; secondsLeft: number; progress: number; onSubmitted: () => void; onClosed: () => void; label?: string }) {
+  clip, secondsLeft, progress, onSubmitted, onClosed, label, tokens,
+}: {
+  clip: LiveClip; secondsLeft: number; progress: number; onSubmitted: () => void; onClosed: () => void; label?: string;
+  /** Mode Confiance : solde du joueur ; la réponse engage alors 1 à 3 jetons (0 seulement avec un solde vide) */
+  tokens?: number;
+}) {
   const [rankId, setRankId] = useState<string | null>(null);
+  const [stake, setStake] = useState(tokens === undefined ? 0 : Math.min(1, tokens));
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const watchedMs = useRef(0);
@@ -36,7 +41,7 @@ export function LiveRound({
     setPending(true);
     setError(null);
     try {
-      await api.liveGuess({ playToken: clip.playToken, rankId, watchedMs: watchedMs.current });
+      await api.liveGuess({ playToken: clip.playToken, rankId, watchedMs: watchedMs.current, ...(tokens !== undefined ? { stake } : {}) });
       onSubmitted();
     } catch (e) {
       if (e instanceof ApiError && (e.code === "ROUND_OVER" || e.code === "ALREADY_ANSWERED")) onClosed();
@@ -57,6 +62,31 @@ export function LiveRound({
         <div className="glass space-y-5 p-6">
           <h2 className="font-display text-2xl font-bold">Quel est son rang&nbsp;?</h2>
           <RankPicker ranks={clip.ranks} value={rankId} onChange={setRankId} disabled={pending} />
+          {tokens !== undefined && (
+            <div className="space-y-2">
+              <p className="hud-label">Ta mise · {tokens} jeton{tokens > 1 ? "s" : ""}</p>
+              {tokens === 0 ? (
+                <p className="text-sm text-muted">Solde vide : tu réponds sans mise. Recharge gratuite chaque jour dans « Salons ».</p>
+              ) : (
+                <div role="radiogroup" aria-label="Mise" className="grid grid-cols-3 gap-2">
+                  {CONFIDENCE_STAKES.map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      role="radio"
+                      aria-checked={stake === n}
+                      disabled={pending || n > tokens}
+                      onClick={() => setStake(n)}
+                      className={`rounded-xl border px-2 py-2 text-sm transition disabled:opacity-40 ${stake === n ? "border-warn bg-warn/15 text-ink" : "border-line text-muted hover:text-ink"}`}
+                    >
+                      <span className="block font-display text-lg font-bold">{n}</span>
+                      {CONFIDENCE_STAKE_LABEL[n]}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {error && <p className="text-sm text-danger">{error}</p>}
           <button onClick={submit} disabled={!rankId || pending} className="btn-primary w-full">{pending ? "Envoi…" : "Valider"}</button>
         </div>

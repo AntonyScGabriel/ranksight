@@ -31,7 +31,7 @@ export class GuessStatsService {
     const ready = await this.prisma.$queryRaw<{ id: string }[]>`
       SELECT g.id FROM guesses g
       LEFT JOIN rooms r ON r.id = g.room_id
-      LEFT JOIN room_rounds rr ON rr.room_id = g.room_id AND rr.clip_id = g.clip_id
+      LEFT JOIN room_rounds rr ON rr.room_id = g.room_id AND (rr.clip_id = g.clip_id OR rr.alt_clip_id = g.clip_id)
       LEFT JOIN versus_matches v ON v.id = g.versus_match_id
       LEFT JOIN versus_clips vc ON vc.match_id = g.versus_match_id AND vc.clip_id = g.clip_id
       WHERE g.stats_pending

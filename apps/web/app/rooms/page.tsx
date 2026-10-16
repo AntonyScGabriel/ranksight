@@ -15,6 +15,8 @@ import { errorMessage } from "@/components/AuthForm";
 import { LoginRequired, Skeleton } from "@/components/States";
 import { VipBadge } from "@/components/VipBadge";
 
+type Format = "solo" | "teams2" | "teams3" | "impostor";
+
 /** Salons privés : créer un salon (VIP), rejoindre avec un code (gratuit), invitations reçues, dernières parties. */
 export default function RoomsPage() {
   const { me, loading } = useSession();
@@ -26,7 +28,7 @@ export default function RoomsPage() {
   const [roundSec, setRoundSec] = useState<number>(ROOM_DEFAULT_TIME);
   const [suddenDeath, setSuddenDeath] = useState(true);
   const [confidence, setConfidence] = useState(false);
-  const [teamSize, setTeamSize] = useState<0 | 2 | 3>(0);
+  const [format, setFormat] = useState<Format>("solo");
   const [tokens, setTokens] = useState<TokensDto | null>(null);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
@@ -47,7 +49,12 @@ export default function RoomsPage() {
     setBusy(true);
     setError(null);
     try {
-      const room = await api.createRoom({ game, rounds, roundSec, suddenDeath, confidence, teamSize });
+      const room = await api.createRoom({
+        game, rounds, roundSec, suddenDeath,
+        confidence: format !== "impostor" && confidence,
+        teamSize: format === "teams2" ? 2 : format === "teams3" ? 3 : 0,
+        impostor: format === "impostor",
+      });
       router.push(`/rooms/${room.id}`);
     } catch (e) {
       setError(errorMessage(e, "Le salon n'a pas pu être créé."));
@@ -162,10 +169,11 @@ export default function RoomsPage() {
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <label className="space-y-1 text-sm">
               <span className="hud-label">Format</span>
-              <select value={teamSize} onChange={(e) => setTeamSize(Number(e.target.value) as 0 | 2 | 3)} className="input">
-                <option value={0}>Chacun pour soi (2 à 8)</option>
-                <option value={2}>Équipes 2 contre 2</option>
-                <option value={3}>Équipes 3 contre 3</option>
+              <select value={format} onChange={(e) => setFormat(e.target.value as Format)} className="input">
+                <option value="solo">Chacun pour soi (2 à 8)</option>
+                <option value="teams2">Équipes 2 contre 2</option>
+                <option value="teams3">Équipes 3 contre 3</option>
+                <option value="impostor">Intrus (4 à 8)</option>
               </select>
             </label>
             <label className="space-y-1 text-sm">
@@ -194,13 +202,19 @@ export default function RoomsPage() {
               <span className="block text-muted">En cas d&apos;égalité en tête, manche décisive entre les ex aequo (3 au maximum, puis la réponse la plus rapide).</span>
             </span>
           </label>
-          <label className="flex items-start gap-3 text-sm">
-            <input type="checkbox" checked={confidence} onChange={(e) => setConfidence(e.target.checked)} className="mt-1 h-4 w-4 accent-[var(--color-neon)]" />
-            <span>
-              <span className="font-semibold">Mode Confiance</span>
-              <span className="block text-muted">Chaque réponse engage 1 à 3 jetons virtuels (gratuits, jamais achetables). Tes amis jouent avec leurs propres jetons.</span>
-            </span>
-          </label>
+          {format === "impostor" ? (
+            <p className="text-sm text-muted">
+              Intrus : à chaque manche, un joueur reçoit un autre clip sans le savoir ; après les réponses, tout le monde vote pour le démasquer.
+            </p>
+          ) : (
+            <label className="flex items-start gap-3 text-sm">
+              <input type="checkbox" checked={confidence} onChange={(e) => setConfidence(e.target.checked)} className="mt-1 h-4 w-4 accent-[var(--color-neon)]" />
+              <span>
+                <span className="font-semibold">Mode Confiance</span>
+                <span className="block text-muted">Chaque réponse engage 1 à 3 jetons virtuels (gratuits, jamais achetables). Tes amis jouent avec leurs propres jetons.</span>
+              </span>
+            </label>
+          )}
           {data.canHost ? (
             <button disabled={busy} onClick={create} className="btn-primary w-full sm:w-auto">Créer le salon</button>
           ) : (

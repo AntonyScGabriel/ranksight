@@ -165,3 +165,49 @@ export function teamPlacements(totals: { id: string; score: number }[], decision
   if (decision.sharedWinners?.length) return new Map(totals.map((t) => [t.id, 1]));
   return placements(totals);
 }
+
+// ---------- Mode Intrus ----------
+
+export const IMPOSTOR_MIN_PLAYERS = 4;
+/** Durée du vote (secondes) */
+export const IMPOSTOR_VOTE_SEC = 25;
+export const IMPOSTOR_FOUND_POINTS = 100;
+export const IMPOSTOR_HIDDEN_POINTS = 200;
+
+export const IMPOSTOR_RULES = [
+  `À chaque manche, un joueur tiré au sort (jamais le même tant que d'autres ne l'ont pas été) reçoit un autre clip du même jeu, d'une difficulté proche mais d'un autre rang. Il ne le sait pas.`,
+  "Chacun propose un rang comme d'habitude (points habituels sur son propre clip).",
+  `Puis, d'après les rangs proposés par chacun, tout le monde vote pour l'intrus (${IMPOSTOR_VOTE_SEC} secondes, pas pour soi).`,
+  `Intrus démasqué (strictement plus de votes que tout autre joueur) : +${IMPOSTOR_FOUND_POINTS} à chaque joueur qui a voté pour lui.`,
+  `Intrus non démasqué : +${IMPOSTOR_HIDDEN_POINTS} pour l'intrus.`,
+  `${IMPOSTOR_MIN_PLAYERS} joueurs minimum.`,
+] as const;
+
+export interface ImpostorBonus { userId: string; points: number; reason: "IMPOSTOR_FOUND" | "IMPOSTOR_HIDDEN" }
+
+/**
+ * Résultat du vote d'une manche : l'intrus est démasqué s'il reçoit strictement plus de votes que chacun des autres.
+ * Démasqué → +100 à chaque votant qui l'a désigné ; sinon → +200 pour l'intrus. Les votes pour soi sont ignorés.
+ */
+export function impostorBonuses(impostorId: string, votes: { voterId: string; targetId: string }[]): { caught: boolean; counts: Map<string, number>; bonuses: ImpostorBonus[] } {
+  const valid = votes.filter((v) => v.voterId !== v.targetId);
+  const counts = new Map<string, number>();
+  for (const v of valid) counts.set(v.targetId, (counts.get(v.targetId) ?? 0) + 1);
+  const against = counts.get(impostorId) ?? 0;
+  const caught = against > 0 && [...counts.entries()].every(([id, n]) => id === impostorId || n < against);
+  const bonuses: ImpostorBonus[] = caught
+    ? valid.filter((v) => v.targetId === impostorId).map((v) => ({ userId: v.voterId, points: IMPOSTOR_FOUND_POINTS, reason: "IMPOSTOR_FOUND" }))
+    : [{ userId: impostorId, points: IMPOSTOR_HIDDEN_POINTS, reason: "IMPOSTOR_HIDDEN" }];
+  return { caught, counts, bonuses };
+}
+
+/**
+ * Intrus de la manche : parmi les joueurs encore là, ceux qui l'ont été le moins souvent dans la partie,
+ * puis au hasard (`random` dans [0, 1[ pour pouvoir tester).
+ */
+export function pickImpostor(players: string[], previous: string[], random = Math.random): string {
+  const count = (id: string) => previous.filter((p) => p === id).length;
+  const fewest = Math.min(...players.map(count));
+  const candidates = players.filter((p) => count(p) === fewest);
+  return candidates[Math.floor(random() * candidates.length)]!;
+}

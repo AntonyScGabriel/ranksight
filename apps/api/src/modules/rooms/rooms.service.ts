@@ -7,7 +7,7 @@ import type { Redis } from "ioredis";
 import {
   ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, ROOM_COUNTDOWN_SEC, ROOM_EVENT, ROOM_INVITE_EVENT, ROOM_LOBBY_TTL_MIN, ROOM_MAX_PLAYERS,
   ROOM_MIN_PLAYERS, ROOM_REVEAL_SEC, SUDDEN_DEATH_MAX_ROUNDS, TEAM_NAMES, finalPlacements, formatRoomCode, roomRoundSec, suddenDeathOutcome,
-  teamPlacements, teamSuddenDeathEntry, teamTotals, tiedLeaders,
+  teamPlacements, teamSuddenDeathEntry, teamTotals, tiedLeaders, IMPOSTOR_MIN_PLAYERS, IMPOSTOR_VOTE_SEC, impostorBonuses, pickImpostor,
   type DecidedBy,
   type PlayableClipDto, type RoomDto, type RoomInviteDto, type RoomPreviewDto, type RoomRoundDto,
   type RoomSummaryDto, type RoomsOverviewDto,
@@ -54,7 +54,13 @@ const notFound = () => new NotFoundException({ code: "ROOM_NOT_FOUND", message: 
 const spectator = () =>
   new ForbiddenException({ code: "SUDDEN_DEATH_SPECTATOR", message: "Manche décisive : seuls les joueurs à égalité en tête répondent." });
 /** Clips des manches prévues : seuls leurs points comptent dans le total (pas ceux des manches décisives) */
-const regularClips = (rounds: { clipId: string; suddenDeath: boolean }[]) => rounds.filter((r) => !r.suddenDeath).map((r) => r.clipId);
+const regularClips = (rounds: { clipId: string; suddenDeath: boolean; altClipId?: string | null }[]) =>
+  rounds.filter((r) => !r.suddenDeath).flatMap((r) => (r.altClipId ? [r.clipId, r.altClipId] : [r.clipId]));
+/** Clip servi à un joueur pour une manche : celui de l'intrus s'il l'est, sinon le clip de la manche */
+const clipFor = (round: { clipId: string; altClipId: string | null; impostorId: string | null }, userId: string) =>
+  round.impostorId === userId && round.altClipId ? round.altClipId : round.clipId;
+/** Les deux clips d'une manche (mode Intrus) */
+const roundClips = (round: { clipId: string; altClipId: string | null }) => (round.altClipId ? [round.clipId, round.altClipId] : [round.clipId]);
 
 /**
  * Salons privés : jusqu'à 8 joueurs voient le même clip au même moment.
@@ -96,7 +102,7 @@ export class RoomsService {
         const room = await tx.room.create({
           data: {
             code, createdById: userId, hostId: userId, gameId: game.id, rounds: input.rounds, roundSec: input.roundSec, suddenDeath: input.suddenDeath,
-            confidence: input.confidence, teamSize: input.teamSize || null,
+            confidence: input.confidence, teamSize: input.teamSize || null, impostor: input.impostor,
             maxPlayers: input.teamSize ? input.teamSize * 2 : ROOM_MAX_PLAYERS, expiresAt: later(ROOM_LOBBY_TTL_MIN * 60 * SEC),
             players: { create: { userId, team: input.teamSize ? 1 : null } },
           },
@@ -115,7 +121,7 @@ export class RoomsService {
     const players = room.players.filter((p) => !p.leftAt);
     return {
       id: room.id, code: room.code, host: room.host.displayName, game: room.game, rounds: room.rounds, roundSec: room.roundSec,
-      suddenDeath: room.suddenDeath, confidence: room.confidence, teamSize: room.teamSize, players: players.length, maxPlayers: room.maxPlayers, status: room.status,
+      suddenDeath: room.suddenDeath, confidence: room.confidence, teamSize: room.teamSize, impostor: room.impostor, players: players.length, maxPlayers: room.maxPlayers, status: room.status,
       member: room.players.some((p) => p.userId === userId),
     };
   }
@@ -285,6 +291,9 @@ export class RoomsService {
     if (players.length < ROOM_MIN_PLAYERS) {
       throw new BadRequestException({ code: "NOT_ENOUGH_PLAYERS", message: `Il faut au moins ${ROOM_MIN_PLAYERS} joueurs pour lancer la partie.` });
     }
+    if (room.impostor && players.length < IMPOSTOR_MIN_PLAYERS) {
+      throw new BadRequestException({ code: "NOT_ENOUGH_PLAYERS", message: `Il faut au moins ${IMPOSTOR_MIN_PLAYERS} joueurs pour le mode Intrus.` });
+    }
     if (room.teamSize) {
       const sizes = [1, 2].map((t) => room.players.filter((p) => !p.leftAt && p.team === t).length);
       if (sizes.some((n) => n !== room.teamSize)) {
@@ -305,6 +314,7 @@ export class RoomsService {
       if (!count) return false;
       await tx.roomRound.createMany({ data: clipIds.map((clipId, position) => ({ roomId, clipId, position })) });
       await tx.roomInvite.deleteMany({ where: { roomId } });
+      if (room.impostor) await this.assignImpostor(tx, roomId, 0, players);
       return true;
     });
     if (!started) throw new ConflictException({ code: "ROOM_STARTED", message: "La partie a déjà commencé." });
@@ -336,9 +346,11 @@ export class RoomsService {
     const current = room.roundList[room.currentRound - 1];
     if (!current) throw noClipAvailable();
     if (current.suddenDeath && !seat.finalist) throw spectator();
-    const answered = await this.prisma.guess.count({ where: { userId, roomId, clipId: current.clipId } });
+    if (room.phase !== "ANSWER") throw new ConflictException({ code: "ROUND_OVER", message: "Les réponses sont terminées pour cette manche." });
+    const answered = await this.prisma.guess.count({ where: { userId, roomId, clipId: { in: roundClips(current) } } });
     if (answered) throw new ConflictException({ code: "ALREADY_ANSWERED", message: "Tu as déjà répondu à cette manche." });
-    const clip = await this.prisma.clip.findUnique({ where: { id: current.clipId }, include: clipInclude });
+    // Mode Intrus : l'intrus reçoit l'autre clip, sans le savoir
+    const clip = await this.prisma.clip.findUnique({ where: { id: clipFor(current, userId) }, include: clipInclude });
     if (!clip) throw noClipAvailable();
     const token = await this.playTokens.sign({ uid: userId, cid: clip.id, mode: "ROOM", rmid: roomId });
     return {
@@ -355,7 +367,7 @@ export class RoomsService {
     const room = await this.loadRoom(roomId);
     const seat = room ? await this.prisma.roomPlayer.findUnique({ where: { roomId_userId: { roomId, userId } } }) : null;
     const current = room?.roundList[(room?.currentRound ?? 0) - 1];
-    if (!room || !seat || seat.leftAt || room.status !== "ACTIVE" || !current || current.clipId !== clipId || !room.roundEndsAt) {
+    if (!room || !seat || seat.leftAt || room.status !== "ACTIVE" || !current || clipFor(current, userId) !== clipId || !room.roundEndsAt || room.phase !== "ANSWER") {
       throw new ConflictException({ code: "ROUND_OVER", message: "Cette manche est terminée." });
     }
     if (current.suddenDeath && !seat.finalist) throw spectator();
@@ -370,8 +382,8 @@ export class RoomsService {
   async afterAnswer(userId: string, roomId: string) {
     const room = await this.loadRoom(roomId);
     if (room) {
-      const total = await this.prisma.guess.aggregate({ where: { roomId, userId, clipId: { in: regularClips(room.roundList) } }, _sum: { score: true } });
-      await this.prisma.roomPlayer.update({ where: { roomId_userId: { roomId, userId } }, data: { score: total._sum.score ?? 0 } });
+      const totals = await this.regularTotals(roomId, room.roundList);
+      await this.prisma.roomPlayer.update({ where: { roomId_userId: { roomId, userId } }, data: { score: totals.get(userId) ?? 0 } });
     }
     await this.checkRoundComplete(roomId);
     return { position: room?.currentRound ?? 0, rounds: room?.rounds ?? 0 };
@@ -383,13 +395,13 @@ export class RoomsService {
     const current = room.roundList[room.currentRound - 1];
     const [players, answered] = await Promise.all([
       this.prisma.roomPlayer.findMany({ where: { roomId, leftAt: null }, select: { userId: true, finalist: true } }),
-      current ? this.prisma.guess.findMany({ where: { roomId, clipId: current.clipId }, select: { userId: true } }) : [],
+      current ? this.prisma.guess.findMany({ where: { roomId, clipId: { in: roundClips(current) } }, select: { userId: true } }) : [],
     ]);
     const respondents = players.filter((p) => !current?.suddenDeath || p.finalist);
     const done = new Set(answered.map((a) => a.userId));
     // Manche décisive avec un seul finaliste encore là : inutile d'attendre, il l'emporte
-    if (current?.suddenDeath && respondents.length <= 1) await this.advance(roomId, room.currentRound);
-    else if (respondents.length && respondents.every((p) => done.has(p.userId))) await this.advance(roomId, room.currentRound);
+    if (current?.suddenDeath && respondents.length <= 1) await this.advance(roomId, room.currentRound, "ANSWER");
+    else if (respondents.length && respondents.every((p) => done.has(p.userId))) await this.advance(roomId, room.currentRound, "ANSWER");
     else await this.notifyRoom(roomId);
   }
 
@@ -397,17 +409,27 @@ export class RoomsService {
    * Fin de la manche `round` : manche suivante après la pause d'affichage, mort subite ou fin de la partie.
    * Conditionnée à la manche courante : une seule instance de l'API l'applique.
    */
-  private async advance(roomId: string, round: number) {
+  private async advance(roomId: string, round: number, phase: string) {
     const room = await this.loadRoom(roomId);
-    if (!room || room.status !== "ACTIVE" || room.currentRound !== round) return;
+    if (!room || room.status !== "ACTIVE" || room.currentRound !== round || room.phase !== phase) return;
+    const current = room.roundList[round - 1];
+    // Mode Intrus : après les réponses, le vote ; après le vote, les points du vote puis la suite
+    if (room.impostor && current?.impostorId && !current.suddenDeath) {
+      if (phase === "ANSWER") return this.startVote(roomId, round);
+      await this.resolveVote(roomId, round, current.impostorId);
+    }
     await this.settle(room, round);
     if (round < room.rounds) {
       const next = room.roundList[round];
       const startsAt = later(ROOM_REVEAL_SEC * SEC);
+      if (room.impostor) {
+        const active = await this.prisma.roomPlayer.findMany({ where: { roomId, leftAt: null }, select: { userId: true } });
+        await this.prisma.$transaction((tx) => this.assignImpostor(tx, roomId, round, active.map((p) => p.userId)));
+      }
       const { count } = await this.prisma.room.updateMany({
-        where: { id: roomId, status: "ACTIVE", currentRound: round },
+        where: { id: roomId, status: "ACTIVE", currentRound: round, phase },
         data: {
-          currentRound: round + 1, roundStartsAt: startsAt,
+          currentRound: round + 1, roundStartsAt: startsAt, phase: "ANSWER",
           roundEndsAt: new Date(startsAt.getTime() + roomRoundSec(next?.clip.durationSec ?? 0, room.roundSec) * SEC),
         },
       });
@@ -415,6 +437,97 @@ export class RoomsService {
       return;
     }
     await this.decide(room, round);
+  }
+
+  // ---------- Mode Intrus ----------
+
+  /**
+   * Intrus de la manche `index` (0 = première) : un joueur encore là, le moins souvent intrus jusqu'ici, reçoit un autre clip
+   * du même jeu, d'un rang différent d'au moins 2 crans et d'une difficulté proche, jamais joué dans le salon ni proposé par un joueur.
+   */
+  private async assignImpostor(tx: Prisma.TransactionClient, roomId: string, index: number, players: string[]) {
+    if (players.length < 2) return;
+    const rounds = await tx.roomRound.findMany({ where: { roomId }, select: { position: true, clipId: true, altClipId: true, impostorId: true } });
+    const target = rounds.find((r) => r.position === index);
+    if (!target || target.impostorId) return;
+    const room = await tx.room.findUniqueOrThrow({ where: { id: roomId }, select: { gameId: true, players: { select: { userId: true } } } });
+    const used = rounds.flatMap((r) => (r.altClipId ? [r.clipId, r.altClipId] : [r.clipId]));
+    const uploaders = room.players.map((p) => p.userId);
+    const [main] = await tx.$queryRaw<{ difficulty: number; rank_order: number }[]>`
+      SELECT c.difficulty, r."order" AS rank_order FROM clips c JOIN ranks r ON r.id = c.rank_id WHERE c.id = ${target.clipId}::uuid`;
+    if (!main) return;
+    const candidates = await tx.$queryRaw<{ id: string; close: boolean }[]>`
+      SELECT c.id, abs(c.difficulty - ${main.difficulty}) <= 1 AS close FROM clips c JOIN ranks r ON r.id = c.rank_id
+      WHERE c.status = 'APPROVED' AND c.deleted_at IS NULL AND c.game_id = ${room.gameId}::uuid
+        AND abs(r."order" - ${main.rank_order}) >= 2 AND c.id <> ALL(${used}::uuid[]) AND c.uploader_id <> ALL(${uploaders}::uuid[])
+      ORDER BY random() LIMIT 20`;
+    const alt = candidates.find((c) => c.close) ?? candidates[0];
+    if (!alt) return;
+    const impostorId = pickImpostor(players, rounds.map((r) => r.impostorId).filter((x): x is string => !!x));
+    await tx.roomRound.update({ where: { roomId_position: { roomId, position: index } }, data: { impostorId, altClipId: alt.id } });
+  }
+
+  /** Fin des réponses : place au vote, pendant 25 secondes (ou jusqu'à ce que tout le monde ait voté). */
+  private async startVote(roomId: string, round: number) {
+    const { count } = await this.prisma.room.updateMany({
+      where: { id: roomId, status: "ACTIVE", currentRound: round, phase: "ANSWER" },
+      data: { phase: "VOTE", roundEndsAt: later(IMPOSTOR_VOTE_SEC * SEC) },
+    });
+    if (count) await this.notifyRoom(roomId);
+  }
+
+  /** Vote d'un joueur encore en jeu pour un autre joueur encore en jeu ; un seul vote par manche. */
+  async vote(userId: string, roomId: string, targetId: string) {
+    const room = await this.loadRoom(roomId);
+    const seat = room ? await this.prisma.roomPlayer.findUnique({ where: { roomId_userId: { roomId, userId } } }) : null;
+    if (!room || !seat) throw notFound();
+    const current = room.roundList[room.currentRound - 1];
+    if (room.status !== "ACTIVE" || !room.impostor || room.phase !== "VOTE" || !current || !room.roundEndsAt || Date.now() > room.roundEndsAt.getTime() + ANSWER_GRACE) {
+      throw new ConflictException({ code: "VOTE_CLOSED", message: "Le vote n'est pas ouvert." });
+    }
+    if (seat.leftAt) throw new ConflictException({ code: "ROOM_LEFT", message: "Tu as quitté cette partie." });
+    if (targetId === userId) throw new BadRequestException({ code: "SELF_VOTE", message: "Tu ne peux pas voter pour toi." });
+    const target = await this.prisma.roomPlayer.findUnique({ where: { roomId_userId: { roomId, userId: targetId } } });
+    if (!target || target.leftAt) throw new BadRequestException({ code: "INVALID_TARGET", message: "Ce joueur n'est pas dans la partie." });
+    try {
+      await this.prisma.roomVote.create({ data: { roomId, round: room.currentRound, voterId: userId, targetId } });
+    } catch (e) {
+      if ((e as { code?: string }).code === "P2002") throw new ConflictException({ code: "ALREADY_VOTED", message: "Tu as déjà voté pour cette manche." });
+      throw e;
+    }
+    const [active, votes] = await Promise.all([
+      this.prisma.roomPlayer.count({ where: { roomId, leftAt: null } }),
+      this.prisma.roomVote.count({ where: { roomId, round: room.currentRound } }),
+    ]);
+    if (votes >= active) await this.advance(roomId, room.currentRound, "VOTE");
+    else await this.notifyRoom(roomId);
+    return this.detail(userId, roomId);
+  }
+
+  /** Points du vote (une seule fois : clé joueur + manche), puis totaux des joueurs recalculés. */
+  private async resolveVote(roomId: string, round: number, impostorId: string) {
+    const votes = await this.prisma.roomVote.findMany({ where: { roomId, round }, select: { voterId: true, targetId: true } });
+    const { bonuses } = impostorBonuses(impostorId, votes);
+    await this.prisma.roomBonus.createMany({ data: bonuses.map((b) => ({ roomId, round, userId: b.userId, points: b.points, reason: b.reason })), skipDuplicates: true });
+    const room = await this.loadRoom(roomId);
+    if (!room) return;
+    const totals = await this.regularTotals(roomId, room.roundList);
+    for (const [userId, score] of totals) await this.prisma.roomPlayer.updateMany({ where: { roomId, userId }, data: { score } });
+  }
+
+  /** Total de chaque joueur : points des réponses aux manches prévues (hors mort subite) + points du vote (mode Intrus). */
+  private async regularTotals(
+    roomId: string, rounds: { clipId: string; suddenDeath: boolean; altClipId?: string | null }[],
+    db: Prisma.TransactionClient | PrismaService = this.prisma,
+  ): Promise<Map<string, number>> {
+    const [guesses, bonuses] = await Promise.all([
+      db.guess.groupBy({ by: ["userId"], where: { roomId, clipId: { in: regularClips(rounds) } }, _sum: { score: true } }),
+      db.roomBonus.groupBy({ by: ["userId"], where: { roomId }, _sum: { points: true } }),
+    ]);
+    const out = new Map<string, number>();
+    for (const g of guesses) out.set(g.userId, (out.get(g.userId) ?? 0) + (g._sum.score ?? 0));
+    for (const b of bonuses) out.set(b.userId, (out.get(b.userId) ?? 0) + (b._sum.points ?? 0));
+    return out;
   }
 
   /** Mode Confiance : mises de la manche réglées (une seule fois, même si la fin de manche est traitée deux fois) */
@@ -446,9 +559,8 @@ export class RoomsService {
       if (outcome.kind === "shared") return this.finish(room.id, round, { sharedWinners: outcome.finalists, finalists, decidedBy: "SHARED" });
       return this.launchSuddenDeath(room, round, outcome.finalists, players.map((p) => p.userId));
     }
-    const regular = regularClips(room.roundList);
-    const totals = await this.prisma.guess.groupBy({ by: ["userId"], where: { roomId: room.id, clipId: { in: regular } }, _sum: { score: true } });
-    const stayed = players.filter((p) => !p.leftAt).map((p) => ({ id: p.userId, score: totals.find((t) => t.userId === p.userId)?._sum.score ?? 0 }));
+    const totals = await this.regularTotals(room.id, room.roundList);
+    const stayed = players.filter((p) => !p.leftAt).map((p) => ({ id: p.userId, score: totals.get(p.userId) ?? 0 }));
     const tied = tiedLeaders(stayed);
     if (tied.length && room.suddenDeath) return this.launchSuddenDeath(room, round, tied, players.map((p) => p.userId));
     return this.finish(room.id, round, { decidedBy: stayed.length ? (tied.length ? "SHARED" : "POINTS") : undefined, sharedWinners: tied.length ? tied : undefined });
@@ -488,18 +600,18 @@ export class RoomsService {
   }
 
   private async teamScores(
-    roomId: string, rounds: { clipId: string; suddenDeath: boolean }[], players: { userId: string; team: number | null }[],
+    roomId: string, rounds: { clipId: string; suddenDeath: boolean; altClipId?: string | null }[], players: { userId: string; team: number | null }[],
     db: Prisma.TransactionClient | PrismaService = this.prisma,
   ) {
-    const totals = await db.guess.groupBy({ by: ["userId"], where: { roomId, clipId: { in: regularClips(rounds) } }, _sum: { score: true } });
-    return teamTotals(players.map((p) => ({ team: p.team, score: totals.find((t) => t.userId === p.userId)?._sum.score ?? 0 })));
+    const totals = await this.regularTotals(roomId, rounds, db);
+    return teamTotals(players.map((p) => ({ team: p.team, score: totals.get(p.userId) ?? 0 })));
   }
 
   /** Nouvelle manche décisive entre `finalists`, sur un clip jamais joué dans ce salon ; sans clip disponible, victoire partagée. */
   private async launchSuddenDeath(
     room: NonNullable<Awaited<ReturnType<RoomsService["loadRoom"]>>>, round: number, finalists: string[], everyone: string[],
   ) {
-    const used = room.roundList.map((r) => r.clipId);
+    const used = room.roundList.flatMap((r) => roundClips(r));
     const [clip] = await this.prisma.$queryRaw<{ id: string; duration_sec: number }[]>`
       SELECT c.id, c.duration_sec FROM clips c
       WHERE c.status = 'APPROVED' AND c.deleted_at IS NULL AND c.game_id = ${room.gameId}::uuid
@@ -511,7 +623,7 @@ export class RoomsService {
       const { count } = await tx.room.updateMany({
         where: { id: room.id, status: "ACTIVE", currentRound: round, suddenDeathRounds: { lt: SUDDEN_DEATH_MAX_ROUNDS } },
         data: {
-          currentRound: round + 1, suddenDeathRounds: { increment: 1 }, roundStartsAt: startsAt,
+          currentRound: round + 1, suddenDeathRounds: { increment: 1 }, roundStartsAt: startsAt, phase: "ANSWER",
           roundEndsAt: new Date(startsAt.getTime() + roomRoundSec(clip.duration_sec, room.roundSec) * SEC),
         },
       });
@@ -536,16 +648,16 @@ export class RoomsService {
     const done = await this.prisma.$transaction(async (tx) => {
       const { count } = await tx.room.updateMany({
         where: { id: roomId, status: "ACTIVE", ...(round ? { currentRound: round } : {}) },
-        data: { status: "FINISHED", finishedAt: new Date(), roundStartsAt: null, roundEndsAt: null, decidedBy: decision.decidedBy ?? null },
+        data: { status: "FINISHED", finishedAt: new Date(), roundStartsAt: null, roundEndsAt: null, phase: "ANSWER", decidedBy: decision.decidedBy ?? null },
       });
       if (!count) return false;
-      const rounds = await tx.roomRound.findMany({ where: { roomId }, select: { clipId: true, suddenDeath: true } });
+      const rounds = await tx.roomRound.findMany({ where: { roomId }, select: { clipId: true, suddenDeath: true, altClipId: true } });
       const [players, totals, room] = await Promise.all([
         tx.roomPlayer.findMany({ where: { roomId }, select: { userId: true, leftAt: true, team: true } }),
-        tx.guess.groupBy({ by: ["userId"], where: { roomId, clipId: { in: regularClips(rounds) } }, _sum: { score: true } }),
+        this.regularTotals(roomId, rounds, tx),
         tx.room.findUniqueOrThrow({ where: { id: roomId }, select: { teamSize: true } }),
       ]);
-      const scored = players.map((p) => ({ id: p.userId, left: !!p.leftAt, score: totals.find((t) => t.userId === p.userId)?._sum.score ?? 0 }));
+      const scored = players.map((p) => ({ id: p.userId, left: !!p.leftAt, score: totals.get(p.userId) ?? 0 }));
       let places: Map<string, number>;
       if (room.teamSize) {
         // Duel par équipes : chaque joueur prend la place de son équipe
@@ -572,12 +684,12 @@ export class RoomsService {
     const now = new Date();
     const overdue = await this.prisma.room.findMany({
       where: { status: "ACTIVE", roundEndsAt: { lt: new Date(now.getTime() - ANSWER_GRACE) } },
-      select: { id: true, currentRound: true },
+      select: { id: true, currentRound: true, phase: true },
       take: 200,
     });
     for (const r of overdue) {
       try {
-        await this.advance(r.id, r.currentRound);
+        await this.advance(r.id, r.currentRound, r.phase);
       } catch (e) {
         this.logger.error(`Salon ${r.id} : passage de manche impossible`, e as Error);
       }
@@ -644,23 +756,45 @@ export class RoomsService {
       this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { tokenBalance: true } }),
     ]);
     const stakeOf = (round: number, uid: string) => stakes.find((x) => x.round === round && x.userId === uid);
+    // Mode Intrus : rang du clip de l'intrus, votes et points du vote (dévoilés seulement avec la manche)
+    const [altRanks, votes, bonuses] = room.impostor
+      ? await Promise.all([
+          this.prisma.clip.findMany({ where: { id: { in: rounds.flatMap((r) => (r.altClipId ? [r.altClipId] : [])) } }, select: { id: true, rank: { select: rankSelect } } }),
+          this.prisma.roomVote.findMany({ where: { roomId }, select: { round: true, voterId: true, targetId: true } }),
+          this.prisma.roomBonus.findMany({ where: { roomId }, select: { round: true, userId: true, points: true } }),
+        ])
+      : [[], [], []];
     // Manches dévoilées : celles déjà terminées (toutes une fois la partie finie). Jamais le rang de la manche en cours.
     const resolved = room.status === "ACTIVE" ? room.currentRound - 1 : room.status === "FINISHED" ? rounds.length : 0;
     const details: RoomRoundDto[] = rounds.slice(0, resolved).map((r) => ({
       position: r.position + 1,
       suddenDeath: r.suddenDeath,
       correctRank: r.clip.rank,
-      answers: answers.filter((a) => a.clipId === r.clipId).map((a) => {
+      impostor: r.impostorId && r.altClipId
+        ? {
+            userId: r.impostorId,
+            rank: altRanks.find((c) => c.id === r.altClipId)!.rank,
+            caught: bonuses.some((b) => b.round === r.position + 1 && b.userId !== r.impostorId),
+            votes: votes.filter((v) => v.round === r.position + 1).map((v) => ({ voterId: v.voterId, targetId: v.targetId })),
+            bonuses: bonuses.filter((b) => b.round === r.position + 1).map((b) => ({ userId: b.userId, points: b.points })),
+          }
+        : null,
+      answers: answers.filter((a) => a.clipId === r.clipId || a.clipId === r.altClipId).map((a) => {
         const st = stakeOf(r.position + 1, a.userId);
         return { userId: a.userId, rank: a.guessedRank, score: a.score, stake: st?.stake ?? null, payout: st?.payout ?? null };
       }),
     }));
-    const currentClip = current?.clipId;
-    const answeredNow = new Set(currentClip ? answers.filter((a) => a.clipId === currentClip).map((a) => a.userId) : []);
+    const currentAnswers = current ? answers.filter((a) => a.clipId === current.clipId || a.clipId === current.altClipId) : [];
+    const answeredNow = new Set(currentAnswers.map((a) => a.userId));
+    const currentVotes = current ? votes.filter((v) => v.round === current.position + 1) : [];
+    // Scores affichés pendant une manche : sans les points de la manche en cours (sinon, une fois les rangs proposés
+    // dévoilés au vote du mode Intrus, on pourrait en déduire le rang réel et l'intrus)
+    const pending = new Map(current && !current.suddenDeath ? currentAnswers.map((a) => [a.userId, a.score] as const) : []);
+    const shownScore = (p: { userId: string; score: number }) => p.score - (pending.get(p.userId) ?? 0);
     const me = room.players.find((p) => p.userId === userId)!;
     const active = room.players.filter((p) => !p.leftAt);
     const players = [...room.players].sort((a, b) =>
-      room.status === "FINISHED" ? (a.placement ?? 99) - (b.placement ?? 99) : room.status === "ACTIVE" ? b.score - a.score : 0,
+      room.status === "FINISHED" ? (a.placement ?? 99) - (b.placement ?? 99) : room.status === "ACTIVE" ? shownScore(b) - shownScore(a) : 0,
     );
     return {
       id: room.id,
@@ -673,12 +807,13 @@ export class RoomsService {
       suddenDeath: room.suddenDeath,
       confidence: room.confidence,
       teamSize: room.teamSize,
+      impostor: room.impostor,
       teams: room.teamSize
         ? [1, 2].map((t) => {
             const members = room.players.filter((p) => p.team === t);
             return {
               team: t, name: TEAM_NAMES[t]!, players: members.filter((p) => !p.leftAt).length,
-              score: members.reduce((sum, p) => sum + p.score, 0),
+              score: members.reduce((sum, p) => sum + shownScore(p), 0),
               placement: room.status === "FINISHED" ? (members[0]?.placement ?? null) : null,
             };
           })
@@ -689,14 +824,15 @@ export class RoomsService {
       decidedBy: room.status === "FINISHED" ? (room.decidedBy as DecidedBy | null) : null,
       isHost: room.hostId === userId,
       left: !!me.leftAt,
-      canStart: room.status === "LOBBY" && room.hostId === userId && active.length >= ROOM_MIN_PLAYERS,
+      canStart: room.status === "LOBBY" && room.hostId === userId && active.length >= (room.impostor ? IMPOSTOR_MIN_PLAYERS : ROOM_MIN_PLAYERS)
+        && (!room.teamSize || [1, 2].every((t) => active.filter((p) => p.team === t).length === room.teamSize)),
       players: players.map((p) => ({
         id: p.userId,
         displayName: p.user.displayName,
         avatarUrl: p.user.avatarUrl,
         vip: isVip(p.user.subscription),
         flair: toFlair(p.user),
-        score: p.score,
+        score: shownScore(p),
         isHost: p.userId === room.hostId,
         left: !!p.leftAt,
         answered: answeredNow.has(p.userId),
@@ -717,6 +853,11 @@ export class RoomsService {
             endsAt: room.roundEndsAt.toISOString(),
             serverNow: new Date().toISOString(),
             answered: answeredNow.has(userId),
+            phase: room.phase === "VOTE" ? "VOTE" : "ANSWER",
+            // Vote : rangs proposés par chacun (sans le rang réel, sans les points, sans désigner l'intrus)
+            guesses: room.phase === "VOTE" ? currentAnswers.map((a) => ({ userId: a.userId, rank: a.guessedRank })) : [],
+            myVote: currentVotes.find((v) => v.voterId === userId)?.targetId ?? null,
+            voted: currentVotes.map((v) => v.voterId),
           }
         : null,
       details,

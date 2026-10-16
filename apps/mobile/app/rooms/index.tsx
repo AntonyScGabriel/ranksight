@@ -34,6 +34,10 @@ function Chips<T extends string | number>({ value, options, onChange, label }: {
   );
 }
 
+type Format = "solo" | "teams2" | "teams3" | "impostor";
+const FORMATS: readonly Format[] = ["solo", "teams2", "teams3", "impostor"];
+const FORMAT_LABEL: Record<Format, string> = { solo: "Chacun pour soi", teams2: "2 contre 2", teams3: "3 contre 3", impostor: "Intrus" };
+
 /** Salons privés : rejoindre avec un code (gratuit), créer un salon (VIP), invitations reçues, dernières parties. */
 export default function RoomsScreen() {
   const { me, loading } = useSession();
@@ -44,7 +48,7 @@ export default function RoomsScreen() {
   const [roundSec, setRoundSec] = useState<number>(ROOM_DEFAULT_TIME);
   const [suddenDeath, setSuddenDeath] = useState(true);
   const [confidence, setConfidence] = useState(false);
-  const [teamSize, setTeamSize] = useState<0 | 2 | 3>(0);
+  const [format, setFormat] = useState<Format>("solo");
   const [tokens, setTokens] = useState<TokensDto | null>(null);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
@@ -82,7 +86,12 @@ export default function RoomsScreen() {
     setBusy(true);
     setError(null);
     try {
-      open((await api.createRoom({ game, rounds, roundSec, suddenDeath, confidence, teamSize })).id);
+      open((await api.createRoom({
+        game, rounds, roundSec, suddenDeath,
+        confidence: format !== "impostor" && confidence,
+        teamSize: format === "teams2" ? 2 : format === "teams3" ? 3 : 0,
+        impostor: format === "impostor",
+      })).id);
     } catch (e) {
       setError(errorMessage(e, "Le salon n'a pas pu être créé."));
     } finally {
@@ -155,7 +164,8 @@ export default function RoomsScreen() {
           <Text style={{ color: "black", backgroundColor: colors.warn, borderRadius: 4, paddingHorizontal: 5, fontSize: 10, fontWeight: "800", overflow: "hidden" }}>VIP</Text>
         </View>
         <Hud>Format</Hud>
-        <Chips value={teamSize} options={[0, 2, 3] as const} onChange={setTeamSize} label={(n) => (n === 0 ? "Chacun pour soi" : `${n} contre ${n}`)} />
+        <Chips value={format} options={FORMATS} onChange={setFormat} label={(f) => FORMAT_LABEL[f]} />
+        {format === "impostor" && <Muted>Un joueur reçoit un autre clip sans le savoir ; après les réponses, tout le monde vote pour le démasquer. 4 joueurs minimum.</Muted>}
         <Hud>Jeu</Hud>
         <Chips value={game} options={GAME_SLUGS} onChange={setGame} label={(s) => GAME_NAMES[s]} />
         <Hud>Manches</Hud>
@@ -169,13 +179,13 @@ export default function RoomsScreen() {
           </View>
           <Switch value={suddenDeath} onValueChange={setSuddenDeath} trackColor={{ true: colors.violet, false: colors.line }} accessibilityLabel="Mort subite" />
         </View>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+        {format !== "impostor" && <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
           <View style={{ flex: 1 }}>
             <Text style={{ color: colors.ink, fontWeight: "700" }}>Mode Confiance</Text>
             <Muted>Chaque réponse engage 1 à 3 jetons virtuels, jamais achetables.</Muted>
           </View>
           <Switch value={confidence} onValueChange={setConfidence} trackColor={{ true: colors.violet, false: colors.line }} accessibilityLabel="Mode Confiance" />
-        </View>
+        </View>}
         {data.canHost ? (
           <PrimaryButton label="Créer le salon" disabled={busy} onPress={create} />
         ) : (

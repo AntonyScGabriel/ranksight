@@ -1,6 +1,6 @@
 import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Module, Param, ParseUUIDPipe, Post } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
-import { CreateRoomInput, InviteToRoomInput, JoinRoomInput, SetRoomTeamInput, normalizeRoomCode } from "@ranksight/shared";
+import { CreateRoomInput, InviteToRoomInput, JoinRoomInput, SetRoomTeamInput, VoteInput, normalizeRoomCode } from "@ranksight/shared";
 import type { z } from "zod";
 import { CurrentUser, type AuthUser } from "../../common/decorators/current-user.decorator.js";
 import { ZodPipe } from "../../common/pipes/zod.pipe.js";
@@ -90,6 +90,14 @@ export class RoomsController {
   @Throttle({ default: { ttl: 60_000, limit: 60 } })
   team(@CurrentUser() u: AuthUser, @Param("id", ParseUUIDPipe) id: string, @Body(new ZodPipe(SetRoomTeamInput)) body: SetRoomTeamInput) {
     return this.rooms.setTeam(u.sub, id, body.team, body.userId);
+  }
+
+  /** POST /v1/rooms/:id/vote — { targetId } : mode Intrus, vote pour l'intrus de la manche */
+  @Post(":id/vote")
+  @HttpCode(200)
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
+  vote(@CurrentUser() u: AuthUser, @Param("id", ParseUUIDPipe) id: string, @Body(new ZodPipe(VoteInput)) body: VoteInput) {
+    return this.rooms.vote(u.sub, id, body.targetId);
   }
 
   /** POST /v1/rooms/:id/kick/:userId — l'hôte retire un joueur de la salle d'attente */

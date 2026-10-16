@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Pressable, ScrollView, Share, Text, View } from "react-native";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import {
-  CONFIDENCE_RULES, DECIDED_BY_LABEL, ROOM_MIN_PLAYERS, ROOM_RULES, SUDDEN_DEATH_RULES, TEAM_COLORS, TEAM_NAMES, TEAM_RULES, formatRoomCode, type RoomDto, type RoomPlayerDto, type RoomRoundDto, type UserSummaryDto,
+  CONFIDENCE_RULES, DECIDED_BY_LABEL, IMPOSTOR_MIN_PLAYERS, IMPOSTOR_RULES, ROOM_MIN_PLAYERS, ROOM_RULES, SUDDEN_DEATH_RULES, TEAM_COLORS, TEAM_NAMES, TEAM_RULES, formatRoomCode, type RoomDto, type RoomPlayerDto, type RoomRoundDto, type UserSummaryDto,
 } from "@ranksight/shared";
 import { api, WEB_URL } from "@/lib/api";
 import { useConfirm } from "@/lib/confirm";
@@ -133,6 +133,8 @@ export default function RoomScreen() {
         </Card>
       )}
 
+      {phase === "voting" && room.live && <VotePanel room={room} meId={me.id} act={act} secondsLeft={live.secondsLeft} progress={live.roundProgress} />}
+
       {phase === "left" && <Message title="Tu as quitté la partie" text="Tes points sont conservés. Le classement final s'affichera ici à la fin de la partie." />}
 
       {room.status === "ACTIVE" && <Scoreboard room={room} meId={me.id} />}
@@ -243,7 +245,7 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
             <PrimaryButton label="Lancer la partie" disabled={!room.canStart} onPress={() => act(() => api.startRoom(room.id))} />
             {!room.canStart && (
               <Muted center>
-                {room.teamSize ? `Il faut ${room.teamSize} joueurs dans chaque équipe pour lancer la partie.` : `Il faut au moins ${ROOM_MIN_PLAYERS} joueurs pour lancer la partie.`}
+                {room.teamSize ? `Il faut ${room.teamSize} joueurs dans chaque équipe pour lancer la partie.` : `Il faut au moins ${room.impostor ? IMPOSTOR_MIN_PLAYERS : ROOM_MIN_PLAYERS} joueurs pour lancer la partie.`}
               </Muted>
             )}
           </>
@@ -277,7 +279,7 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
 
       <Card style={{ gap: 6 }}>
         <Text style={{ color: colors.ink, fontSize: 16, fontWeight: "700" }}>Règles</Text>
-        {[...ROOM_RULES, ...(room.teamSize ? TEAM_RULES : []), ...(room.suddenDeath ? SUDDEN_DEATH_RULES : []), ...(room.confidence ? CONFIDENCE_RULES : [])].map((r) => <Muted key={r}>• {r}</Muted>)}
+        {[...ROOM_RULES, ...(room.impostor ? IMPOSTOR_RULES : []), ...(room.teamSize ? TEAM_RULES : []), ...(room.suddenDeath ? SUDDEN_DEATH_RULES : []), ...(room.confidence ? CONFIDENCE_RULES : [])].map((r) => <Muted key={r}>• {r}</Muted>)}
       </Card>
     </>
   );
@@ -302,6 +304,65 @@ function Scoreboard({ room, meId }: { room: RoomDto; meId: string }) {
   );
 }
 
+/** Mode Intrus : vote d'après les rangs proposés par chacun (sans rang réel ni points), jamais pour soi. */
+function VotePanel({
+  room, meId, act, secondsLeft, progress,
+}: { room: RoomDto; meId: string; act: (a: () => Promise<unknown>) => Promise<void>; secondsLeft: number; progress: number }) {
+  const live = room.live!;
+  const inGame = room.players.filter((p) => !p.left);
+  return (
+    <Card style={{ gap: 10 }}>
+      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+        <View style={{ flex: 1 }}>
+          <Hud>Manche {live.round} · vote</Hud>
+          <Text style={{ color: colors.ink, fontSize: 18, fontWeight: "700" }}>Qui a vu un autre clip ?</Text>
+        </View>
+        <Text style={{ color: secondsLeft <= 5 ? colors.danger : colors.ink, fontSize: 22, ...font.display }}>{secondsLeft} s</Text>
+      </View>
+      <TimerBar progress={progress} />
+      <Muted>Compare les rangs proposés : l&apos;intrus a regardé un clip d&apos;un autre rang. {live.voted.length}/{inGame.length} votes.</Muted>
+      {inGame.map((p) => {
+        const g = live.guesses.find((x) => x.userId === p.id);
+        const mine = live.myVote === p.id;
+        return (
+          <Pressable
+            key={p.id}
+            disabled={p.id === meId || !!live.myVote}
+            onPress={() => act(() => api.voteInRoom(room.id, p.id))}
+            accessibilityRole="button"
+            accessibilityState={{ selected: mine, disabled: p.id === meId || !!live.myVote }}
+            style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 10, borderRadius: 12, borderWidth: 1.5, borderColor: mine ? colors.neon : colors.line, backgroundColor: mine ? `${colors.neon}1A` : colors.surface2 }}
+          >
+            <Avatar name={p.displayName} url={p.avatarUrl} size={28} frame={p.flair.frame} />
+            <PlayerName p={p} meId={meId} />
+            {g ? <Text style={{ color: g.rank.color, fontWeight: "700" }}>{g.rank.name}</Text> : <Text style={{ color: colors.muted }}>—</Text>}
+            {live.voted.includes(p.id) && <Text style={{ color: colors.success }}>✓</Text>}
+          </Pressable>
+        );
+      })}
+      <Muted>{live.myVote ? `Ton vote : ${room.players.find((p) => p.id === live.myVote)?.displayName ?? "?"}.` : "Choisis un joueur (pas toi). Un seul vote par manche."}</Muted>
+    </Card>
+  );
+}
+
+/** Mode Intrus : qui était l'intrus, son clip, les votes et les points du vote. */
+function ImpostorReveal({ round, players, meId }: { round: RoomRoundDto; players: RoomPlayerDto[]; meId: string }) {
+  const imp = round.impostor!;
+  const nameOf = (id: string) => (id === meId ? "toi" : players.find((p) => p.id === id)?.displayName ?? "un joueur parti");
+  const against = imp.votes.filter((v) => v.targetId === imp.userId).length;
+  const pts = imp.bonuses[0]?.points ?? 0;
+  return (
+    <View style={{ gap: 4, padding: 10, borderRadius: 12, borderWidth: 1, borderColor: imp.caught ? colors.success : colors.warn }}>
+      <Text style={{ color: colors.ink, fontWeight: "700" }}>
+        Intrus : {nameOf(imp.userId)} (clip <Text style={{ color: imp.rank.color }}>{imp.rank.name}</Text>, {against} vote{against > 1 ? "s" : ""})
+      </Text>
+      <Muted>
+        {imp.caught ? `Démasqué : +${pts} pour ${imp.bonuses.map((b) => nameOf(b.userId)).join(", ")}.` : `Pas démasqué : +${pts} pour ${nameOf(imp.userId)}.`}
+      </Muted>
+    </View>
+  );
+}
+
 function RoundReveal({ round, players, meId }: { round: RoomRoundDto; players: RoomPlayerDto[]; meId: string }) {
   return (
     <Card style={{ gap: 10 }}>
@@ -310,6 +371,7 @@ function RoundReveal({ round, players, meId }: { round: RoomRoundDto; players: R
         <RankEmblem rank={round.correctRank} size={56} />
         <Text style={{ color: round.correctRank.color, fontWeight: "800" }}>{round.correctRank.name}</Text>
       </View>
+      {round.impostor && <ImpostorReveal round={round} players={players} meId={meId} />}
       {players.filter((p) => !round.suddenDeath || p.finalist || round.answers.some((a) => a.userId === p.id)).map((p) => {
         const a = round.answers.find((x) => x.userId === p.id);
         return (
@@ -375,7 +437,9 @@ function FinalResult({ room, meId }: { room: RoomDto; meId: string }) {
               <Text style={{ color: colors.muted, fontSize: 13 }}>
                 {room.players.map((p) => {
                   const a = d.answers.find((x) => x.userId === p.id);
-                  return `${p.id === meId ? "Toi" : p.displayName} : ${a ? `${a.rank.name} (${a.score})` : "—"}`;
+                  const bonus = d.impostor?.bonuses.find((b) => b.userId === p.id)?.points ?? 0;
+                  const tag = d.impostor?.userId === p.id ? " [intrus]" : "";
+                  return `${p.id === meId ? "Toi" : p.displayName}${tag} : ${a ? `${a.rank.name} (${a.score}${bonus ? ` +${bonus}` : ""})` : "—"}`;
                 }).join(" · ")}
               </Text>
             </View>

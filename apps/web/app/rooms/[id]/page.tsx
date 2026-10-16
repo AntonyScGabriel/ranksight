@@ -4,7 +4,7 @@ import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  CONFIDENCE_RULES, DECIDED_BY_LABEL, ROOM_MIN_PLAYERS, ROOM_RULES, SUDDEN_DEATH_RULES, TEAM_COLORS, TEAM_NAMES, TEAM_RULES, formatRoomCode, type RoomDto, type RoomPlayerDto, type RoomRoundDto, type UserSummaryDto,
+  CONFIDENCE_RULES, DECIDED_BY_LABEL, IMPOSTOR_MIN_PLAYERS, IMPOSTOR_RULES, ROOM_MIN_PLAYERS, ROOM_RULES, SUDDEN_DEATH_RULES, TEAM_COLORS, TEAM_NAMES, TEAM_RULES, formatRoomCode, type RoomDto, type RoomPlayerDto, type RoomRoundDto, type UserSummaryDto,
 } from "@ranksight/shared";
 import { api } from "@/lib/api";
 import { useConfirm } from "@/lib/confirm";
@@ -129,6 +129,9 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
                 <p className="text-sm text-muted">Seuls les joueurs à égalité en tête répondent à cette manche. Résultat dans {live.secondsLeft} s au plus tard.</p>
                 <TimerBar progress={live.roundProgress} />
               </div>
+            )}
+            {phase === "voting" && room.live && (
+              <VotePanel room={room} meId={me.id} act={act} secondsLeft={live.secondsLeft} progress={live.roundProgress} />
             )}
             {phase === "left" && (
               <Panel title="Tu as quitté la partie" text="Tes points sont conservés. Le classement final s'affichera ici à la fin de la partie." />
@@ -291,7 +294,7 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
               <button disabled={!room.canStart} onClick={() => act(() => api.startRoom(room.id))} className="btn-primary w-full sm:w-auto">Lancer la partie</button>
               {!room.canStart && (
                 <p className="text-sm text-muted">
-                  {room.teamSize ? `Il faut ${room.teamSize} joueurs dans chaque équipe pour lancer la partie.` : `Il faut au moins ${ROOM_MIN_PLAYERS} joueurs pour lancer la partie.`}
+                  {room.teamSize ? `Il faut ${room.teamSize} joueurs dans chaque équipe pour lancer la partie.` : `Il faut au moins ${room.impostor ? IMPOSTOR_MIN_PLAYERS : ROOM_MIN_PLAYERS} joueurs pour lancer la partie.`}
                 </p>
               )}
             </div>
@@ -329,7 +332,7 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
           <div className="glass space-y-2 p-6">
             <h2 className="font-display text-lg font-semibold">Règles</h2>
             <ul className="list-disc space-y-1 pl-5 text-sm text-muted">
-              {[...ROOM_RULES, ...(room.teamSize ? TEAM_RULES : []), ...(room.suddenDeath ? SUDDEN_DEATH_RULES : []), ...(room.confidence ? CONFIDENCE_RULES : [])].map((r) => <li key={r}>{r}</li>)}
+              {[...ROOM_RULES, ...(room.impostor ? IMPOSTOR_RULES : []), ...(room.teamSize ? TEAM_RULES : []), ...(room.suddenDeath ? SUDDEN_DEATH_RULES : []), ...(room.confidence ? CONFIDENCE_RULES : [])].map((r) => <li key={r}>{r}</li>)}
             </ul>
           </div>
         </div>
@@ -360,6 +363,86 @@ function Scoreboard({ room, meId }: { room: RoomDto; meId: string }) {
   );
 }
 
+/**
+ * Mode Intrus : vote d'après les rangs proposés par chacun (sans rang réel ni points).
+ * L'intrus ne sait pas qu'il l'est : tout le monde vote de la même façon, jamais pour soi.
+ */
+function VotePanel({
+  room, meId, act, secondsLeft, progress,
+}: { room: RoomDto; meId: string; act: (a: () => Promise<unknown>) => Promise<void>; secondsLeft: number; progress: number }) {
+  const live = room.live!;
+  const inGame = room.players.filter((p) => !p.left);
+  const guessOf = (id: string) => live.guesses.find((g) => g.userId === id);
+  return (
+    <div className="glass space-y-4 p-6">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="hud-label text-neon">Manche {live.round} · vote</p>
+          <h2 className="font-display text-xl font-semibold">Qui a vu un autre clip&nbsp;?</h2>
+        </div>
+        <p className={`font-display text-2xl font-bold ${secondsLeft <= 5 ? "text-danger" : ""}`} aria-live="polite">{secondsLeft} s</p>
+      </div>
+      <TimerBar progress={progress} />
+      <p className="text-sm text-muted">
+        Compare les rangs proposés : l&apos;intrus a regardé un clip d&apos;un autre rang. {live.voted.length}/{inGame.length} votes.
+      </p>
+      <ul className="grid gap-2 sm:grid-cols-2">
+        {inGame.map((p) => {
+          const g = guessOf(p.id);
+          const mine = live.myVote === p.id;
+          return (
+            <li key={p.id}>
+              <button
+                disabled={p.id === meId || !!live.myVote}
+                onClick={() => act(() => api.voteInRoom(room.id, p.id))}
+                aria-pressed={mine}
+                className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left text-sm transition ${mine ? "border-neon bg-neon/10" : "border-line/60 bg-surface/60 enabled:hover:border-violet"} disabled:cursor-default`}
+              >
+                <Avatar name={p.displayName} url={p.avatarUrl} size={32} frame={p.flair.frame} />
+                <div className="min-w-0 flex-1"><PlayerName p={p} meId={meId} /></div>
+                {g ? (
+                  <span className="flex items-center gap-1.5" style={{ color: g.rank.color }}><RankEmblem rank={g.rank} size={22} />{g.rank.name}</span>
+                ) : (
+                  <span className="text-muted">pas de réponse</span>
+                )}
+                {live.voted.includes(p.id) && <span className="text-xs text-success" title="A voté">✓</span>}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+      <p className="text-sm">
+        {live.myVote
+          ? <>Ton vote : <strong>{room.players.find((p) => p.id === live.myVote)?.displayName}</strong>. Résultat quand tout le monde aura voté.</>
+          : <span className="text-muted">Choisis un joueur (pas toi). Un seul vote par manche.</span>}
+      </p>
+    </div>
+  );
+}
+
+/** Mode Intrus : qui était l'intrus, son clip, les votes et les points du vote. */
+function ImpostorReveal({ round, players, meId }: { round: RoomRoundDto; players: RoomPlayerDto[]; meId: string }) {
+  const imp = round.impostor!;
+  const who = players.find((p) => p.id === imp.userId);
+  const name = imp.userId === meId ? "Toi" : who?.displayName ?? "Un joueur parti";
+  const against = imp.votes.filter((v) => v.targetId === imp.userId).length;
+  return (
+    <div className={`rounded-xl border p-4 text-sm ${imp.caught ? "border-success/50 bg-success/10" : "border-warn/50 bg-warn/10"}`}>
+      <p className="font-semibold">
+        {imp.userId === meId ? "Tu étais" : `${name} était`} l&apos;intrus{" "}
+        <span className="font-normal text-muted">
+          (clip <span style={{ color: imp.rank.color }}>{imp.rank.name}</span>, {against} vote{against > 1 ? "s" : ""} contre {imp.userId === meId ? "toi" : "lui"})
+        </span>
+      </p>
+      <p className="mt-1">
+        {imp.caught
+          ? `Démasqué : +${imp.bonuses[0]?.points ?? 0} pour ${imp.bonuses.map((b) => (b.userId === meId ? "toi" : players.find((p) => p.id === b.userId)?.displayName ?? "?")).join(", ")}.`
+          : `Pas démasqué : +${imp.bonuses[0]?.points ?? 0} pour ${name === "Toi" ? "toi" : name}.`}
+      </p>
+    </div>
+  );
+}
+
 /** Fin de manche : rang réel et réponse de chaque joueur. */
 function RoundReveal({ round, players: all, meId }: { round: RoomRoundDto; players: RoomPlayerDto[]; meId: string }) {
   // Manche décisive : seuls les finalistes y ont répondu
@@ -371,6 +454,7 @@ function RoundReveal({ round, players: all, meId }: { round: RoomRoundDto; playe
         <RankEmblem rank={round.correctRank} size={64} />
         <p className="font-display text-lg font-bold" style={{ color: round.correctRank.color }}>{round.correctRank.name}</p>
       </div>
+      {round.impostor && <ImpostorReveal round={round} players={all} meId={meId} />}
       <ul className="grid gap-2 sm:grid-cols-2">
         {players.map((p) => {
           const a = round.answers.find((x) => x.userId === p.id);
@@ -460,7 +544,14 @@ function FinalResult({ room, meId }: { room: RoomDto; meId: string }) {
                   <td className="py-2 pr-3">{p.id === meId ? "Toi" : p.displayName}</td>
                   {room.details.map((d) => {
                     const a = d.answers.find((x) => x.userId === p.id);
-                    return <td key={d.position} className="pr-3">{a ? `${a.rank.name} · ${a.score}` : "—"}</td>;
+                    const bonus = d.impostor?.bonuses.find((b) => b.userId === p.id)?.points ?? 0;
+                    return (
+                      <td key={d.position} className="pr-3">
+                        {a ? `${a.rank.name} · ${a.score}` : "—"}
+                        {bonus > 0 && <span className="text-success"> +{bonus}</span>}
+                        {d.impostor?.userId === p.id && <span className="ml-1 rounded bg-warn/20 px-1 text-[10px] font-bold uppercase text-warn">intrus</span>}
+                      </td>
+                    );
                   })}
                 </tr>
               ))}

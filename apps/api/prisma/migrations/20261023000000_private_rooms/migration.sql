@@ -6,7 +6,8 @@ CREATE TYPE "RoomStatus" AS ENUM ('LOBBY', 'ACTIVE', 'FINISHED', 'CLOSED');
 ALTER TYPE "GameMode" ADD VALUE 'ROOM';
 
 -- AlterTable
-ALTER TABLE "guesses" ADD COLUMN     "room_id" UUID;
+ALTER TABLE "guesses" ADD COLUMN     "room_id" UUID,
+ADD COLUMN     "stats_pending" BOOLEAN NOT NULL DEFAULT false;
 
 -- CreateTable
 CREATE TABLE "rooms" (
@@ -84,6 +85,9 @@ CREATE INDEX "room_invites_user_id_idx" ON "room_invites"("user_id");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "guesses_user_id_room_id_clip_id_key" ON "guesses"("user_id", "room_id", "clip_id");
+
+-- CreateIndex
+CREATE INDEX "guesses_stats_pending_created_at_idx" ON "guesses"("stats_pending", "created_at");
 
 -- AddForeignKey
 ALTER TABLE "guesses" ADD CONSTRAINT "guesses_room_id_fkey" FOREIGN KEY ("room_id") REFERENCES "rooms"("id") ON DELETE CASCADE ON UPDATE CASCADE;

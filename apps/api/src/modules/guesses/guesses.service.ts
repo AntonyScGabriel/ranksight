@@ -87,6 +87,9 @@ export class GuessesService {
     const fresh = await this.redis.set(`play:used:${claims.jti}`, "1", "EX", 3600, "NX");
     if (!fresh) throw new ConflictException({ code: "ALREADY_ANSWERED", message: alreadyAnswered(claims.mode) });
 
+    // Duel et salon : XP et statistiques appliquées à la révélation de la manche (GuessStatsService)
+    const live = claims.mode === "VERSUS" || claims.mode === "ROOM";
+
     // 6. Écriture atomique
     const result = await this.prisma.$transaction(async (tx) => {
       const guess = await tx.guess.create({
@@ -105,8 +108,10 @@ export class GuessesService {
           watchedMs: input.watchedMs,
           // Mesuré par le serveur (le temps de visionnage, lui, est déclaré par l'application)
           responseMs: Math.max(0, elapsedMs),
+          statsPending: live,
         },
       });
+      if (live) return { guess, run: null };
 
       await tx.user.update({
         where: { id: userId },
@@ -160,6 +165,12 @@ export class GuessesService {
       throw e;
     });
 
+    // Duel et salon : le rang réel, le score et les gains ne sont dévoilés à personne avant la fin de la manche
+    if (live) {
+      const state = claims.mode === "VERSUS" ? await this.versus.afterAnswer(userId, claims.vid!) : await this.rooms.afterAnswer(userId, claims.rmid!);
+      return { guessId: result.guess.id, pending: true, live: { position: state.position, rounds: state.rounds } };
+    }
+
     // 7. Effets de bord hors transaction (non bloquants pour la cohérence)
     await this.redis.hincrby(`clip:dist:${clip.id}`, guessed.id, 1);
     if (claims.mode === "DAILY") await this.leaderboards.recordScore(userId, score, clip.game.slug as GameSlug);
@@ -177,12 +188,6 @@ export class GuessesService {
           after: { infiniteBest: result.run.score },
         });
       }
-    }
-    // Duel et salon : le rang réel, le score et les gains ne sont dévoilés à personne avant la fin de la manche
-    if (claims.mode === "VERSUS" || claims.mode === "ROOM") {
-      const live = claims.mode === "VERSUS" ? await this.versus.afterAnswer(userId, claims.vid!) : await this.rooms.afterAnswer(userId, claims.rmid!);
-      await this.achievements.evaluateWithRewards(userId);
-      return { guessId: result.guess.id, pending: true, live: { position: live.position, rounds: live.rounds } };
     }
     const { achievements: unlockedAchievements, rewards: unlockedRewards } = await this.achievements.evaluateWithRewards(userId);
 
@@ -225,7 +230,8 @@ export class GuessesService {
     // Gratuit : 30 derniers jours. Premium : historique complet.
     const since = opts.premium ? undefined : new Date(Date.now() - 30 * 86_400_000);
     return this.prisma.guess.findMany({
-      where: { userId, ...(since ? { createdAt: { gte: since } } : {}) },
+      // Réponses de duel ou de salon dont la manche n'est pas encore révélée : absentes de l'historique
+      where: { userId, statsPending: false, ...(since ? { createdAt: { gte: since } } : {}) },
       include: {
         clip: { select: { id: true, game: { select: { slug: true, name: true } }, rank: { select: { name: true, color: true } } } },
         guessedRank: { select: { name: true, color: true } },

@@ -441,6 +441,8 @@ model Guess {
   watchedMs        Int       @map("watched_ms")
   /// Temps de réponse mesuré par le serveur : de la remise du clip (jeton de partie) à la réponse. NULL avant son enregistrement
   responseMs       Int?      @map("response_ms")
+  /// Duel et salon : XP et statistiques appliquées seulement à la révélation de la manche (rien n'est dévoilé avant)
+  statsPending     Boolean   @default(false) @map("stats_pending")
   createdAt        DateTime  @default(now()) @map("created_at")
 
   user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -460,6 +462,7 @@ model Guess {
   @@unique([userId, roomId, clipId])
   @@index([userId, createdAt(sort: Desc)])
   @@index([clipId])
+  @@index([statsPending, createdAt])
   @@map("guesses")
 }
 

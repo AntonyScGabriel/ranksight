@@ -7,6 +7,7 @@ import { ClipsModule } from "../clips/clips.module.js";
 import { LeaderboardsModule } from "../leaderboards/leaderboards.module.js";
 import { AchievementsModule } from "../achievements/achievements.module.js";
 import { GuessesService } from "./guesses.service.js";
+import { GuessStatsService } from "./guess-stats.service.js";
 import { VersusModule } from "../versus/versus.module.js";
 import { RoomsModule } from "../rooms/rooms.module.js";
 
@@ -35,6 +36,6 @@ export class GuessesController {
 @Module({
   imports: [ClipsModule, LeaderboardsModule, AchievementsModule, VersusModule, RoomsModule],
   controllers: [GuessesController],
-  providers: [GuessesService],
+  providers: [GuessesService, GuessStatsService],
 })
 export class GuessesModule {}

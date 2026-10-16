@@ -8,31 +8,11 @@ import {
 import { api } from "@/lib/api";
 import { useChat } from "@/lib/chat";
 import { useSession } from "@/lib/session";
-import { colors, radius } from "@/lib/theme";
+import { colors } from "@/lib/theme";
 import { errorMessage } from "@/components/AuthUi";
 import { Card, GhostButton, Hud, Loading, LoginRequired, Muted, PrimaryButton } from "@/components/ui";
+import { Chips } from "@/components/Chips";
 
-/** Choix parmi quelques valeurs (jeu, manches, temps) */
-function Chips<T extends string | number>({ value, options, onChange, label }: { value: T; options: readonly T[]; onChange: (v: T) => void; label: (v: T) => string }) {
-  return (
-    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-      {options.map((o) => {
-        const active = o === value;
-        return (
-          <Pressable
-            key={String(o)}
-            onPress={() => onChange(o)}
-            accessibilityRole="radio"
-            accessibilityState={{ checked: active }}
-            style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: radius.chip, borderWidth: 1.5, borderColor: active ? colors.neon : colors.line, backgroundColor: active ? `${colors.neon}1A` : colors.surface2 }}
-          >
-            <Text style={{ color: active ? colors.neon : colors.ink, fontWeight: "600" }}>{label(o)}</Text>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
-}
 
 type Format = "solo" | "teams2" | "teams3" | "impostor";
 const FORMATS: readonly Format[] = ["solo", "teams2", "teams3", "impostor"];
@@ -115,6 +95,16 @@ export default function RoomsScreen() {
         Jusqu&apos;à {ROOM_MAX_PLAYERS} amis devinent le même clip au même moment. Seul le joueur qui crée le salon doit être VIP : rejoindre, jouer et
         voir les résultats est gratuit pour tout le monde.
       </Muted>
+
+      <Pressable onPress={() => router.push("/tournaments")} accessibilityRole="button" accessibilityLabel="Tournois privés">
+        <Card style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text style={{ color: colors.ink, fontSize: 17, fontWeight: "700" }}>Tournois privés · 4 à 16 joueurs</Text>
+            <Muted>Tableau à élimination directe entre amis. Seul le créateur doit être VIP.</Muted>
+          </View>
+          <Text style={{ color: colors.neon, fontSize: 20 }}>›</Text>
+        </Card>
+      </Pressable>
 
       {data.current && (
         <Card style={{ gap: 10, borderColor: colors.neon }}>

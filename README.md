@@ -198,6 +198,22 @@ pour tester Google sur téléphone, expose l'API avec une adresse publique (tunn
     deux envois simultanés ne dépensent jamais les mêmes jetons.
   - Limites : 20 salons créés par heure, 15 codes faux par joueur et par heure (puis blocage d'une heure), réponses en
     double refusées (jeton à usage unique et contrainte d'unicité en base).
+- **Tournois privés** (`/tournaments`, depuis l'écran Salons) : tableau à élimination directe de 4, 8 ou 16 places.
+  **Seul le créateur doit être VIP** (relu en base à la création) ; s'inscrire avec le code ou le lien
+  `/tournaments/join/CODE`, jouer et gagner est gratuit, et un tournoi lancé va à son terme même si le VIP du créateur se
+  termine. Réglages : jeu, places, 3 ou 5 manches par match, temps de réponse.
+  - Lancement par l'hôte à partir de 3 inscrits ; têtes de série tirées au sort (aléa cryptographique), tableau à la
+    puissance de 2 suffisante, meilleures têtes de série qualifiées d'office s'il manque des joueurs (1 et 2 ne peuvent
+    se rencontrer qu'en finale).
+  - Match : dès que les deux adversaires sont connus, ils ont 5 minutes pour cliquer sur « Je suis prêt » ; le salon du
+    match (2 joueurs, mort subite, clips jamais proposés par l'un d'eux) est alors créé et lancé, et les deux joueurs y
+    sont envoyés. Un seul joueur prêt à l'heure limite : il gagne par forfait ; aucun : la meilleure tête de série passe.
+    Égalité parfaite après la mort subite : meilleure tête de série. Quitter le tournoi = forfait.
+  - Le gagnant passe au tour suivant dès la fin de son match ; places finales : 1er, 2e, puis places partagées par tour
+    (3e pour les demi-finalistes, 5e pour les quarts, 9e pour les huitièmes). Statistiques : victoires (hors
+    qualifications d'office) et points marqués en match. Suivi des matchs et des heures limites par une boucle d'une
+    seconde (une seule instance de l'API, verrou Redis) ; notifications en direct et push quand un match est prêt.
+  - Inscriptions non lancées fermées au bout de deux heures ; 10 tournois créés par heure au plus.
 - **Images des rangs** : chaque rang s'affiche avec un emblème (choix du rang, résultat). Par défaut, emblème RankGuess aux
   couleurs du rang ; l'administration peut envoyer sa propre image par rang (page « Rangs » : PNG, JPEG ou WebP, 512 Ko
   maximum, stockée en base). Utiliser uniquement des images dont vous détenez les droits.

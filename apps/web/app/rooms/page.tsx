@@ -93,6 +93,14 @@ export default function RoomsPage() {
         </p>
       </header>
 
+      <Link href="/tournaments" className="glass flex flex-wrap items-center justify-between gap-3 p-5 transition hover:border-violet">
+        <div>
+          <p className="font-display text-lg font-semibold">Tournois privés <span className="text-sm font-normal text-muted">· 4 à 16 joueurs</span></p>
+          <p className="text-sm text-muted">Tableau à élimination directe entre amis. Seul le créateur doit être VIP, l&apos;inscription est gratuite.</p>
+        </div>
+        <span className="btn-ghost">Ouvrir</span>
+      </Link>
+
       {data.current && (
         <div className="glass flex flex-wrap items-center justify-between gap-3 border-neon/40 p-5">
           <div>

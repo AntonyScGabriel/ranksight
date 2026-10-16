@@ -199,6 +199,8 @@ export const RoomDto = z.object({
   /** Comment la première place a été attribuée (partie terminée) */
   decidedBy: z.enum(["POINTS", "SUDDEN_DEATH", "SPEED", "SHARED", "FORFEIT"]).nullable(),
   isHost: z.boolean(),
+  /** Match de tournoi : tournoi auquel appartient ce salon */
+  tournamentId: z.string().uuid().nullable(),
   /** Le joueur connecté a quitté la partie (il peut encore voir les résultats) */
   left: z.boolean(),
   canStart: z.boolean(),

@@ -40,6 +40,10 @@ import {
   type RoomDto,
   type RoomPreviewDto,
   type RoomsOverviewDto,
+  type CreateTournamentInput,
+  type TournamentDto,
+  type TournamentPreviewDto,
+  type TournamentsOverviewDto,
   type HigherLowerAnswerDto,
   type HigherLowerChoice,
   type HigherLowerOverviewDto,
@@ -255,6 +259,16 @@ export const api = {
   // Jetons virtuels (mode Confiance)
   tokens: () => request<TokensDto>("/tokens"),
   refillTokens: () => post<TokensDto>("/tokens/refill"),
+
+  // Tournois privés
+  tournaments: () => request<TournamentsOverviewDto>("/tournaments"),
+  tournament: (id: string) => request<TournamentDto>(`/tournaments/${id}`),
+  createTournament: (body: CreateTournamentInput) => post<TournamentDto>("/tournaments", body),
+  tournamentPreview: (code: string) => request<TournamentPreviewDto>(`/tournaments/code/${encodeURIComponent(code)}`),
+  joinTournament: (code: string) => post<TournamentDto>("/tournaments/join", { code }),
+  startTournament: (id: string) => post<TournamentDto>(`/tournaments/${id}/start`),
+  readyForMatch: (id: string) => post<TournamentDto>(`/tournaments/${id}/ready`),
+  leaveTournament: (id: string) => post(`/tournaments/${id}/leave`),
 
   // Salons privés
   rooms: () => request<RoomsOverviewDto>("/rooms"),

@@ -446,7 +446,9 @@ function FinalResult({ room, meId }: { room: RoomDto; meId: string }) {
           ))}
         </Card>
       )}
-      <PrimaryButton label="Nouveau salon" onPress={() => router.replace("/rooms")} />
+      {room.tournamentId
+        ? <PrimaryButton label="Retour au tournoi" onPress={() => router.replace({ pathname: "/tournaments/[id]", params: { id: room.tournamentId! } })} />
+        : <PrimaryButton label="Nouveau salon" onPress={() => router.replace("/rooms")} />}
     </>
   );
 }

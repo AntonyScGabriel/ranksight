@@ -68,7 +68,9 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
   return (
     <section className="space-y-6">
       <div className="flex items-center justify-between gap-3">
-        <Link href="/rooms" className="text-sm text-muted hover:text-ink">← Salons</Link>
+        {room.tournamentId
+          ? <Link href={`/tournaments/${room.tournamentId}`} className="text-sm text-muted hover:text-ink">← Tournoi</Link>
+          : <Link href="/rooms" className="text-sm text-muted hover:text-ink">← Salons</Link>}
         {canLeave && <button onClick={leave} className="text-sm text-muted hover:text-danger">Quitter</button>}
       </div>
       {live.offline && <p role="status" className="text-center text-sm text-warn">Connexion perdue : reconnexion en cours…</p>}
@@ -560,7 +562,9 @@ function FinalResult({ room, meId }: { room: RoomDto; meId: string }) {
         </div>
       )}
       <div className="text-center">
-        <Link href="/rooms" className="btn-primary">Nouveau salon</Link>
+        {room.tournamentId
+          ? <Link href={`/tournaments/${room.tournamentId}`} className="btn-primary">Retour au tournoi</Link>
+          : <Link href="/rooms" className="btn-primary">Nouveau salon</Link>}
       </div>
     </div>
   );

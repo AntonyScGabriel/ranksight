@@ -29,6 +29,7 @@ import { MailModule } from "./modules/mail/mail.service.js";
 import { ShopModule } from "./modules/shop/shop.module.js";
 import { VersusModule } from "./modules/versus/versus.module.js";
 import { RoomsModule } from "./modules/rooms/rooms.module.js";
+import { TournamentsModule } from "./modules/tournaments/tournaments.module.js";
 import { HigherLowerModule } from "./modules/higher-lower/higher-lower.module.js";
 import { TokensModule } from "./modules/tokens/tokens.module.js";
 import { ModerationModule } from "./modules/moderation/moderation.module.js";
@@ -69,6 +70,7 @@ import { HealthController } from "./health.controller.js";
     ShopModule,
     VersusModule,
     RoomsModule,
+    TournamentsModule,
     HigherLowerModule,
     TokensModule,
     ModerationModule,

@@ -74,7 +74,7 @@ export default function TournamentsPage() {
   return (
     <section className="space-y-8">
       <header className="space-y-2">
-        <Link href="/rooms" className="text-sm text-muted hover:text-ink">← Salons privés</Link>
+        <Link href="/rooms" className="text-sm text-muted hover:text-ink">← Salons</Link>
         <h1 className="font-display text-3xl font-bold">Tournois privés</h1>
         <p className="max-w-2xl text-sm text-muted">
           Tableau à élimination directe jusqu&apos;à 16 joueurs, chaque match en duel direct. Seul le créateur du tournoi doit être VIP :

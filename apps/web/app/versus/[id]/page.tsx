@@ -3,7 +3,7 @@
 import { use, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { VERSUS_STATUS_LABEL, type FlairDto, type VersusMatchDto, type VersusRoundDto } from "@ranksight/shared";
+import { RATING_UNCOUNTED_LABEL, VERSUS_STATUS_LABEL, ratingTier, type FlairDto, type VersusMatchDto, type VersusRoundDto } from "@ranksight/shared";
 import { api } from "@/lib/api";
 import { useConfirm } from "@/lib/confirm";
 import { useSession } from "@/lib/session";
@@ -211,13 +211,14 @@ function FinalResult({ match }: { match: VersusMatchDto }) {
           <span className="hud-label">Classement compétitif{match.rating.scope !== "global" && match.game ? ` · ${match.game.name}` : ""}</span>
           {match.rating.counted ? (
             <span>
-              <span className="font-display text-lg font-bold">{match.rating.after}</span>{" "}
               <span className={match.rating.delta > 0 ? "text-success" : match.rating.delta < 0 ? "text-danger" : "text-muted"}>
-                ({match.rating.delta > 0 ? "+" : ""}{match.rating.delta})
-              </span>
+                {match.rating.delta > 0 ? "+" : ""}{match.rating.delta} point{Math.abs(match.rating.delta) > 1 ? "s" : ""}
+              </span>{" "}
+              · <span className="font-display text-lg font-bold">{match.rating.after}</span>{" "}
+              <span style={{ color: ratingTier(match.rating.after).color }}>{ratingTier(match.rating.after).name}</span>
             </span>
           ) : (
-            <span className="text-muted">Ce duel ne compte pas : déjà 3 duels contre ce joueur en 24 heures.</span>
+            <span className="text-muted">{RATING_UNCOUNTED_LABEL[match.rating.reason ?? "PAIR_LIMIT"]}</span>
           )}
         </Link>
       )}

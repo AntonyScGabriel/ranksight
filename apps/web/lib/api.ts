@@ -41,11 +41,14 @@ import {
   type RoomDto,
   type RoomPreviewDto,
   type RoomsOverviewDto,
+  type PublicRoomDto,
+  type QuickPlayResultDto,
+  type RoomHistoryDto,
+  type RoomMode,
   type HigherLowerAnswerDto,
   type HigherLowerChoice,
   type HigherLowerOverviewDto,
   type HigherLowerRunDto,
-  type TokensDto,
   type CreateTournamentInput,
   type TournamentDto,
   type TournamentPreviewDto,
@@ -53,6 +56,8 @@ import {
   type MyRatingsDto,
   type RatingBoardDto,
   type RatingScope,
+  type RatingSeasonsDto,
+  type SeasonArchiveDto,
 } from "@ranksight/shared";
 
 export const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/v1";
@@ -243,12 +248,12 @@ export const api = {
     post<HigherLowerAnswerDto>(`/higher-lower/runs/${id}/answer`, { round, choice }),
 
   // Jetons virtuels (mode Confiance)
-  tokens: () => request<TokensDto>("/tokens"),
-  refillTokens: () => post<TokensDto>("/tokens/refill"),
 
   // Classement compétitif
   ratingBoard: (scope: RatingScope) => request<RatingBoardDto>(`/ratings/leaderboard?scope=${scope}`),
   myRatings: () => request<MyRatingsDto>("/ratings/me"),
+  ratingSeasons: () => request<RatingSeasonsDto>("/ratings/seasons"),
+  ratingArchive: (key: string, scope: RatingScope) => request<SeasonArchiveDto>(`/ratings/seasons/${encodeURIComponent(key)}?scope=${scope}`),
 
   // Tournois privés
   tournaments: () => request<TournamentsOverviewDto>("/tournaments"),
@@ -260,12 +265,24 @@ export const api = {
   readyForMatch: (id: string) => post<TournamentDto>(`/tournaments/${id}/ready`),
   leaveTournament: (id: string) => post(`/tournaments/${id}/leave`),
 
-  // Salons privés
+  // Salons (publics et privés)
   rooms: () => request<RoomsOverviewDto>("/rooms"),
   room: (id: string) => request<RoomDto>(`/rooms/${id}`),
   createRoom: (body: CreateRoomInput) => post<RoomDto>("/rooms", body),
   roomPreview: (code: string) => request<RoomPreviewDto>(`/rooms/code/${encodeURIComponent(code)}`),
   joinRoom: (code: string) => post<RoomDto>("/rooms/join", { code }),
+  publicRooms: (filters: { game?: string; mode?: RoomMode; available?: boolean }) => {
+    const q = new URLSearchParams();
+    if (filters.game) q.set("game", filters.game);
+    if (filters.mode) q.set("mode", filters.mode);
+    if (filters.available) q.set("available", "true");
+    return request<PublicRoomDto[]>(`/rooms/public${q.size ? `?${q}` : ""}`);
+  },
+  joinPublicRoom: (id: string) => post<RoomDto>(`/rooms/${id}/join`),
+  quickPlay: (game: string, mode: RoomMode, create = false) => post<QuickPlayResultDto>("/rooms/quick-play", { game, mode, create }),
+  closeRoom: (id: string) => post(`/rooms/${id}/close`),
+  rematchRoom: (id: string) => post<RoomDto>(`/rooms/${id}/rematch`),
+  roomHistory: (cursor?: string) => request<RoomHistoryDto>(`/rooms/history${cursor ? `?cursor=${cursor}` : ""}`),
   roomNext: (id: string) =>
     request<PlayableClipDto & { position: number; rounds: number; endsAt: string; serverNow: string }>(`/rooms/${id}/next`),
   startRoom: (id: string) => post<RoomDto>(`/rooms/${id}/start`),

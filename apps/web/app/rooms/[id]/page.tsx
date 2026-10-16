@@ -4,7 +4,7 @@ import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  CONFIDENCE_RULES, DECIDED_BY_LABEL, IMPOSTOR_MIN_PLAYERS, IMPOSTOR_RULES, ROOM_MIN_PLAYERS, ROOM_RULES, SUDDEN_DEATH_RULES, TEAM_COLORS, TEAM_NAMES, TEAM_RULES, formatRoomCode, type RoomDto, type RoomPlayerDto, type RoomRoundDto, type UserSummaryDto,
+  DECIDED_BY_LABEL, IMPOSTOR_MIN_PLAYERS, IMPOSTOR_RULES, ROOM_MIN_PLAYERS, ROOM_RULES, SUDDEN_DEATH_RULES, TEAM_COLORS, TEAM_NAMES, TEAM_RULES, ROOM_MODE_LABEL, ROOM_VISIBILITY_LABEL, formatRoomCode, type RoomDto, type RoomPlayerDto, type RoomRoundDto, type UserSummaryDto,
 } from "@ranksight/shared";
 import { api } from "@/lib/api";
 import { useConfirm } from "@/lib/confirm";
@@ -19,7 +19,7 @@ import { RankEmblem } from "@/components/RankEmblem";
 import { LoginRequired, Panel, Skeleton } from "@/components/States";
 import { VipBadge } from "@/components/VipBadge";
 
-/** Salon privé : salle d'attente (code, joueurs, invitations), manches synchronisées, révélations, classement final. */
+/** Salon (public ou privé) : salle d'attente (code, joueurs, invitations), manches synchronisées, révélations, classement final, revanche. */
 export default function RoomPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { me, loading } = useSession();
@@ -59,7 +59,7 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
 
   if (loading) return <Skeleton />;
   if (!me) return <LoginRequired next={`/rooms/${id}`} text="Connecte-toi pour rejoindre ce salon. Pas besoin d'être VIP." />;
-  if (live.missing) return <Panel title="Salon introuvable" text="Ce salon n'existe pas ou tu n'en fais pas partie."><Link href="/rooms" className="btn-ghost mx-auto w-fit">Salons privés</Link></Panel>;
+  if (live.missing) return <Panel title="Salon introuvable" text="Ce salon n'existe pas ou tu n'en fais pas partie."><Link href="/rooms" className="btn-ghost mx-auto w-fit">Salons</Link></Panel>;
   if (!room) return <Skeleton />;
 
   const lastRound = room.details.at(-1);
@@ -106,7 +106,6 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
                 onSubmitted={() => live.markSubmitted(live.clip!.position)}
                 onClosed={live.load}
                 label={room.live?.suddenDeath ? "Mort subite · manche décisive" : undefined}
-                tokens={room.confidence && !room.live?.suddenDeath ? room.myTokens : undefined}
               />
             ) : (
               <Skeleton className="h-96" />
@@ -114,7 +113,6 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
             {(phase === "answered" || phase === "timeout") && room.live && (
               <div className="glass space-y-3 p-8 text-center">
                 <p className="font-display text-xl font-semibold">{phase === "timeout" && !room.live.answered ? "Temps écoulé !" : "Réponse envoyée"}</p>
-                {room.myStake !== null && <p className="text-sm text-warn">Mise engagée : {room.myStake} jeton{room.myStake > 1 ? "s" : ""}</p>}
                 <p className="text-sm text-muted">
                   {room.players.filter((p) => !p.left && p.answered).length}/{room.players.filter((p) => !p.left).length} joueurs ont répondu.
                   {phase === "answered" && ` Fin de la manche dans ${live.secondsLeft} s au plus tard.`}
@@ -176,7 +174,7 @@ function TeamTotals({ room }: { room: RoomDto }) {
 }
 
 /** Salle d'attente d'un duel par équipes : une colonne par équipe, changement d'équipe, placement par l'hôte */
-function TeamsLobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () => Promise<unknown>) => Promise<void> }) {
+function TeamsLobby({ room, meId, act, kick }: { room: RoomDto; meId: string; act: (a: () => Promise<unknown>) => Promise<void> ; kick: (p: RoomPlayerDto) => Promise<void> }) {
   const mine = room.players.find((p) => p.id === meId)?.team;
   return (
     <div className="grid gap-3 sm:grid-cols-2">
@@ -197,7 +195,7 @@ function TeamsLobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a:
                   {room.isHost && p.id !== meId && (
                     <>
                       <button onClick={() => act(() => api.setRoomTeam(room.id, t === 1 ? 2 : 1, p.id))} className="text-xs text-muted hover:text-ink" aria-label={`Changer ${p.displayName} d'équipe`}>⇄</button>
-                      <button onClick={() => act(() => api.kickFromRoom(room.id, p.id))} className="text-xs text-muted hover:text-danger" aria-label={`Retirer ${p.displayName}`}>Retirer</button>
+                      <button onClick={() => kick(p)} className="text-xs text-muted hover:text-danger" aria-label={`Retirer ${p.displayName}`}>Retirer</button>
                     </>
                   )}
                 </li>
@@ -216,18 +214,28 @@ function TeamsLobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a:
   );
 }
 
-/** Bénéfice net en jetons (mode Confiance) */
-function TokensNet({ n }: { n: number }) {
-  return (
-    <span title="Bénéfice net en jetons" className={`whitespace-nowrap text-xs font-semibold ${n > 0 ? "text-success" : n < 0 ? "text-danger" : "text-muted"}`}>
-      {n > 0 ? `+${n}` : n} jeton{Math.abs(n) > 1 ? "s" : ""}
-    </span>
-  );
-}
-
 /** Salle d'attente : code à partager, joueurs, invitations d'amis, réglages et règles ; l'hôte lance la partie. */
 function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () => Promise<unknown>) => Promise<void> }) {
+  const confirm = useConfirm();
+  const router = useRouter();
   const [copied, setCopied] = useState<"code" | "link" | null>(null);
+  const kick = async (p: RoomPlayerDto) => {
+    const ok = await confirm({
+      title: `Retirer ${p.displayName} ?`,
+      message: "Ce joueur ne pourra plus revenir dans ce salon.",
+      confirmLabel: "Retirer",
+      danger: true,
+    });
+    if (ok !== false) await act(() => api.kickFromRoom(room.id, p.id));
+  };
+  const close = async () => {
+    const ok = await confirm({ title: "Fermer le salon ?", message: "Tous les joueurs sortiront de la salle d'attente.", confirmLabel: "Fermer", danger: true });
+    if (ok === false) return;
+    await act(async () => {
+      await api.closeRoom(room.id);
+      router.push("/rooms");
+    });
+  };
   const [friends, setFriends] = useState<UserSummaryDto[]>([]);
   const [invited, setInvited] = useState<Set<string>>(new Set());
   useEffect(() => {
@@ -253,15 +261,22 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
   return (
     <div className="space-y-6">
       <div className="glass space-y-4 p-6 text-center">
-        <p className="hud-label">Code du salon</p>
+        <p className="hud-label">
+          Salon {ROOM_VISIBILITY_LABEL[room.visibility].toLowerCase()} · code
+        </p>
         <p className="font-mono text-4xl font-bold tracking-[0.2em] text-neon sm:text-5xl" aria-label={`Code ${room.code.split("").join(" ")}`}>{formatRoomCode(room.code)}</p>
         <div className="flex flex-wrap justify-center gap-2">
           <button onClick={() => copy("code")} className="btn-ghost">{copied === "code" ? "Code copié ✓" : "Copier le code"}</button>
           <button onClick={() => copy("link")} className="btn-ghost">{copied === "link" ? "Lien copié ✓" : "Copier le lien d'invitation"}</button>
         </div>
         <p className="text-sm text-muted">
-          {room.game.name} · {room.rounds} manches · {room.roundSec} s par manche{room.suddenDeath ? " · mort subite" : ""}
-          {room.confidence ? " · mode Confiance" : ""}{room.teamSize ? ` · ${room.teamSize} contre ${room.teamSize}` : ""} · rejoindre est gratuit
+          {room.game.name} · {ROOM_MODE_LABEL[room.mode]} · {room.rounds} manches · {room.roundSec} s par manche{room.suddenDeath ? " · mort subite" : ""} · rejoindre est gratuit
+        </p>
+        <p className="text-xs text-muted">
+          {room.visibility === "PUBLIC"
+            ? "Visible dans la liste des salons publics : n'importe quel joueur peut rejoindre tant qu'il reste de la place."
+            : "Invisible dans les listes : seuls tes amis invités et ceux qui ont le code peuvent entrer."}{" "}
+          Partie non classée.
         </p>
       </div>
 
@@ -272,7 +287,7 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
             <p className="text-sm text-muted">{active.length}/{room.maxPlayers} · {free > 0 ? `${free} place${free > 1 ? "s" : ""} libre${free > 1 ? "s" : ""}` : "complet"}</p>
           </div>
           {room.teamSize ? (
-            <TeamsLobby room={room} meId={meId} act={act} />
+            <TeamsLobby room={room} meId={meId} act={act} kick={kick} />
           ) : (
           <ul className="grid gap-2 sm:grid-cols-2">
             {active.map((p) => (
@@ -280,7 +295,7 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
                 <Avatar name={p.displayName} url={p.avatarUrl} size={36} frame={p.flair.frame} />
                 <div className="min-w-0 flex-1 text-sm"><PlayerName p={p} meId={meId} /></div>
                 {room.isHost && p.id !== meId && (
-                  <button onClick={() => act(() => api.kickFromRoom(room.id, p.id))} className="text-xs text-muted hover:text-danger" aria-label={`Retirer ${p.displayName}`}>
+                  <button onClick={() => kick(p)} className="text-xs text-muted hover:text-danger" aria-label={`Retirer ${p.displayName}`}>
                     Retirer
                   </button>
                 )}
@@ -293,7 +308,10 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
           )}
           {room.isHost ? (
             <div className="space-y-2">
-              <button disabled={!room.canStart} onClick={() => act(() => api.startRoom(room.id))} className="btn-primary w-full sm:w-auto">Lancer la partie</button>
+              <div className="flex flex-wrap gap-2">
+                <button disabled={!room.canStart} onClick={() => act(() => api.startRoom(room.id))} className="btn-primary w-full sm:w-auto">Lancer la partie</button>
+                <button onClick={close} className="btn-ghost">Fermer le salon</button>
+              </div>
               {!room.canStart && (
                 <p className="text-sm text-muted">
                   {room.teamSize ? `Il faut ${room.teamSize} joueurs dans chaque équipe pour lancer la partie.` : `Il faut au moins ${room.impostor ? IMPOSTOR_MIN_PLAYERS : ROOM_MIN_PLAYERS} joueurs pour lancer la partie.`}
@@ -334,7 +352,7 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
           <div className="glass space-y-2 p-6">
             <h2 className="font-display text-lg font-semibold">Règles</h2>
             <ul className="list-disc space-y-1 pl-5 text-sm text-muted">
-              {[...ROOM_RULES, ...(room.impostor ? IMPOSTOR_RULES : []), ...(room.teamSize ? TEAM_RULES : []), ...(room.suddenDeath ? SUDDEN_DEATH_RULES : []), ...(room.confidence ? CONFIDENCE_RULES : [])].map((r) => <li key={r}>{r}</li>)}
+              {[...ROOM_RULES, ...(room.impostor ? IMPOSTOR_RULES : []), ...(room.teamSize ? TEAM_RULES : []), ...(room.suddenDeath ? SUDDEN_DEATH_RULES : [])].map((r) => <li key={r}>{r}</li>)}
             </ul>
           </div>
         </div>
@@ -356,7 +374,6 @@ function Scoreboard({ room, meId }: { room: RoomDto; meId: string }) {
             <Avatar name={p.displayName} url={p.avatarUrl} size={24} frame={p.flair.frame} />
             <div className="min-w-0 flex-1"><PlayerName p={p} meId={meId} /></div>
             {p.left ? <span className="text-xs text-muted">parti</span> : p.answered && <span className="text-xs text-success" title="A répondu">✓</span>}
-            {p.tokensNet !== null && <TokensNet n={p.tokensNet} />}
             <span className="w-12 text-right font-display font-bold">{p.score}</span>
           </li>
         ))}
@@ -464,7 +481,6 @@ function RoundReveal({ round, players: all, meId }: { round: RoomRoundDto; playe
             <li key={p.id} className="flex items-center gap-2 rounded-lg bg-surface/60 px-3 py-2 text-sm">
               <div className="min-w-0 flex-1"><PlayerName p={p} meId={meId} /></div>
               <span className="text-muted">{a ? a.rank.name : "—"}</span>
-              {a?.stake != null && <TokensNet n={(a.payout ?? 0) - a.stake} />}
               <span className={`w-12 text-right font-bold ${a && a.score > 0 ? "text-success" : "text-muted"}`}>+{a?.score ?? 0}</span>
             </li>
           );
@@ -479,7 +495,7 @@ function FinalResult({ room, meId }: { room: RoomDto; meId: string }) {
   if (room.status === "CLOSED") {
     return (
       <Panel title="Salon fermé" text="Ce salon a été fermé avant le lancement de la partie.">
-        <Link href="/rooms" className="btn-primary mx-auto w-fit">Salons privés</Link>
+        <Link href="/rooms" className="btn-primary mx-auto w-fit">Salons</Link>
       </Panel>
     );
   }
@@ -518,7 +534,6 @@ function FinalResult({ room, meId }: { room: RoomDto; meId: string }) {
               <div className="min-w-0 text-sm"><PlayerName p={p} meId={meId} /></div>
             </PlayerLink>
             {p.left && <span className="text-xs text-muted">parti en cours de partie</span>}
-            {p.tokensNet !== null && <TokensNet n={p.tokensNet} />}
             <span className="font-display text-xl font-bold">{p.score}</span>
           </li>
         ))}
@@ -561,11 +576,56 @@ function FinalResult({ room, meId }: { room: RoomDto; meId: string }) {
           </table>
         </div>
       )}
-      <div className="text-center">
-        {room.tournamentId
-          ? <Link href={`/tournaments/${room.tournamentId}`} className="btn-primary">Retour au tournoi</Link>
-          : <Link href="/rooms" className="btn-primary">Nouveau salon</Link>}
-      </div>
+      {room.tournamentId ? (
+        <div className="text-center"><Link href={`/tournaments/${room.tournamentId}`} className="btn-primary">Retour au tournoi</Link></div>
+      ) : (
+        <Rematch room={room} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Revanche : un joueur la propose (nouveau salon aux mêmes réglages, les autres sont invités) ; chacun confirme en la
+ * rejoignant. La revanche n'existe qu'une fois par partie.
+ */
+function Rematch({ room }: { room: RoomDto }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const go = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const next = await api.rematchRoom(room.id);
+      router.push(`/rooms/${next.id}`);
+    } catch (e) {
+      setError(errorMessage(e, "La revanche n'a pas pu être lancée."));
+      setBusy(false);
+    }
+  };
+  const r = room.rematch;
+  return (
+    <div className="glass space-y-3 p-6 text-center">
+      {r ? (
+        <>
+          <p className="font-display text-lg font-semibold">Revanche proposée par {r.host}</p>
+          <p className="text-sm text-muted">{r.players}/{r.maxPlayers} joueurs l&apos;ont rejointe · {r.status === "LOBBY" ? "en salle d'attente" : r.status === "ACTIVE" ? "partie en cours" : "terminée"}</p>
+          {r.joined ? (
+            <Link href={`/rooms/${r.id}`} className="btn-primary">Aller à la revanche</Link>
+          ) : r.status === "LOBBY" ? (
+            <button disabled={busy} onClick={go} className="btn-primary">{busy ? "Connexion…" : "Accepter la revanche"}</button>
+          ) : null}
+        </>
+      ) : room.canRematch ? (
+        <>
+          <p className="text-sm text-muted">Même jeu, mêmes réglages : les autres joueurs reçoivent une invitation et confirment en rejoignant.</p>
+          <button disabled={busy} onClick={go} className="btn-primary">{busy ? "Création…" : "Proposer une revanche"}</button>
+        </>
+      ) : null}
+      <div><Link href="/rooms" className="btn-ghost">Autres salons</Link></div>
+      {error && <p role="alert" className="text-sm text-danger">{error}</p>}
     </div>
   );
 }

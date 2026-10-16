@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
-  GAME_NAMES, RATING_MIN_GAMES, RATING_RULES, RATING_SCOPES, RATING_START, ratingTier,
+  GAME_NAMES, RATING_MIN_GAMES, RATING_RULES, RATING_SCOPES, RATING_START, RATING_UNCOUNTED_LABEL, ratingTier, tierProgress,
   type GameSlug, type MyRatingsDto, type RatingBoardDto, type RatingScope,
 } from "@ranksight/shared";
 import { api } from "@/lib/api";
@@ -16,7 +16,7 @@ import { VipBadge } from "@/components/VipBadge";
 
 const scopeName = (s: RatingScope) => (s === "global" ? "Global" : GAME_NAMES[s as GameSlug]);
 
-/** Classement compétitif : cote Elo globale et par jeu, alimentée par les duels au hasard ; historique du joueur. */
+/** Classement compétitif : cote globale et par jeu, alimentée par les seuls duels au hasard ; saison, progression, historique. */
 export default function RankedPage() {
   const { me, loading } = useSession();
   const [scope, setScope] = useState<RatingScope>("global");
@@ -24,7 +24,7 @@ export default function RankedPage() {
   const [mine, setMine] = useState<MyRatingsDto | null>(null);
 
   const load = useCallback(() => {
-    api.ratingBoard(scope).then(setBoard, () => setBoard({ scope, entries: [], me: null }));
+    api.ratingBoard(scope).then(setBoard, () => setBoard({ scope, season: null, entries: [], me: null }));
   }, [scope]);
   useEffect(() => {
     if (!me) return;
@@ -41,14 +41,22 @@ export default function RankedPage() {
   // Classement affiché seulement s'il correspond à l'onglet choisi (sinon chargement en cours)
   const shown = board?.scope === scope ? board : null;
   const my = shown?.me;
-  const tier = ratingTier(my?.rating ?? RATING_START);
+  const progress = tierProgress(my?.rating ?? RATING_START);
+  const tier = progress.tier;
+  const season = shown?.season ?? board?.season ?? null;
   return (
     <section className="space-y-8">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div className="space-y-2">
           <h1 className="font-display text-3xl font-bold">Classement compétitif</h1>
           <p className="max-w-2xl text-sm text-muted">
-            Ta cote RankSight monte et descend avec tes duels « au hasard ». Les parties entre amis ne comptent pas, et le VIP n&apos;apporte aucun point.
+            Ta cote monte et descend avec tes duels « au hasard ». Les duels entre amis, les salons et les tournois ne comptent pas, et le VIP n&apos;apporte aucun point.
+          </p>
+          <p className="text-sm">
+            {season
+              ? <>{season.name} · fin le {new Date(season.endsAt).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })}</>
+              : "Entre deux saisons : tes duels comptent pour la prochaine."}{" "}
+            · <Link href="/ranked/seasons" className="text-neon underline">Saisons précédentes</Link>
           </p>
         </div>
         <Link href="/versus" className="btn-primary">Lancer un duel au hasard</Link>
@@ -108,12 +116,22 @@ export default function RankedPage() {
           <div className="glass space-y-2 p-6 text-center">
             <p className="hud-label">Ma cote · {scopeName(scope)}</p>
             <p className="font-display text-5xl font-bold">{my?.rating ?? RATING_START}</p>
-            <p className="font-semibold" style={{ color: tier.color }}>{tier.name}</p>
+            <p className="font-semibold" style={{ color: tier.color }}>{tier.name}{my?.provisional ? " · placement en cours" : ""}</p>
+            {progress.next ? (
+              <div className="space-y-1 pt-1">
+                <div className="h-2 overflow-hidden rounded-full bg-surface-2" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress.progress * 100)} aria-label={`Progression vers ${progress.next.name}`}>
+                  <div className="h-full" style={{ width: `${progress.progress * 100}%`, background: progress.next.color }} />
+                </div>
+                <p className="text-xs text-muted">{progress.pointsToNext} point{progress.pointsToNext! > 1 ? "s" : ""} avant {progress.next.name}</p>
+              </div>
+            ) : (
+              <p className="text-xs text-muted">Rang le plus haut atteint</p>
+            )}
             <p className="text-sm text-muted">
               {my
                 ? my.rank
                   ? `${my.rank === 1 ? "1re" : `${my.rank}e`} place · ${my.wins} V / ${my.losses} D / ${my.draws} N · record ${my.peak}`
-                  : `${my.games}/${RATING_MIN_GAMES} duels pour apparaître dans le classement`
+                  : `${my.games}/${RATING_MIN_GAMES} duels cette saison pour apparaître dans le classement`
                 : "Pas encore de duel classé ici."}
             </p>
           </div>
@@ -142,7 +160,9 @@ export default function RankedPage() {
                     {h.counted ? (
                       <>{h.after} <span className={h.delta > 0 ? "text-success" : h.delta < 0 ? "text-danger" : "text-muted"}>({h.delta > 0 ? "+" : ""}{h.delta})</span></>
                     ) : (
-                      <span className="text-muted">ne compte pas</span>
+                      <span className="text-muted" title={h.reason ? RATING_UNCOUNTED_LABEL[h.reason] : undefined}>
+                        {h.reason === "EARLY_FORFEIT" ? "abandon immédiat : non compté" : "ne compte pas (limite par adversaire)"}
+                      </span>
                     )}
                   </td>
                 </tr>

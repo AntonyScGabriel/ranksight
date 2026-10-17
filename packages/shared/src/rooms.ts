@@ -1,11 +1,12 @@
 /**
  * Salons personnalisés (jusqu'à 8 joueurs), toujours non classés : ils ne modifient jamais la cote compétitive.
- * - Public classique : visible dans la liste des salons et rejoignable sans invitation tant qu'il reste de la place.
- *   Création gratuite.
- * - Privé : absent des listes, rejoignable seulement avec le code ou une invitation. Création réservée aux joueurs VIP ;
- *   un invité gratuit peut le rejoindre (sauf si le salon utilise un mode VIP).
- * - Fonctions VIP (voir `roomVipRules`) : la mort subite est un mode VIP (tous les joueurs doivent être VIP) ; un nombre
- *   de manches ou un temps de réponse différent des réglages standard sont des options avancées (hôte VIP).
+ * - Créer un salon, public ou privé, quel que soit le mode, est réservé aux joueurs VIP (vérifié par le serveur).
+ *   Rejoindre, jouer, devenir hôte (après le départ du créateur) et consulter les résultats est gratuit.
+ * - Public : visible dans la liste des salons et rejoignable sans invitation tant qu'il reste de la place.
+ * - Privé : absent des listes, rejoignable seulement avec le code ou une invitation.
+ * - Salons par défaut : le serveur garde 2 salles d'attente publiques gratuites par mode (jeu tournant),
+ *   pour que tout le monde puisse jouer sans créer de salon.
+ * - Une partie terminée retire le salon (plus listé, plus rejoignable) ; ses résultats restent dans l'historique.
  */
 import { z } from "zod";
 import { FlairDto } from "./rewards.js";
@@ -88,27 +89,17 @@ export function modeSettings(mode: RoomMode): { teamSize: 0 | 2 | 3; impostor: b
   return mode === "IMPOSTOR" ? { teamSize: 0, impostor: true } : mode === "TEAMS_2" ? { teamSize: 2, impostor: false } : mode === "TEAMS_3" ? { teamSize: 3, impostor: false } : { teamSize: 0, impostor: false };
 }
 
-// ---------- Accès gratuit / VIP ----------
+// ---------- Création (VIP) et salons par défaut ----------
 
-/**
- * Règles VIP d'un salon, d'après ses réglages (une seule définition pour l'API, le site et l'application) :
- * - `vipMode` : le salon utilise un mode VIP (mort subite) : chaque joueur, hôte compris, doit être VIP pour y jouer,
- *   que le salon soit public ou privé ;
- * - `advanced` : options avancées (nombre de manches ou temps de réponse différents des réglages standard) ;
- * - `hostVip` : l'hôte doit être VIP (salon privé, mode VIP ou options avancées).
- * Un salon public classique aux réglages standard est entièrement gratuit. Les matchs de tournoi ne sont pas concernés :
- * leurs règles sont fixées par le tournoi (créé par un joueur VIP), et la mort subite n'y sert qu'à départager une égalité.
- */
-export function roomVipRules(room: { visibility: RoomVisibility; suddenDeath: boolean; rounds: number; roundSec: number; tournament?: boolean }) {
-  if (room.tournament) return { vipMode: false, advanced: false, hostVip: false };
-  const vipMode = room.suddenDeath;
-  const advanced = room.rounds !== ROOM_DEFAULT_ROUNDS || room.roundSec !== ROOM_DEFAULT_TIME;
-  return { vipMode, advanced, hostVip: room.visibility === "PRIVATE" || vipMode || advanced };
-}
+/** Message affiché à un joueur sans VIP qui voudrait créer un salon */
+export const ROOM_CREATE_VIP_HINT =
+  "Créer un salon, public ou privé, est réservé aux joueurs VIP. Rejoindre un salon public et y jouer reste gratuit, comme devenir hôte quand le créateur part.";
 
-export const ROOM_VIP_MODE_HINT =
-  "Mode VIP : la mort subite est réservée aux joueurs VIP. Tous les joueurs du salon doivent être VIP, même dans un salon public.";
-export const ROOM_ADVANCED_HINT = `Options avancées réservées aux VIP : ${ROOM_DEFAULT_ROUNDS} manches et ${ROOM_DEFAULT_TIME} secondes en standard.`;
+/** Salons publics par défaut entretenus par le serveur, par mode de jeu (salles d'attente ouvertes à tous, gratuites) */
+export const ROOM_SYSTEM_SLOTS = 2;
+export const ROOM_SYSTEM_LABEL = "Salon gratuit";
+/** Emplacement d'un salon par défaut (ex. « CLASSIC:1 ») : un seul salon en salle d'attente par emplacement */
+export const roomSystemSlot = (mode: RoomMode, index: number) => `${mode}:${index}`;
 
 // ---------- Entrées ----------
 
@@ -116,7 +107,7 @@ export const ROOM_ADVANCED_HINT = `Options avancées réservées aux VIP : ${ROO
 export const CreateRoomInput = z
   .object({
     game: GameSlug,
-    /** Public (liste des salons, création gratuite) ou privé (code ou invitation, création VIP). Privé par défaut. */
+    /** Public (liste des salons) ou privé (code ou invitation). Privé par défaut. Création réservée aux VIP dans les deux cas. */
     visibility: RoomVisibility.default("PRIVATE"),
     rounds: z.coerce.number().int().refine((n) => (ROOM_ROUND_CHOICES as readonly number[]).includes(n), "Nombre de manches non proposé.").default(ROOM_DEFAULT_ROUNDS),
     roundSec: z.coerce.number().int().refine((n) => (ROOM_TIME_CHOICES as readonly number[]).includes(n), "Temps de réponse non proposé.").default(ROOM_DEFAULT_TIME),
@@ -150,7 +141,7 @@ export type JoinRoomInput = z.input<typeof JoinRoomInput>;
 
 export const InviteToRoomInput = z.object({ userId: z.string().uuid() }).strict();
 
-/** « Jouer maintenant » : rejoindre un salon public compatible (jeu et mode), ou en créer un si `create` */
+/** « Jouer maintenant » : rejoindre un salon public compatible (jeu et mode), ou en créer un si `create` (VIP seulement) */
 export const QuickPlayInput = z.object({ game: GameSlug, mode: RoomMode.default("CLASSIC"), create: z.boolean().default(false) }).strict();
 export type QuickPlayInput = z.input<typeof QuickPlayInput>;
 
@@ -251,8 +242,8 @@ export const RoomDto = z.object({
   roundSec: z.number().int(),
   maxPlayers: z.number().int(),
   suddenDeath: z.boolean(),
-  /** Le salon utilise un mode VIP : seuls les joueurs VIP peuvent y jouer */
-  vipOnly: z.boolean(),
+  /** Salon par défaut entretenu par le serveur (gratuit, sans créateur) */
+  system: z.boolean(),
   /** Duel par équipes : joueurs par équipe (null = chacun pour soi) */
   teamSize: z.number().int().nullable(),
   impostor: z.boolean(),
@@ -268,10 +259,6 @@ export const RoomDto = z.object({
   /** Le joueur connecté a quitté la partie (il peut encore voir les résultats) */
   left: z.boolean(),
   canStart: z.boolean(),
-  /** Partie terminée : le joueur connecté peut proposer une revanche (hôte du salon, hors tournoi) */
-  canRematch: z.boolean(),
-  /** Revanche proposée : nouveau salon (mêmes réglages) que chaque joueur confirme en le rejoignant */
-  rematch: z.object({ id: z.string().uuid(), code: z.string(), host: z.string(), status: RoomStatus, joined: z.boolean(), players: z.number().int(), maxPlayers: z.number().int() }).nullable(),
   players: z.array(RoomPlayerDto),
   live: RoomLiveDto.nullable(),
   /** Manches terminées (toutes une fois la partie finie) */
@@ -287,7 +274,8 @@ export type RoomDto = z.infer<typeof RoomDto>;
 export const RoomPreviewDto = z.object({
   id: z.string().uuid(),
   code: z.string(),
-  host: z.string(),
+  /** Hôte actuel (null : salon par défaut en attente de son premier joueur) */
+  host: z.string().nullable(),
   game: z.object({ slug: z.string(), name: z.string() }),
   rounds: z.number().int(),
   roundSec: z.number().int(),
@@ -296,10 +284,7 @@ export const RoomPreviewDto = z.object({
   impostor: z.boolean(),
   visibility: RoomVisibility,
   mode: RoomMode,
-  /** Mode VIP : seuls les joueurs VIP peuvent y jouer */
-  vipOnly: z.boolean(),
-  /** Le joueur connecté peut rejoindre ce salon (droits VIP vérifiés par le serveur) */
-  allowed: z.boolean(),
+  system: z.boolean(),
   players: z.number().int(),
   maxPlayers: z.number().int(),
   status: RoomStatus,
@@ -315,7 +300,7 @@ export const RoomSummaryDto = z.object({
   visibility: RoomVisibility,
   mode: RoomMode,
   game: z.object({ slug: z.string(), name: z.string() }),
-  host: z.string(),
+  host: z.string().nullable(),
   players: z.number().int(),
   maxPlayers: z.number().int(),
   /** Place du joueur connecté (partie terminée) */
@@ -331,15 +316,15 @@ export const PublicRoomDto = z.object({
   status: RoomStatus,
   mode: RoomMode,
   game: z.object({ slug: z.string(), name: z.string() }),
-  host: z.string(),
+  host: z.string().nullable(),
   rounds: z.number().int(),
   roundSec: z.number().int(),
   suddenDeath: z.boolean(),
-  /** Mode VIP : seuls les joueurs VIP peuvent y jouer */
-  vipOnly: z.boolean(),
+  /** Salon par défaut entretenu par le serveur (gratuit, sans créateur) */
+  system: z.boolean(),
   players: z.number().int(),
   maxPlayers: z.number().int(),
-  /** Le joueur connecté peut le rejoindre maintenant : salle d'attente avec de la place, et VIP s'il s'agit d'un mode VIP */
+  /** Le joueur connecté peut le rejoindre maintenant : salle d'attente avec de la place */
   joinable: z.boolean(),
   createdAt: z.string(),
 });
@@ -364,8 +349,6 @@ export type RoomHistoryDto = z.infer<typeof RoomHistoryDto>;
 
 export const RoomInviteDto = z.object({
   roomId: z.string().uuid(),
-  /** Invitation à la revanche d'une partie jouée ensemble */
-  rematch: z.boolean(),
   code: z.string(),
   from: z.string(),
   game: z.object({ slug: z.string(), name: z.string() }),
@@ -376,9 +359,9 @@ export const RoomInviteDto = z.object({
 export type RoomInviteDto = z.infer<typeof RoomInviteDto>;
 
 export const RoomsOverviewDto = z.object({
-  /** Le joueur peut créer un salon privé (droit VIP vérifié par le serveur) ; un salon public est ouvert à tous */
-  canHostPrivate: z.boolean(),
-  /** Le joueur a accès aux fonctions VIP (mort subite, options avancées) */
+  /** Le joueur peut créer un salon, public ou privé (droit VIP vérifié par le serveur) */
+  canCreate: z.boolean(),
+  /** Le joueur est VIP */
   vip: z.boolean(),
   /** Salon en attente ou en cours dont le joueur fait partie */
   current: RoomSummaryDto.nullable(),

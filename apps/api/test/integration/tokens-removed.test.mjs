@@ -35,7 +35,7 @@ test("VIP, boutique, succès et récompenses toujours en place", async () => {
   r = await u.s.get("/shop");
   assert.equal(r.body.vip.active, true, "abonnement VIP reconnu");
   r = await u.s.get("/rooms");
-  assert.equal(r.body.canHostPrivate, true, "le VIP permet toujours de créer un salon privé");
+  assert.equal(r.body.canCreate, true, "le VIP permet toujours de créer un salon");
   r = await u.s.post("/rooms", { game: "valorant", visibility: "PRIVATE" });
   assert.ok(r.status === 201 || r.body.code === "NOT_ENOUGH_CLIPS", JSON.stringify(r.body));
 });

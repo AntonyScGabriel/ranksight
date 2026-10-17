@@ -1,4 +1,4 @@
-// Salons publics et privés, « Jouer maintenant », capacité, revanche, historique ; aucun effet sur la cote compétitive.
+// Salons publics et privés (création VIP), « Jouer maintenant », capacité, historique ; aucun effet sur la cote compétitive.
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { addClips, cleanup, grantVip, newUser, sql, wait } from "./lib.mjs";
@@ -12,21 +12,23 @@ after(cleanup);
 
 const ratingsOf = async (ids) => (await sql("SELECT count(*)::int AS n FROM competitive_ratings WHERE user_id = ANY($1::uuid[])", [ids]))[0].n;
 
-test("création : salon public gratuit, salon privé réservé au VIP (vérifié par le serveur)", async () => {
+test("création : réservée aux VIP (vérifié par le serveur), champs inconnus refusés", async () => {
   const free = await newUser("pub");
-  let r = await free.s.post("/rooms", { game: GAME, visibility: "PRIVATE" });
-  assert.equal(r.status, 402, "privé sans VIP refusé");
-  assert.equal(r.body.code, "PREMIUM_REQUIRED");
-  r = await free.s.post("/rooms", { game: GAME, visibility: "PUBLIC" });
+  for (const visibility of ["PRIVATE", "PUBLIC"]) {
+    const res = await free.s.post("/rooms", { game: GAME, visibility });
+    assert.equal(res.status, 402, `${visibility} sans VIP refusé`);
+    assert.equal(res.body.code, "PREMIUM_REQUIRED");
+  }
+  const vip = await newUser("vip");
+  await grantVip(vip.id);
+  let r = await vip.s.post("/rooms", { game: GAME, visibility: "PUBLIC" });
   assert.equal(r.status, 201, JSON.stringify(r.body));
   assert.equal(r.body.visibility, "PUBLIC");
   assert.equal(r.body.mode, "CLASSIC");
-  r = await free.s.post("/rooms", { game: GAME, visibility: "PUBLIC", confidence: true });
+  r = await vip.s.post("/rooms", { game: GAME, visibility: "PUBLIC", confidence: true });
   assert.equal(r.status, 400, "mode Confiance supprimé : champ refusé");
-  r = await free.s.post("/rooms", { game: GAME, visibility: "PUBLIC", ranked: true });
+  r = await vip.s.post("/rooms", { game: GAME, visibility: "PUBLIC", ranked: true });
   assert.equal(r.status, 400, "aucun champ « classé » accepté du client");
-  const vip = await newUser("vip");
-  await grantVip(vip.id);
   r = await vip.s.post("/rooms", { game: GAME, visibility: "PRIVATE" });
   assert.equal(r.status, 201);
   assert.equal(r.body.visibility, "PRIVATE");
@@ -76,6 +78,7 @@ test("visibilité : le salon privé n'apparaît dans aucune liste et ne se rejoi
 
 test("capacité : la dernière place n'est attribuée qu'une fois (demandes simultanées)", async () => {
   const host = await newUser("cap");
+  await grantVip(host.id);
   const room = (await host.s.post("/rooms", { game: GAME, visibility: "PUBLIC", teamSize: 2 })).body; // 4 places
   const two = await newUser("cp2");
   await two.s.post(`/rooms/${room.id}/join`);
@@ -93,46 +96,51 @@ test("capacité : la dernière place n'est attribuée qu'une fois (demandes simu
   assert.equal(full.body.code, "ROOM_FULL");
 });
 
-test("Jouer maintenant : rejoint un salon compatible, crée sur demande, jamais un privé ni un autre mode", async () => {
-  const solo = await newUser("qp0");
-  let r = await solo.s.post("/rooms/quick-play", { game: GAME, mode: "TEAMS_3" });
-  assert.equal(r.status, 200);
-  assert.equal(r.body.room, null, "aucun salon 3 contre 3 public : rien n'est créé sans demande");
+test("Jouer maintenant : salon public compatible (salons gratuits compris), jamais un privé ni un autre mode, capacité tenue", async () => {
   // Un salon privé compatible n'est jamais proposé
   const vip = await newUser("qpv");
   await grantVip(vip.id);
   const priv = (await vip.s.post("/rooms", { game: GAME, visibility: "PRIVATE", teamSize: 3 })).body;
-  r = await solo.s.post("/rooms/quick-play", { game: GAME, mode: "TEAMS_3" });
-  assert.equal(r.body.room, null, "le salon privé n'est pas proposé");
+  const solo = await newUser("qp0");
+  let r = await solo.s.post("/rooms/quick-play", { game: GAME, mode: "TEAMS_3" });
+  assert.equal(r.status, 200);
+  assert.notEqual(r.body.room?.id, priv.id, "le salon privé n'est pas proposé");
+  if (r.body.room) {
+    assert.equal(r.body.room.visibility, "PUBLIC");
+    assert.equal(r.body.room.mode, "TEAMS_3");
+    await solo.s.post(`/rooms/${r.body.room.id}/leave`);
+  }
   await vip.s.post(`/rooms/${priv.id}/close`);
-  // Plusieurs joueurs en même temps, sans salon existant : tous dans le même salon, créé une seule fois
-  const crowd = await Promise.all(Array.from({ length: 5 }, () => newUser("qpc")));
-  const results = await Promise.all(crowd.map((u) => u.s.post("/rooms/quick-play", { game: GAME, mode: "TEAMS_3", create: true })));
+  // Beaucoup de joueurs en même temps : jamais plus de joueurs que de places, jamais deux fois le même joueur
+  const crowd = await Promise.all(Array.from({ length: 14 }, () => newUser("qpc")));
+  const results = await Promise.all(crowd.map((u) => u.s.post("/rooms/quick-play", { game: GAME, mode: "TEAMS_3" })));
   assert.ok(results.every((x) => x.status === 200), results.map((x) => `${x.status}:${x.body.code ?? ""}`).join(","));
-  const ids = new Set(results.map((x) => x.body.room.id));
-  assert.equal(ids.size, 1, "un seul salon pour tout le monde");
-  assert.equal(results.filter((x) => x.body.created).length, 1, "créé une seule fois");
-  const room = results[0].body.room;
-  assert.equal(room.visibility, "PUBLIC");
-  assert.equal(room.mode, "TEAMS_3");
-  const [{ n }] = await sql("SELECT count(*)::int AS n FROM room_players WHERE room_id = $1 AND left_at IS NULL", [room.id]);
-  assert.equal(n, 5);
-  // Salon complet (6 places) : la 6e place puis plus rien
-  const [sixth, seventh] = await Promise.all([newUser("qp6"), newUser("qp7")]);
-  const both = await Promise.all([sixth, seventh].map((u) => u.s.post("/rooms/quick-play", { game: GAME, mode: "TEAMS_3" })));
-  const joined = both.filter((x) => x.body.room?.id === room.id);
-  assert.equal(joined.length, 1, "la dernière place à un seul joueur");
-  assert.ok(both.some((x) => x.body.room === null), "l'autre : aucun salon compatible");
-  // Mode différent : jamais mélangé
+  const rooms = [...new Set(results.filter((x) => x.body.room).map((x) => x.body.room.id))];
+  for (const id of rooms) {
+    const [{ n, max, size, vis }] = await sql(
+      "SELECT (SELECT count(*)::int FROM room_players p WHERE p.room_id = r.id AND p.left_at IS NULL) AS n, r.max_players AS max, r.team_size AS size, r.visibility::text AS vis FROM rooms r WHERE r.id = $1",
+      [id],
+    );
+    assert.ok(n <= max, `jamais plus de joueurs que de places (${n}/${max})`);
+    assert.equal(size, 3, "jamais un autre mode");
+    assert.equal(vis, "PUBLIC");
+  }
+  const [{ dup }] = await sql(
+    "SELECT count(*)::int AS dup FROM (SELECT user_id FROM room_players WHERE user_id = ANY($1::uuid[]) AND left_at IS NULL GROUP BY user_id HAVING count(*) > 1) d",
+    [crowd.map((u) => u.id)],
+  );
+  assert.equal(dup, 0, "aucun joueur inscrit dans deux salons");
+  // Sans VIP, « Jouer maintenant » ne crée jamais de salon
   const other = await newUser("qpo");
-  r = await other.s.post("/rooms/quick-play", { game: GAME, mode: "CLASSIC" });
-  assert.notEqual(r.body.room?.id, room.id);
+  r = await other.s.post("/rooms/quick-play", { game: GAME, mode: "IMPOSTOR", create: true });
+  assert.equal(r.status, 402);
   r = await other.s.post("/rooms/quick-play", { game: GAME, visibility: "PRIVATE" });
   assert.equal(r.status, 400, "« Jouer maintenant » n'accepte pas de visibilité");
 });
 
 test("départ du créateur, expulsion, fermeture", async () => {
   const host = await newUser("dep");
+  await grantVip(host.id);
   const room = (await host.s.post("/rooms", { game: GAME, visibility: "PUBLIC" })).body;
   const [b, c] = await Promise.all([newUser("dpb"), newUser("dpc")]);
   await b.s.post(`/rooms/${room.id}/join`);
@@ -152,12 +160,12 @@ test("départ du créateur, expulsion, fermeture", async () => {
   r = await b.s.post(`/rooms/${room.id}/close`);
   assert.equal(r.status, 204);
   r = await b.s.get(`/rooms/${room.id}`);
-  assert.equal(r.body.status, "CLOSED");
+  assert.equal(r.status, 404, "salle d'attente fermée : supprimée");
 });
 
-test("partie complète : résultats, revanche avec confirmation, historique, aucun effet sur la cote", async () => {
+test("partie complète : résultats, historique, aucun effet sur la cote", async () => {
   const host = await newUser("ply");
-  await grantVip(host.id); // 3 manches de 20 s : options avancées, réservées aux VIP
+  await grantVip(host.id); // créer un salon est réservé aux VIP
   const guest = await newUser("plg");
   let room = (await host.s.post("/rooms", { game: GAME, visibility: "PUBLIC", rounds: 3, roundSec: 20 })).body;
   await guest.s.post(`/rooms/${room.id}/join`);
@@ -182,20 +190,6 @@ test("partie complète : résultats, revanche avec confirmation, historique, auc
   assert.equal(room.players.find((p) => p.id === host.id).placement, 1);
   assert.equal(room.details.length, 3, "toutes les manches dévoilées à la fin");
   assert.equal(await ratingsOf([host.id, guest.id]), 0, "un salon ne crée ni ne modifie aucune cote");
-  assert.equal(room.canRematch, true);
-  // Revanche aux mêmes réglages (options avancées : à proposer par un VIP). Proposée par deux VIP en même temps : un seul salon
-  await grantVip(guest.id);
-  const [p1, p2] = await Promise.all([host.s.post(`/rooms/${room.id}/rematch`), guest.s.post(`/rooms/${room.id}/rematch`)]);
-  assert.equal(p1.status, 200, JSON.stringify(p1.body));
-  assert.equal(p2.status, 200, JSON.stringify(p2.body));
-  assert.equal(p1.body.id, p2.body.id, "une seule revanche");
-  assert.equal(p1.body.visibility, "PUBLIC");
-  assert.equal(p1.body.rounds, 3, "mêmes réglages");
-  const [{ n }] = await sql("SELECT count(*)::int AS n FROM rooms WHERE rematch_of_id = $1", [room.id]);
-  assert.equal(n, 1);
-  const original = (await guest.s.get(`/rooms/${room.id}`)).body;
-  assert.equal(original.rematch.joined, true);
-  assert.equal(original.rematch.players, 2);
   // Historique et statistiques (hors cote compétitive)
   const hist = (await host.s.get("/rooms/history")).body;
   assert.equal(hist.stats.played, 1);

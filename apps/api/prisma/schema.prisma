@@ -1130,10 +1130,15 @@ model Room {
   id            String     @id @default(uuid(7)) @db.Uuid
   /// Code d'invitation (8 caractères sans caractères ambigus), unique
   code          String     @unique @db.VarChar(8)
-  /// Joueur VIP qui a créé le salon (droit vérifié en base à la création)
-  createdById   String     @map("created_by_id") @db.Uuid
-  /// Hôte actuel : le créateur, ou le joueur arrivé le plus tôt s'il est parti
-  hostId        String     @map("host_id") @db.Uuid
+  /// Joueur VIP qui a créé le salon (droit vérifié en base à la création) ; NULL pour un salon par défaut (créé par le serveur)
+  /// ou si le compte du créateur a été supprimé
+  createdById   String?    @map("created_by_id") @db.Uuid
+  /// Hôte actuel : le créateur, puis le joueur présent arrivé le plus tôt s'il part ou se déconnecte (VIP non requis) ;
+  /// NULL pour un salon par défaut vide (le premier joueur qui entre devient hôte)
+  hostId        String?    @map("host_id") @db.Uuid
+  /// Salon par défaut entretenu par le serveur (ex. « CLASSIC:1 ») ; NULL pour un salon créé par un joueur.
+  /// Index unique partiel (migration SQL, non exprimable ici) : un seul salon en salle d'attente par emplacement.
+  systemSlot    String?    @map("system_slot") @db.VarChar(32)
   gameId        String     @map("game_id") @db.Uuid
   status        RoomStatus @default(LOBBY)
   rounds        Int
@@ -1144,8 +1149,6 @@ model Room {
   suddenDeath   Boolean    @default(false) @map("sudden_death")
   /// Public : listé et rejoignable sans invitation ; privé : code ou invitation seulement (salons existants : privés)
   visibility    RoomVisibility @default(PRIVATE)
-  /// Revanche : salon terminé dont celui-ci reprend les réglages (une seule revanche par salon)
-  rematchOfId   String?    @unique @map("rematch_of_id") @db.Uuid
   /// Duel par équipes : 2 (2 contre 2) ou 3 (3 contre 3) joueurs par équipe ; NULL = chacun pour soi
   teamSize      Int?       @map("team_size")
   /// Mode Intrus : à chaque manche, un joueur reçoit un autre clip ; après les réponses, tout le monde vote
@@ -1166,8 +1169,8 @@ model Room {
   startedAt     DateTime?  @map("started_at")
   finishedAt    DateTime?  @map("finished_at")
 
-  createdBy User         @relation("roomCreator", fields: [createdById], references: [id], onDelete: Cascade)
-  host      User         @relation("roomHost", fields: [hostId], references: [id], onDelete: Cascade)
+  createdBy User?        @relation("roomCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  host      User?        @relation("roomHost", fields: [hostId], references: [id], onDelete: SetNull)
   game      Game         @relation(fields: [gameId], references: [id])
   players   RoomPlayer[]
   roundList RoomRound[]
@@ -1176,15 +1179,14 @@ model Room {
   votes     RoomVote[]
   tournamentMatch TournamentMatch?
   bonuses   RoomBonus[]
-  /// Revanche : salon qui rejoue celui-ci (un seul), et salon d'origine
-  rematch    Room?        @relation("roomRematch")
-  rematchOf  Room?        @relation("roomRematch", fields: [rematchOfId], references: [id], onDelete: SetNull)
 
   @@index([status, expiresAt])
   @@index([status, roundEndsAt])
   @@index([createdById, createdAt(sort: Desc)])
   /// Liste publique et « Jouer maintenant » : salons publics par état et par jeu
   @@index([visibility, status, gameId, createdAt])
+  /// Salons par défaut : dernier salon de chaque emplacement (rotation des jeux)
+  @@index([systemSlot, createdAt])
   @@map("rooms")
 }
 

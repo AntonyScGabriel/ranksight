@@ -44,7 +44,7 @@ export class RoomsController {
     return this.rooms.quickPlay(u.sub, body);
   }
 
-  /** POST /v1/rooms — { game, visibility, rounds, roundSec… } : public pour tous, privé réservé aux joueurs VIP (vérifié en base) */
+  /** POST /v1/rooms — { game, visibility, rounds, roundSec… } : création réservée aux joueurs VIP, public comme privé (vérifié en base) */
   @Post()
   @Throttle({ default: { ttl: 3_600_000, limit: 20 } })
   create(@CurrentUser() u: AuthUser, @Body(new ZodPipe(CreateRoomInput)) body: z.output<typeof CreateRoomInput>) {
@@ -84,14 +84,6 @@ export class RoomsController {
   @HttpCode(204)
   close(@CurrentUser() u: AuthUser, @Param("id", ParseUUIDPipe) id: string) {
     return this.rooms.close(u.sub, id);
-  }
-
-  /** POST /v1/rooms/:id/rematch — proposer (ou rejoindre) la revanche d'une partie terminée */
-  @Post(":id/rematch")
-  @HttpCode(200)
-  @Throttle({ default: { ttl: 60_000, limit: 20 } })
-  rematch(@CurrentUser() u: AuthUser, @Param("id", ParseUUIDPipe) id: string) {
-    return this.rooms.rematch(u.sub, id);
   }
 
   @Get(":id")

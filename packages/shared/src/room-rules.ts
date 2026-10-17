@@ -8,6 +8,8 @@ import { placements } from "./rooms.js";
 
 /** Nombre maximal de manches de mort subite ; au-delà, la réponse la plus rapide départage */
 export const SUDDEN_DEATH_MAX_ROUNDS = 3;
+/** Nombre maximal de joueurs dans une manche décisive (chacun pour soi) */
+export const SUDDEN_DEATH_MAX_FINALISTS = 3;
 
 export type DecidedBy = "POINTS" | "SUDDEN_DEATH" | "SPEED" | "SHARED" | "FORFEIT";
 export const DECIDED_BY_LABEL: Record<DecidedBy, string> = {
@@ -20,6 +22,7 @@ export const DECIDED_BY_LABEL: Record<DecidedBy, string> = {
 
 export const SUDDEN_DEATH_RULES = [
   "En cas d'égalité en tête à la fin des manches prévues, les ex aequo disputent une manche décisive sur un nouveau clip.",
+  `${SUDDEN_DEATH_MAX_FINALISTS} joueurs au maximum : s'ils sont plus nombreux à égalité, passent d'abord ceux qui ont le plus de rangs exacts, puis les plus rapides en moyenne, puis les premiers arrivés dans le salon.`,
   "Le meilleur score de la manche décisive l'emporte ; ses points ne s'ajoutent pas au total.",
   `Toujours à égalité : nouvelle manche décisive, ${SUDDEN_DEATH_MAX_ROUNDS} au maximum.`,
   "Après la dernière, la réponse la plus rapide (mesurée par le serveur) parmi les meilleurs scores l'emporte.",
@@ -54,6 +57,31 @@ export function suddenDeathOutcome(entries: SuddenDeathEntry[], round: number, m
   const fastest = Math.min(...answered.map((e) => e.responseMs!));
   const quick = answered.filter((e) => e.responseMs === fastest);
   return quick.length === 1 ? { kind: "winner", winnerId: quick[0]!.id, decidedBy: "SPEED" } : { kind: "shared", finalists: quick.map((e) => e.id) };
+}
+
+/** Données d'un joueur à égalité en tête, pour choisir les finalistes de la mort subite */
+export interface FinalistCandidate {
+  id: string;
+  /** Rangs exacts trouvés pendant les manches prévues */
+  exact: number;
+  /** Temps de réponse moyen (ms) sur les manches prévues ; null sans réponse mesurée */
+  avgResponseMs: number | null;
+  /** Arrivée dans le salon */
+  joinedAt: Date;
+}
+
+/**
+ * Finalistes de la mort subite parmi les joueurs à égalité en tête : tous s'ils sont au plus `max`, sinon les `max`
+ * premiers selon une règle déterministe : le plus de rangs exacts, puis le temps de réponse moyen le plus court
+ * (sans temps mesuré = le plus lent), puis l'arrivée la plus ancienne dans le salon, puis l'identifiant (jamais d'égalité).
+ */
+export function pickFinalists(candidates: FinalistCandidate[], max = SUDDEN_DEATH_MAX_FINALISTS): string[] {
+  if (candidates.length <= max) return candidates.map((c) => c.id);
+  const speed = (c: FinalistCandidate) => c.avgResponseMs ?? Number.MAX_SAFE_INTEGER;
+  return [...candidates]
+    .sort((a, b) => b.exact - a.exact || speed(a) - speed(b) || a.joinedAt.getTime() - b.joinedAt.getTime() || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .slice(0, max)
+    .map((c) => c.id);
 }
 
 /** Concurrents à égalité en tête (au moins 2), ou liste vide s'il y a un premier unique */

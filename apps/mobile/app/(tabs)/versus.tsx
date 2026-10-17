@@ -6,7 +6,6 @@ import { api } from "@/lib/api";
 import { useChat } from "@/lib/chat";
 import { useConfirm } from "@/lib/confirm";
 import { useSession } from "@/lib/session";
-import { QuickPlay } from "@/components/QuickPlay";
 import { colors, font } from "@/lib/theme";
 import { errorMessage } from "@/components/AuthUi";
 import { Avatar, Card, GhostButton, Hud, Loading, LoginRequired, Muted, PrimaryButton } from "@/components/ui";
@@ -17,7 +16,7 @@ const LIVE = ["OPEN", "PENDING", "ACTIVE"];
 /** Duels : défier un joueur au hasard ou un ami, répondre aux invitations, suivre ses duels. */
 export default function VersusScreen() {
   const { me, loading } = useSession();
-  const { onVersus, roomInvites } = useChat();
+  const { onVersus } = useChat();
   const confirm = useConfirm();
   const [data, setData] = useState<{ matches: VersusMatchDto[]; stats: VersusStatsDto } | null>(null);
   const [friends, setFriends] = useState<UserSummaryDto[]>([]);
@@ -83,22 +82,6 @@ export default function VersusScreen() {
           <View style={{ flex: 1, gap: 2 }}>
             <Text style={{ color: colors.ink, fontSize: 17, fontWeight: "700" }}>Classement compétitif</Text>
             <Muted>Les duels « au hasard » font bouger ta cote, globale et par jeu.</Muted>
-          </View>
-          <Text style={{ color: colors.neon, fontSize: 20 }}>›</Text>
-        </Card>
-      </Pressable>
-
-      <QuickPlay />
-
-      <Pressable onPress={() => router.push("/rooms")} accessibilityRole="button" accessibilityLabel="Salons">
-        <Card style={{ flexDirection: "row", alignItems: "center", gap: 12, borderColor: roomInvites ? colors.neon : colors.line }}>
-          <View style={{ flex: 1, gap: 2 }}>
-            <Text style={{ color: colors.ink, fontSize: 17, fontWeight: "700" }}>Salons · jusqu&apos;à 8 joueurs, non classés</Text>
-            <Muted>
-              {roomInvites
-                ? `${roomInvites} invitation${roomInvites > 1 ? "s" : ""} reçue${roomInvites > 1 ? "s" : ""}.`
-                : "Salons publics, salons privés entre amis avec un code, historique de tes parties."}
-            </Muted>
           </View>
           <Text style={{ color: colors.neon, fontSize: 20 }}>›</Text>
         </Card>

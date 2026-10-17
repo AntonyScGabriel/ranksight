@@ -737,7 +737,7 @@ export type ShopCatalogDto = z.infer<typeof ShopCatalogDto>;
 export const VIP_PERKS = [
   "+50 % d'XP sur chaque réponse (défis du jour et mode Infini)",
   "Badge VIP à côté de ton pseudo (classements, chat, profil)",
-  "Création de salons privés jusqu'à 8 joueurs : tes amis rejoignent et jouent gratuitement",
+  "Création de salons publics ou privés jusqu'à 8 joueurs, tous les modes : les autres joueurs rejoignent et jouent gratuitement",
   "Soutien direct au développement de RankGuess",
 ] as const;
 

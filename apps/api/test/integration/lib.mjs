@@ -45,6 +45,8 @@ export function session() {
   call.get = (path) => call(path);
   call.post = (path, body) => call(path, { method: "POST", body: JSON.stringify(body ?? {}) });
   call.del = (path) => call(path, { method: "DELETE" });
+  /** Jeton d'accès de la session (connexion temps réel, comme l'application) */
+  call.token = () => jar.rs_access;
   return call;
 }
 
@@ -94,7 +96,11 @@ export async function cleanup() {
   const users = created.users;
   const clips = created.clips;
   try {
-    await sql("DELETE FROM rooms WHERE created_by_id = ANY($1::uuid[]) OR host_id = ANY($1::uuid[])", [users]);
+    // Salons des joueurs de test (créés, animés ou joués : salons par défaut compris ; le serveur en recrée si besoin)
+    await sql(
+      "DELETE FROM rooms WHERE created_by_id = ANY($1::uuid[]) OR host_id = ANY($1::uuid[]) OR id IN (SELECT room_id FROM room_players WHERE user_id = ANY($1::uuid[]))",
+      [users],
+    );
     await sql("DELETE FROM versus_matches WHERE creator_id = ANY($1::uuid[]) OR opponent_id = ANY($1::uuid[])", [users]);
     await sql("DELETE FROM guesses WHERE clip_id = ANY($1::uuid[])", [clips]);
     await sql("DELETE FROM clips WHERE id = ANY($1::uuid[])", [clips]);

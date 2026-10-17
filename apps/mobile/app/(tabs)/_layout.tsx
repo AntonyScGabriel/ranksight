@@ -20,7 +20,7 @@ export default function TabsLayout() {
         tabBarActiveTintColor: colors.neon,
         tabBarInactiveTintColor: colors.muted,
         sceneStyle: { backgroundColor: colors.void },
-        // 7 onglets : libellés compacts pour tenir sur les petits écrans
+        // 8 onglets : libellés compacts pour tenir sur les petits écrans
         tabBarLabelStyle: { fontSize: 10 },
       }}
     >
@@ -28,7 +28,12 @@ export default function TabsLayout() {
       <Tabs.Screen name="infinite" options={{ title: "Infini", tabBarIcon: icon("∞") }} />
       <Tabs.Screen
         name="versus"
-        options={{ title: "Duels", tabBarIcon: icon("⚔"), tabBarBadge: versusPending + roomInvites > 0 ? versusPending + roomInvites : undefined }}
+        options={{ title: "Duels", tabBarIcon: icon("⚔"), tabBarBadge: versusPending > 0 ? versusPending : undefined }}
+      />
+      {/* Salons : section à part des duels 1 contre 1 (même écran que /rooms) */}
+      <Tabs.Screen
+        name="salons"
+        options={{ title: "Salons", tabBarIcon: icon("▦"), tabBarBadge: roomInvites > 0 ? roomInvites : undefined }}
       />
       <Tabs.Screen name="leaderboard" options={{ title: "Classements", tabBarLabel: "Top", tabBarIcon: icon("▲") }} />
       <Tabs.Screen name="chat" options={{ title: "Chat global", tabBarLabel: "Chat", tabBarIcon: icon("✉") }} />

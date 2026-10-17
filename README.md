@@ -150,51 +150,60 @@ pour tester Google sur téléphone, expose l'API avec une adresse publique (tunn
   séries : le droit est relu en base à chaque lancement (une requête envoyée directement à l'API sans VIP reçoit 402).
   Une série déjà lancée peut être terminée même si le VIP prend fin entre-temps ; aucune nouvelle série sans VIP. Les joueurs gratuits voient le mode, ses règles et un lien vers l'offre VIP. Pas d'XP ni de classement
   public : seul le record personnel compte, le VIP ne donne donc aucun avantage de classement.
-- **Salons** (onglet « Salons », ou depuis « Duels » sur téléphone) : jusqu'à **8 joueurs**, hôte compris, voient le
-  même clip au même moment. Parties personnalisées, **jamais classées** : elles rapportent de l'XP mais ne modifient pas
-  la cote compétitive. À la création, l'hôte choisit la visibilité :
+- **Salons** (onglet « Salons » sur le site et l'application, séparé de l'onglet « Duels » qui ne contient que les duels
+  1 contre 1) : jusqu'à **8 joueurs**, hôte compris, voient le même clip au même moment. Parties personnalisées, **jamais
+  classées** : elles rapportent de l'XP mais ne modifient pas la cote compétitive.
+  - **Créer un salon est réservé aux VIP**, public comme privé, quel que soit le mode (chacun pour soi, équipes, Intrus,
+    mort subite, nombre de manches, temps de réponse) : droit relu en base à la création (`POST /rooms`, et « Jouer
+    maintenant » avec création), jamais d'après la requête. Sans VIP, l'écran explique l'avantage et renvoie vers l'offre.
+  - **Participer est gratuit** : rejoindre un salon public, un salon privé (code ou invitation), jouer, voir les résultats,
+    devenir hôte. Aucun autre contrôle VIP ensuite (lancement, transfert d'hôte, mort subite), et une partie lancée va
+    toujours à son terme.
   - **Public** : visible dans la liste des salons publics (`GET /rooms/public`, filtres jeu, mode et places disponibles ;
     ni code ni liste des joueurs), rejoignable sans invitation tant qu'il reste de la place (`POST /rooms/:id/join`).
-    **Salon public classique : création gratuite pour tous.**
   - **Privé** : absent des listes ; on n'y entre qu'avec le code ou une invitation (un accès direct par identifiant répond
-    « salon introuvable »). **Sa création exige le VIP**, relu en base (jamais un champ envoyé par l'application) ; un
-    invité gratuit le rejoint normalement.
-  - **Fonctions VIP** (`roomVipRules` dans `packages/shared/src/rooms.ts`, appliquées par l'API) :
-    - **Mort subite = mode VIP** : à la création (hôte VIP), pour rejoindre (code, liste, invitation, revanche, « Jouer
-      maintenant ») et au lancement, **chaque joueur doit être VIP**, que le salon soit public ou privé. Un salon public
-      en mode VIP reste visible dans la liste avec la mention « Réservé aux VIP ». Inviter un ami sans VIP est refusé.
-    - **Options avancées** (nombre de manches ou temps de réponse différents de 5 manches / 30 s) : hôte VIP ; les
-      autres joueurs peuvent être gratuits.
-    - Les droits sont relus au lancement : un hôte (ou, en mode VIP, un joueur) dont le VIP a pris fin bloque le
-      lancement avec un message clair. Si l'hôte part, le premier joueur VIP reprend un salon qui exige un hôte VIP.
-    - Mode Intrus et équipes : gratuits (non classés comme modes VIP).
-  - Rejoindre, jouer et voir les résultats d'un salon classique est gratuit, et une partie lancée va à son terme, même si
-    le VIP du créateur se termine entre-temps. Les salons existants avant l'ajout de la visibilité sont privés.
-  - **« Jouer maintenant »** (`POST /rooms/quick-play`, écrans Salons et Duels) : rejoint le salon public compatible (même
-    jeu, même mode) le plus rempli ; sans salon ouvert, le joueur choisit « Créer un salon public » (réglages par défaut)
-    ou « Patienter » (nouvelle recherche toutes les 5 s pendant 2 minutes). Les demandes pour un même jeu et un même mode
-    passent l'une après l'autre (verrou PostgreSQL de transaction) : deux joueurs qui cliquent en même temps se
-    retrouvent dans le même salon, et la dernière place n'est attribuée qu'une fois. Jamais de salon privé, jamais un
-    autre jeu ou mode. Ne pas confondre avec le **duel au hasard**, seul mode qui compte pour le classement.
+    « salon introuvable »).
+  - **Salons gratuits par défaut** : le serveur garde **2 salles d'attente publiques par mode** (emplacements `CLASSIC:1`,
+    `CLASSIC:2`, `TEAMS_2:1`… dans `rooms.system_slot`), sans créateur, aux réglages par défaut, sur un jeu tournant (le
+    jeu suivant de la liste qui a assez de clips). Le premier joueur qui entre devient hôte, VIP ou non. Quand un salon par
+    défaut est lancé, son emplacement reçoit aussitôt une nouvelle salle d'attente ; un salon plein reste affiché
+    « Complet » sans en créer d'autre ; vidé, il reste ouvert sans hôte (pas de création en boucle) et ne peut pas être
+    fermé. Un **index unique partiel** de la base (une seule salle d'attente par emplacement) empêche les doublons, même
+    avec des demandes simultanées ou plusieurs instances. Vérification toutes les 5 s par la boucle des salons.
+  - **Hôte** : s'il quitte le salon, ou reste **déconnecté plus de 30 s** en salle d'attente (connexion temps réel du site
+    ou de l'application, suivie dans Redis, donc fiable après un redémarrage de l'API), le rôle passe au joueur présent
+    arrivé le plus tôt, connecté de préférence, **sans condition de VIP**, sous verrou du salon (un seul hôte). Un joueur
+    déconnecté plus de 2 min est retiré de la salle d'attente (sa place se libère).
+  - **Fin de partie** : le salon est **retiré** (plus listé, code et identifiant ne mènent plus nulle part, invitations et
+    état temporaire effacés) ; ses résultats (places, scores, réponses) restent consultables par ses joueurs et dans
+    l'**historique** (`GET /rooms/history`). Une salle d'attente **jamais lancée** est **supprimée de la base** quand le
+    dernier joueur part, quand l'hôte la ferme (`POST /rooms/:id/close`) ou après une heure sans lancement. Pas de revanche :
+    on rejoue dans un nouveau salon.
+  - **« Jouer maintenant »** (`POST /rooms/quick-play`, écran Salons) : rejoint le salon public compatible (même jeu, même
+    mode) le plus rempli, salons gratuits par défaut compris ; sans place libre, « Patienter » (nouvelle recherche toutes
+    les 5 s pendant 2 minutes) ou, pour un VIP, « Créer un salon public ». Les demandes pour un même jeu et un même mode
+    passent l'une après l'autre (verrou PostgreSQL de transaction) : la dernière place n'est attribuée qu'une fois. Jamais
+    de salon privé, jamais un autre jeu ou mode. Ne pas confondre avec le **duel au hasard**, seul mode qui compte pour le
+    classement.
   - Modes : chacun pour soi, équipes 2 contre 2, équipes 3 contre 3, Intrus (`RoomMode`, déduit des réglages).
-  - L'hôte peut fermer sa salle d'attente (`POST /rooms/:id/close`) ; **revanche** (`POST /rooms/:id/rematch`) : un joueur
-    de la partie terminée la propose, un nouveau salon aux mêmes réglages est créé une seule fois (contrainte d'unicité),
-    les autres sont invités et confirment en le rejoignant. **Historique** (`GET /rooms/history`) : salons terminés hors
-    tournois, victoires, podiums et victoires par mode, sans lien avec la cote.
   - Création : jeu (LoL, Valorant, Rocket League, CS2), 3 / 5 / 7 / 10 manches, 20 / 30 / 45 / 60 s par manche (plus pour un
     clip long). Code d'invitation de 8 caractères sans caractères ambigus (environ 40 bits d'aléa), bouton de copie du code
     et du lien `/rooms/join/CODE` ; invitation d'un ami (bandeau sur le site, notification push sur mobile).
   - Salle d'attente : joueurs, places libres, l'hôte peut retirer un joueur (confirmation demandée ; le joueur ne peut plus
     revenir, ni par le code ni par « Jouer maintenant ») et lance la partie à 2 joueurs ou plus. La place est attribuée
-    sous verrou de la ligne du salon : jamais plus de joueurs que de places, jamais deux inscriptions du même joueur. Les clips sont tirés au lancement, jamais parmi ceux proposés par un joueur du salon. Une salle
-    d'attente non lancée ferme au bout d'une heure. Un joueur n'est que dans un salon à la fois.
+    sous verrou de la ligne du salon : jamais plus de joueurs que de places, jamais deux inscriptions du même joueur. Les clips sont tirés au lancement, jamais parmi ceux proposés par un joueur du salon. Un joueur
+    n'est que dans un salon à la fois.
   - Partie : même barème que les autres modes ; la manche se termine quand tous les joueurs restants ont répondu ou à la fin
-    du chrono. Un joueur qui quitte garde ses points mais ne répond plus ; si l'hôte part, le joueur arrivé le plus tôt
-    devient hôte (l'hôte ne peut ni modifier les réponses ni les scores). Totaux recalculés par le serveur, places partagées
+    du chrono. Un joueur qui quitte garde ses points mais ne répond plus ; si l'hôte part, le joueur présent arrivé le plus
+    tôt devient hôte (l'hôte ne peut ni modifier les réponses ni les scores). Totaux recalculés par le serveur, places partagées
     en cas d'égalité, joueurs partis classés après les autres. Les salons rapportent de l'XP mais ne comptent dans aucun
     classement ; les réponses apparaissent dans l'historique du joueur (administration).
-  - **Mort subite** (mode VIP, option à la création, décochée par défaut) : en cas d'égalité en tête à la fin des manches prévues,
-    les ex aequo disputent une manche décisive sur un nouveau clip (les autres regardent). Le meilleur score de la manche
+  - **Mort subite** (option choisie par le créateur VIP, décochée par défaut ; les autres joueurs n'ont pas besoin d'être
+    VIP, même règle en public et en privé) : en cas d'égalité en tête à la fin des manches prévues, les ex aequo disputent
+    une manche décisive sur un nouveau clip (les autres regardent). **3 joueurs au maximum** : s'ils sont plus nombreux à
+    égalité, passent d'abord ceux qui ont le plus de rangs exacts, puis le temps de réponse moyen le plus court, puis
+    l'arrivée la plus ancienne dans le salon (`pickFinalists`, règle déterministe) ; les autres ex aequo sont classés juste
+    derrière les finalistes. Le meilleur score de la manche
     l'emporte ; ses points ne s'ajoutent pas au total. Toujours à égalité : nouvelle manche, 3 au maximum, puis la
     réponse la plus rapide (temps mesuré par le serveur) parmi les meilleurs. Le résultat indique comment la victoire a
     été obtenue (aux points, en mort subite, à la rapidité, ou partagée sans l'option). Règles dans
@@ -322,10 +331,10 @@ pour tester Google sur téléphone, expose l'API avec une adresse publique (tunn
   statut, réponse facultative, suppression des messages hors sujet. L'auteur reçoit une notification sur son téléphone.
 - **Boutique VIP** (menu du compte, profil, application) : passes VIP 1 mois (4,99 €), 3 mois (12,99 €) et 12 mois (39,99 €),
   paiement unique par carte via Stripe Checkout, sans abonnement. Avantages : +50 % d'XP sur chaque réponse, badge VIP
-  (classements, chat, profil), Plus haut / Plus bas, mort subite, options avancées des salons, création de salons privés
-  et de tournois (voir « Salons »). Restent gratuits : deviner le rang (défis du jour, Infini), duels classés et
-  classement compétitif, « Jouer maintenant », salons publics classiques, participation aux salons privés et aux
-  tournois sur invitation. Le VIP n'apporte aucun point au classement compétitif. Un pass acheté pendant un VIP en cours s'ajoute à sa date de fin. Sans `STRIPE_SECRET_KEY`,
+  (classements, chat, profil), Plus haut / Plus bas, création de salons (publics ou privés, tous modes et réglages) et
+  de tournois (voir « Salons »). Restent gratuits : deviner le rang (défis du jour, Infini), duels classés et classement
+  compétitif, « Jouer maintenant », salons gratuits par défaut, participation à tous les salons et aux tournois sur
+  invitation. Le VIP n'apporte aucun point au classement compétitif. Un pass acheté pendant un VIP en cours s'ajoute à sa date de fin. Sans `STRIPE_SECRET_KEY`,
   la boutique s'affiche mais l'achat est indisponible. L'administration peut offrir ou retirer le VIP (page Utilisateurs).
 - **Promo du moment** : réutilisable à chaque événement (lancement, Noël, anniversaire du site…). Nom affiché aux joueurs,
   prix promo par pass, fin automatique facultative (date et heure). Par défaut : « Offre de lancement » à moitié prix
@@ -389,7 +398,9 @@ Remise à zéro complète : `docker compose down -v`, supprimer `apps/api/storag
 
 ### Tests d'intégration de l'API
 
-`apps/api/test/integration/` : salons publics et privés, « Jouer maintenant » (demandes simultanées, dernière place),
+`apps/api/test/integration/` : salons (création VIP, participation gratuite, transfert d'hôte au départ et à la
+déconnexion, salon retiré en fin de partie, salle d'attente vide supprimée, mort subite à 3 finalistes, salons par
+défaut sans doublon), « Jouer maintenant » (demandes simultanées, dernière place),
 classement (exclusions, limite par adversaire avec duels simultanés, abandon, éligibilité, coefficient, VIP), fin de
 saison (archive, seuils, double exécution), suppression des jetons et VIP. Ils parlent à une API démarrée et lisent la
 base ; ils refusent de tourner ailleurs qu'en CI ou sur une base locale dédiée dont le nom finit par `_test` (le test

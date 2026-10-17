@@ -278,7 +278,11 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
             : "Invisible dans les listes : seuls tes amis invités et ceux qui ont le code peuvent entrer."}{" "}
           Partie non classée.
         </p>
-        {room.vipOnly && <p className="text-xs text-warn">Mode VIP (mort subite) : seuls les joueurs VIP peuvent rejoindre ce salon.</p>}
+        {room.system && (
+          <p className="text-xs text-success">
+            Salon gratuit par défaut : ouvert à tous, sans VIP. Le premier joueur arrivé est l&apos;hôte ; s&apos;il part, le suivant prend le relais.
+          </p>
+        )}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
@@ -580,53 +584,23 @@ function FinalResult({ room, meId }: { room: RoomDto; meId: string }) {
       {room.tournamentId ? (
         <div className="text-center"><Link href={`/tournaments/${room.tournamentId}`} className="btn-primary">Retour au tournoi</Link></div>
       ) : (
-        <Rematch room={room} />
+        <Finished />
       )}
     </div>
   );
 }
 
-/**
- * Revanche : un joueur la propose (nouveau salon aux mêmes réglages, les autres sont invités) ; chacun confirme en la
- * rejoignant. La revanche n'existe qu'une fois par partie.
- */
-function Rematch({ room }: { room: RoomDto }) {
-  const router = useRouter();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const go = async () => {
-    if (busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const next = await api.rematchRoom(room.id);
-      router.push(`/rooms/${next.id}`);
-    } catch (e) {
-      setError(errorMessage(e, "La revanche n'a pas pu être lancée."));
-      setBusy(false);
-    }
-  };
-  const r = room.rematch;
+/** Partie terminée : le salon est retiré (plus rejoignable) ; les résultats restent ici et dans l'historique. */
+function Finished() {
   return (
     <div className="glass space-y-3 p-6 text-center">
-      {r ? (
-        <>
-          <p className="font-display text-lg font-semibold">Revanche proposée par {r.host}</p>
-          <p className="text-sm text-muted">{r.players}/{r.maxPlayers} joueurs l&apos;ont rejointe · {r.status === "LOBBY" ? "en salle d'attente" : r.status === "ACTIVE" ? "partie en cours" : "terminée"}</p>
-          {r.joined ? (
-            <Link href={`/rooms/${r.id}`} className="btn-primary">Aller à la revanche</Link>
-          ) : r.status === "LOBBY" ? (
-            <button disabled={busy} onClick={go} className="btn-primary">{busy ? "Connexion…" : "Accepter la revanche"}</button>
-          ) : null}
-        </>
-      ) : room.canRematch ? (
-        <>
-          <p className="text-sm text-muted">Même jeu, mêmes réglages : les autres joueurs reçoivent une invitation et confirment en rejoignant.</p>
-          <button disabled={busy} onClick={go} className="btn-primary">{busy ? "Création…" : "Proposer une revanche"}</button>
-        </>
-      ) : null}
-      <div><Link href="/rooms" className="btn-ghost">Autres salons</Link></div>
-      {error && <p role="alert" className="text-sm text-danger">{error}</p>}
+      <p className="text-sm text-muted">
+        Partie terminée : ce salon est fermé et n&apos;est plus rejoignable. Tes résultats restent dans ton historique.
+      </p>
+      <div className="flex flex-wrap justify-center gap-2">
+        <Link href="/rooms" className="btn-primary">Rejouer dans un salon</Link>
+        <Link href="/rooms/history" className="btn-ghost">Historique</Link>
+      </div>
     </div>
   );
 }

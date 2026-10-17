@@ -4,9 +4,9 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  GAME_NAMES, GAME_SLUGS, ROOM_DEFAULT_ROUNDS, ROOM_DEFAULT_TIME, ROOM_MAX_PLAYERS, ROOM_MODES, ROOM_MODE_LABEL, ROOM_ROUND_CHOICES, ROOM_RULES,
-  ROOM_ADVANCED_HINT, ROOM_STATUS_LABEL, ROOM_TIME_CHOICES, ROOM_VIP_MODE_HINT, ROOM_VISIBILITY_HINT, ROOM_VISIBILITY_LABEL, modeSettings,
-  normalizeRoomCode, roomVipRules,
+  GAME_NAMES, GAME_SLUGS, ROOM_CREATE_VIP_HINT, ROOM_DEFAULT_ROUNDS, ROOM_DEFAULT_TIME, ROOM_MAX_PLAYERS, ROOM_MODES, ROOM_MODE_LABEL,
+  ROOM_ROUND_CHOICES, ROOM_RULES, ROOM_STATUS_LABEL, ROOM_SYSTEM_LABEL, ROOM_TIME_CHOICES, ROOM_VISIBILITY_HINT, ROOM_VISIBILITY_LABEL, modeSettings,
+  normalizeRoomCode,
   type GameSlug, type PublicRoomDto, type RoomMode, type RoomVisibility, type RoomsOverviewDto,
 } from "@ranksight/shared";
 import { api } from "@/lib/api";
@@ -19,8 +19,9 @@ import { LoginRequired, Skeleton } from "@/components/States";
 import { VipBadge } from "@/components/VipBadge";
 
 /**
- * Salons personnalisés (jamais classés) : « Jouer maintenant », salons publics à rejoindre, code d'un salon privé,
- * création d'un salon public (gratuit) ou privé (VIP), invitations reçues et dernières parties.
+ * Salons personnalisés (jamais classés), section à part de l'onglet Duels : « Jouer maintenant », salons publics à
+ * rejoindre (dont les salons gratuits par défaut), code d'un salon privé, création d'un salon (VIP), invitations reçues
+ * et dernières parties.
  */
 export default function RoomsPage() {
   const { me, loading } = useSession();
@@ -32,7 +33,7 @@ export default function RoomsPage() {
   const [joinError, setJoinError] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    api.rooms().then(setData, () => setData({ canHostPrivate: false, vip: false, current: null, invites: [], recent: [] }));
+    api.rooms().then(setData, () => setData({ canCreate: false, vip: false, current: null, invites: [], recent: [] }));
   }, []);
   useEffect(() => {
     if (!me) return;
@@ -67,9 +68,9 @@ export default function RoomsPage() {
       <header className="space-y-2">
         <h1 className="font-display text-3xl font-bold">Salons</h1>
         <p className="max-w-2xl text-sm text-muted">
-          Jusqu&apos;à {ROOM_MAX_PLAYERS} joueurs devinent le même clip au même moment. Parties personnalisées : elles rapportent de
-          l&apos;XP mais ne changent jamais ta cote du <Link href="/ranked" className="text-neon underline">classement compétitif</Link>,
-          réservée aux duels au hasard.
+          Jusqu&apos;à {ROOM_MAX_PLAYERS} joueurs devinent le même clip au même moment. Rejoindre un salon public et y jouer est
+          gratuit ; créer un salon est réservé aux VIP. Parties personnalisées : elles rapportent de l&apos;XP mais ne changent
+          jamais ta cote du <Link href="/ranked" className="text-neon underline">classement compétitif</Link>, réservée aux duels au hasard.
         </p>
       </header>
 
@@ -78,7 +79,7 @@ export default function RoomsPage() {
           <div>
             <p className="hud-label text-neon">{ROOM_STATUS_LABEL[data.current.status]} · {ROOM_VISIBILITY_LABEL[data.current.visibility]}</p>
             <p className="mt-1 font-display text-lg font-semibold">
-              Salon de {data.current.host} · {data.current.game.name} · {data.current.players}/{data.current.maxPlayers} joueurs
+              {data.current.host ? `Salon de ${data.current.host}` : ROOM_SYSTEM_LABEL} · {data.current.game.name} · {data.current.players}/{data.current.maxPlayers} joueurs
             </p>
           </div>
           <Link href={`/rooms/${data.current.id}`} className="btn-primary">{data.current.status === "ACTIVE" ? "Reprendre la partie" : "Retourner au salon"}</Link>
@@ -92,10 +93,10 @@ export default function RoomsPage() {
             {data.invites.map((i) => (
               <li key={i.roomId} className="glass flex flex-wrap items-center justify-between gap-3 p-4">
                 <p className="text-sm">
-                  <strong>{i.from}</strong> {i.rematch ? "propose une revanche" : "t'invite"} sur {i.game.name} · {i.players}/{i.maxPlayers} joueurs
+                  <strong>{i.from}</strong> t&apos;invite sur {i.game.name} · {i.players}/{i.maxPlayers} joueurs
                 </p>
                 <div className="flex gap-2">
-                  <button disabled={busy} onClick={() => join(i.code)} className="btn-primary !py-2 text-sm">{i.rematch ? "Accepter la revanche" : "Rejoindre"}</button>
+                  <button disabled={busy} onClick={() => join(i.code)} className="btn-primary !py-2 text-sm">Rejoindre</button>
                   <button
                     onClick={async () => {
                       await api.declineRoomInvite(i.roomId).catch(() => undefined);
@@ -113,7 +114,7 @@ export default function RoomsPage() {
       )}
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <QuickPlay />
+        <QuickPlay vip={data.vip} />
         <div className="glass space-y-4 p-6">
           <div className="flex items-center gap-2">
             <h2 className="font-display text-xl font-semibold">Rejoindre avec un code</h2>
@@ -245,7 +246,7 @@ function PublicRooms() {
       {!rooms ? (
         <p className="text-sm text-muted">Chargement des salons…</p>
       ) : rooms.length === 0 ? (
-        <p className="text-sm text-muted">Aucun salon public ne correspond. Lance « Jouer maintenant » ou crée un salon public : il apparaîtra ici.</p>
+        <p className="text-sm text-muted">Aucun salon public ne correspond. Les salons gratuits par défaut sont peut-être complets ou en cours : réessaie dans un instant.</p>
       ) : (
         <ul className="divide-y divide-line/60">
           {rooms.map((r) => (
@@ -253,11 +254,12 @@ function PublicRooms() {
               <div className="min-w-0 text-sm">
                 <p className="font-semibold">
                   {r.game.name} · {ROOM_MODE_LABEL[r.mode]}
-                  <span className="ml-2 rounded bg-success/15 px-1.5 py-px text-[10px] font-bold uppercase tracking-wider text-success">Public</span>
-                  {r.vipOnly && <span className="ml-2"><VipBadge /></span>}
+                  <span className="ml-2 rounded bg-success/15 px-1.5 py-px text-[10px] font-bold uppercase tracking-wider text-success">
+                    {r.system ? ROOM_SYSTEM_LABEL : "Public"}
+                  </span>
                 </p>
                 <p className="text-muted">
-                  Salon de {r.host} · {r.rounds} manches · {r.roundSec} s{r.suddenDeath ? " · mort subite" : ""} · {ROOM_STATUS_LABEL[r.status]}
+                  {r.host ? `Salon de ${r.host}` : "En attente de joueurs"} · {r.rounds} manches · {r.roundSec} s{r.suddenDeath ? " · mort subite" : ""} · {ROOM_STATUS_LABEL[r.status]}
                 </p>
               </div>
               <div className="flex items-center gap-3">
@@ -266,8 +268,6 @@ function PublicRooms() {
                   <button disabled={!!joining} onClick={() => join(r.id)} className="btn-primary !py-2 text-sm">
                     {joining === r.id ? "Connexion…" : "Rejoindre"}
                   </button>
-                ) : r.vipOnly && r.status === "LOBBY" && r.players < r.maxPlayers ? (
-                  <Link href="/shop" className="text-xs text-warn underline" title={ROOM_VIP_MODE_HINT}>Réservé aux VIP</Link>
                 ) : (
                   <span className="text-xs text-muted">{r.status === "ACTIVE" ? "En cours" : "Complet"}</span>
                 )}
@@ -281,8 +281,8 @@ function PublicRooms() {
 }
 
 /**
- * Création : salon public classique (gratuit, visible dans la liste) ; salon privé, mort subite (mode VIP) et options
- * avancées (manches, temps de réponse) réservés aux VIP. Les mêmes règles sont vérifiées par le serveur.
+ * Création d'un salon (public ou privé, tous modes) : réservée aux VIP, comme le vérifie le serveur. Sans VIP, le bloc
+ * explique l'avantage et renvoie vers les salons publics gratuits, sans rien bloquer d'autre.
  */
 function CreateRoom({ vip }: { vip: boolean }) {
   const router = useRouter();
@@ -294,19 +294,27 @@ function CreateRoom({ vip }: { vip: boolean }) {
   const [suddenDeath, setSuddenDeath] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Sans VIP, les options avancées restent aux réglages standard (le serveur refuserait d'autres valeurs)
-  const rules = roomVipRules({ visibility, suddenDeath, rounds: vip ? rounds : ROOM_DEFAULT_ROUNDS, roundSec: vip ? roundSec : ROOM_DEFAULT_TIME });
-  const locked = rules.hostVip && !vip;
+
+  if (!vip) {
+    return (
+      <div className="glass space-y-3 p-6">
+        <h2 className="flex items-center gap-2 font-display text-xl font-semibold">Créer un salon <VipBadge /></h2>
+        <p className="text-sm text-muted">{ROOM_CREATE_VIP_HINT}</p>
+        <p className="text-sm text-muted">
+          Avantage VIP : salons publics ou privés, tous les modes (chacun pour soi, équipes, Intrus), nombre de manches, temps
+          de réponse et mort subite au choix. Tes amis te rejoignent gratuitement.
+        </p>
+        <Link href="/shop" className="btn-primary inline-flex !py-2 text-sm">Devenir VIP</Link>
+      </div>
+    );
+  }
 
   const create = async () => {
-    if (busy || locked) return;
+    if (busy) return;
     setBusy(true);
     setError(null);
     try {
-      const room = await api.createRoom({
-        game, visibility, suddenDeath, ...modeSettings(mode),
-        rounds: vip ? rounds : ROOM_DEFAULT_ROUNDS, roundSec: vip ? roundSec : ROOM_DEFAULT_TIME,
-      });
+      const room = await api.createRoom({ game, visibility, suddenDeath, rounds, roundSec, ...modeSettings(mode) });
       router.push(`/rooms/${room.id}`);
     } catch (e) {
       setError(errorMessage(e, "Le salon n'a pas pu être créé."));
@@ -316,16 +324,14 @@ function CreateRoom({ vip }: { vip: boolean }) {
 
   return (
     <div className="glass space-y-4 p-6">
-      <h2 className="font-display text-xl font-semibold">Créer un salon</h2>
+      <h2 className="flex items-center gap-2 font-display text-xl font-semibold">Créer un salon <VipBadge /></h2>
       <fieldset className="grid gap-3 sm:grid-cols-2">
         <legend className="hud-label mb-2">Visibilité</legend>
         {(["PUBLIC", "PRIVATE"] as const).map((v) => (
           <label key={v} className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 text-sm ${visibility === v ? "border-neon" : "border-line/60"}`}>
             <input type="radio" name="visibility" checked={visibility === v} onChange={() => setVisibility(v)} className="mt-1 h-4 w-4 accent-[var(--color-neon)]" />
             <span>
-              <span className="flex items-center gap-2 font-semibold">
-                {ROOM_VISIBILITY_LABEL[v]} {v === "PRIVATE" ? <VipBadge /> : <span className="text-xs font-normal text-success">gratuit</span>}
-              </span>
+              <span className="font-semibold">{ROOM_VISIBILITY_LABEL[v]}</span>
               <span className="block text-muted">{ROOM_VISIBILITY_HINT[v]}</span>
             </span>
           </label>
@@ -345,49 +351,36 @@ function CreateRoom({ vip }: { vip: boolean }) {
           </select>
         </label>
         <label className="space-y-1 text-sm">
-          <span className="hud-label flex items-center gap-1">Manches {!vip && <VipBadge />}</span>
-          <select value={vip ? rounds : ROOM_DEFAULT_ROUNDS} disabled={!vip} onChange={(e) => setRounds(Number(e.target.value))} className="input disabled:opacity-60">
+          <span className="hud-label">Manches</span>
+          <select value={rounds} onChange={(e) => setRounds(Number(e.target.value))} className="input">
             {ROOM_ROUND_CHOICES.map((n) => <option key={n} value={n}>{n} manches</option>)}
           </select>
         </label>
         <label className="space-y-1 text-sm">
-          <span className="hud-label flex items-center gap-1">Temps de réponse {!vip && <VipBadge />}</span>
-          <select value={vip ? roundSec : ROOM_DEFAULT_TIME} disabled={!vip} onChange={(e) => setRoundSec(Number(e.target.value))} className="input disabled:opacity-60">
+          <span className="hud-label">Temps de réponse</span>
+          <select value={roundSec} onChange={(e) => setRoundSec(Number(e.target.value))} className="input">
             {ROOM_TIME_CHOICES.map((n) => <option key={n} value={n}>{n} secondes</option>)}
           </select>
         </label>
       </div>
-      <label className={`flex items-start gap-3 text-sm ${vip ? "" : "opacity-70"}`}>
-        <input
-          type="checkbox"
-          checked={suddenDeath}
-          disabled={!vip}
-          onChange={(e) => setSuddenDeath(e.target.checked)}
-          className="mt-1 h-4 w-4 accent-[var(--color-neon)]"
-        />
+      <label className="flex items-start gap-3 text-sm">
+        <input type="checkbox" checked={suddenDeath} onChange={(e) => setSuddenDeath(e.target.checked)} className="mt-1 h-4 w-4 accent-[var(--color-neon)]" />
         <span>
-          <span className="flex items-center gap-2 font-semibold">Mort subite <VipBadge /></span>
+          <span className="font-semibold">Mort subite</span>
           <span className="block text-muted">
-            En cas d&apos;égalité en tête, manche décisive entre les ex aequo (3 au maximum, puis la réponse la plus rapide). {ROOM_VIP_MODE_HINT}
+            En cas d&apos;égalité en tête, manche décisive entre les ex aequo (3 joueurs au maximum, puis la réponse la plus rapide).
+            Les autres joueurs n&apos;ont pas besoin d&apos;être VIP.
           </span>
         </span>
       </label>
-      {!vip && <p className="text-xs text-muted">{ROOM_ADVANCED_HINT}</p>}
       {mode === "IMPOSTOR" && (
         <p className="text-sm text-muted">
           Intrus (4 à 8 joueurs) : à chaque manche, un joueur reçoit un autre clip sans le savoir ; après les réponses, tout le monde vote pour le démasquer.
         </p>
       )}
-      {locked ? (
-        <div className="rounded-xl border border-warn/40 bg-warn/10 p-4 text-sm">
-          <p>Un salon privé est réservé aux joueurs VIP. Les salons publics classiques restent gratuits, et tes amis rejoignent toujours sans VIP.</p>
-          <Link href="/shop" className="btn-primary mt-3 inline-flex !py-2 text-sm">Devenir VIP</Link>
-        </div>
-      ) : (
-        <button disabled={busy} onClick={create} className="btn-primary w-full sm:w-auto">
-          {busy ? "Création…" : visibility === "PUBLIC" ? "Créer le salon public" : "Créer le salon privé"}
-        </button>
-      )}
+      <button disabled={busy} onClick={create} className="btn-primary w-full sm:w-auto">
+        {busy ? "Création…" : visibility === "PUBLIC" ? "Créer le salon public" : "Créer le salon privé"}
+      </button>
       {error && <p role="alert" className="text-sm text-danger">{error}</p>}
     </div>
   );

@@ -297,7 +297,6 @@ export const api = {
   joinPublicRoom: (id: string) => post<RoomDto>(`/rooms/${id}/join`),
   quickPlay: (game: string, mode: RoomMode, create = false) => post<QuickPlayResultDto>("/rooms/quick-play", { game, mode, create }),
   closeRoom: (id: string) => post(`/rooms/${id}/close`),
-  rematchRoom: (id: string) => post<RoomDto>(`/rooms/${id}/rematch`),
   roomHistory: (cursor?: string) => request<RoomHistoryDto>(`/rooms/history${cursor ? `?cursor=${cursor}` : ""}`),
   roomNext: (id: string) =>
     request<PlayableClipDto & { position: number; rounds: number; endsAt: string; serverNow: string }>(`/rooms/${id}/next`),

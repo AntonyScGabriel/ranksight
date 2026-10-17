@@ -51,13 +51,31 @@ test("modes de salon : déduits des paramètres et réciproques", async () => {
   assert.deepEqual(PublicRoomsQuery.parse({}), { available: false });
 });
 
-test("accès VIP des salons : public classique gratuit, privé, mode VIP et options avancées réservés", async () => {
-  const { roomVipRules, ROOM_DEFAULT_ROUNDS, ROOM_DEFAULT_TIME } = await import("./rooms.js");
-  const std = { rounds: ROOM_DEFAULT_ROUNDS, roundSec: ROOM_DEFAULT_TIME };
-  assert.deepEqual(roomVipRules({ visibility: "PUBLIC", suddenDeath: false, ...std }), { vipMode: false, advanced: false, hostVip: false }, "public classique : gratuit");
-  assert.deepEqual(roomVipRules({ visibility: "PRIVATE", suddenDeath: false, ...std }), { vipMode: false, advanced: false, hostVip: true }, "privé : hôte VIP, invités gratuits");
-  assert.deepEqual(roomVipRules({ visibility: "PUBLIC", suddenDeath: true, ...std }), { vipMode: true, advanced: false, hostVip: true }, "mort subite : mode VIP même en public");
-  assert.equal(roomVipRules({ visibility: "PUBLIC", suddenDeath: false, rounds: 10, roundSec: ROOM_DEFAULT_TIME }).hostVip, true, "manches : option avancée");
-  assert.equal(roomVipRules({ visibility: "PUBLIC", suddenDeath: false, rounds: ROOM_DEFAULT_ROUNDS, roundSec: 60 }).advanced, true, "temps : option avancée");
-  assert.equal(roomVipRules({ visibility: "PRIVATE", suddenDeath: true, ...std, tournament: true }).vipMode, false, "match de tournoi : règles du tournoi");
+test("salons par défaut : un emplacement par mode et par numéro", async () => {
+  const { roomSystemSlot, ROOM_MODES, ROOM_SYSTEM_SLOTS } = await import("./rooms.js");
+  const slots = ROOM_MODES.flatMap((m) => Array.from({ length: ROOM_SYSTEM_SLOTS }, (_, i) => roomSystemSlot(m, i + 1)));
+  assert.equal(ROOM_SYSTEM_SLOTS, 2);
+  assert.equal(new Set(slots).size, ROOM_MODES.length * 2, "emplacements distincts");
+  assert.ok(slots.every((s) => s.length <= 32), "tient dans la colonne system_slot");
+});
+
+test("mort subite : 3 finalistes au plus, choisis par rangs exacts, vitesse puis arrivée", async () => {
+  const { pickFinalists, SUDDEN_DEATH_MAX_FINALISTS } = await import("./room-rules.js");
+  const t = (s: number) => new Date(Date.UTC(2026, 9, 17, 0, 0, s));
+  assert.equal(SUDDEN_DEATH_MAX_FINALISTS, 3);
+  // Trois ou moins : tous
+  assert.deepEqual(pickFinalists([{ id: "a", exact: 0, avgResponseMs: null, joinedAt: t(0) }, { id: "b", exact: 1, avgResponseMs: 10, joinedAt: t(1) }]), ["a", "b"]);
+  const players = [
+    { id: "lent", exact: 2, avgResponseMs: 9000, joinedAt: t(0) },
+    { id: "exact3", exact: 3, avgResponseMs: 20000, joinedAt: t(5) },
+    { id: "rapide", exact: 2, avgResponseMs: 4000, joinedAt: t(9) },
+    { id: "ancien", exact: 1, avgResponseMs: 1000, joinedAt: t(1) },
+    { id: "sansTemps", exact: 2, avgResponseMs: null, joinedAt: t(2) },
+  ];
+  assert.deepEqual(pickFinalists(players), ["exact3", "rapide", "lent"], "rangs exacts, puis temps moyen");
+  // Même nombre de rangs exacts et même temps : le premier arrivé passe
+  const same = [1, 2, 3, 4].map((i) => ({ id: `p${i}`, exact: 1, avgResponseMs: 5000, joinedAt: t(10 - i) }));
+  assert.deepEqual(pickFinalists(same), ["p4", "p3", "p2"]);
+  // Déterministe : l'ordre d'entrée ne change rien
+  assert.deepEqual(pickFinalists([...players].reverse()), pickFinalists(players));
 });

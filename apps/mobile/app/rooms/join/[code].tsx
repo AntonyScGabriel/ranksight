@@ -38,17 +38,17 @@ export default function JoinRoomScreen() {
   }
   if (!preview) return <Loading />;
 
-  const open = preview.status === "LOBBY" && preview.players < preview.maxPlayers && preview.allowed;
+  const open = preview.status === "LOBBY" && preview.players < preview.maxPlayers;
   return (
     <View style={{ padding: 16 }}>
-      <Message title={`Salon de ${preview.host}`}>
+      <Message title={preview.host ? `Salon de ${preview.host}` : "Salon gratuit"}>
         <Text style={{ color: colors.neon, fontSize: 22, letterSpacing: 4, textAlign: "center", fontWeight: "700" }}>{formatRoomCode(preview.code)}</Text>
         <Muted center>Salon {ROOM_VISIBILITY_LABEL[preview.visibility].toLowerCase()} · {ROOM_MODE_LABEL[preview.mode]} · partie non classée</Muted>
         <Muted center>{preview.game.name} · {preview.rounds} manches · {preview.roundSec} s par manche</Muted>
         <Muted center>{preview.players}/{preview.maxPlayers} joueurs · {ROOM_STATUS_LABEL[preview.status]}</Muted>
         {open ? (
           <PrimaryButton
-            label={preview.vipOnly ? "Rejoindre" : "Rejoindre gratuitement"}
+            label="Rejoindre gratuitement"
             disabled={busy}
             onPress={async () => {
               setBusy(true);
@@ -63,14 +63,9 @@ export default function JoinRoomScreen() {
             }}
           />
         ) : (
-          <>
-            <Text style={{ color: colors.warn, textAlign: "center" }}>
-              {!preview.allowed && preview.status === "LOBBY"
-                ? "Ce salon utilise un mode VIP (mort subite) : il faut être VIP pour y jouer."
-                : preview.status === "LOBBY" ? "Ce salon est complet." : "La partie a déjà commencé ou est terminée."}
-            </Text>
-            {!preview.allowed && preview.status === "LOBBY" && <GhostButton label="Découvrir le VIP" onPress={() => router.push("/shop")} />}
-          </>
+          <Text style={{ color: colors.warn, textAlign: "center" }}>
+            {preview.status === "LOBBY" ? "Ce salon est complet." : "La partie a déjà commencé."}
+          </Text>
         )}
         {error && <Text style={{ color: colors.danger, textAlign: "center" }}>{error}</Text>}
       </Message>

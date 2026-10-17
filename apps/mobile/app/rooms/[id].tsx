@@ -206,7 +206,11 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
             ? "Visible dans la liste des salons publics : n'importe quel joueur peut rejoindre tant qu'il reste de la place."
             : "Invisible dans les listes : seuls tes amis invités et ceux qui ont le code peuvent entrer."} Partie non classée.
         </Muted>
-        {room.vipOnly && <Text style={{ color: colors.warn, textAlign: "center" }}>Mode VIP (mort subite) : seuls les joueurs VIP peuvent rejoindre ce salon.</Text>}
+        {room.system && (
+          <Text style={{ color: colors.success, textAlign: "center" }}>
+            Salon gratuit par défaut : ouvert à tous, sans VIP. Le premier joueur arrivé est l&apos;hôte ; s&apos;il part, le suivant prend le relais.
+          </Text>
+        )}
         <View style={{ alignSelf: "stretch" }}>
           <GhostButton
             label="Partager l'invitation"
@@ -459,49 +463,18 @@ function FinalResult({ room, meId }: { room: RoomDto; meId: string }) {
       )}
       {room.tournamentId
         ? <PrimaryButton label="Retour au tournoi" onPress={() => router.replace({ pathname: "/tournaments/[id]", params: { id: room.tournamentId! } })} />
-        : <Rematch room={room} />}
+        : <Finished />}
     </>
   );
 }
 
-/** Revanche : un joueur la propose (mêmes réglages, les autres sont invités) ; chacun confirme en la rejoignant. */
-function Rematch({ room }: { room: RoomDto }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const go = async () => {
-    if (busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const next = await api.rematchRoom(room.id);
-      router.replace({ pathname: "/rooms/[id]", params: { id: next.id } });
-    } catch (e) {
-      setError(errorMessage(e, "La revanche n'a pas pu être lancée."));
-    } finally {
-      setBusy(false);
-    }
-  };
-  const r = room.rematch;
+/** Partie terminée : le salon est retiré (plus rejoignable) ; les résultats restent ici et dans l'historique. */
+function Finished() {
   return (
     <Card style={{ gap: 10 }}>
-      {r ? (
-        <>
-          <Text style={{ color: colors.ink, fontSize: 17, fontWeight: "700", textAlign: "center" }}>Revanche proposée par {r.host}</Text>
-          <Muted center>{r.players}/{r.maxPlayers} joueurs l&apos;ont rejointe · {r.status === "LOBBY" ? "en salle d'attente" : r.status === "ACTIVE" ? "partie en cours" : "terminée"}</Muted>
-          {r.joined ? (
-            <PrimaryButton label="Aller à la revanche" onPress={() => router.replace({ pathname: "/rooms/[id]", params: { id: r.id } })} />
-          ) : r.status === "LOBBY" ? (
-            <PrimaryButton label={busy ? "Connexion…" : "Accepter la revanche"} disabled={busy} onPress={go} />
-          ) : null}
-        </>
-      ) : room.canRematch ? (
-        <>
-          <Muted center>Même jeu, mêmes réglages : les autres joueurs reçoivent une invitation et confirment en rejoignant.</Muted>
-          <PrimaryButton label={busy ? "Création…" : "Proposer une revanche"} disabled={busy} onPress={go} />
-        </>
-      ) : null}
-      <GhostButton label="Autres salons" onPress={() => router.replace("/rooms")} />
-      {error && <Text style={{ color: colors.danger, textAlign: "center" }}>{error}</Text>}
+      <Muted center>Partie terminée : ce salon est fermé et n&apos;est plus rejoignable. Tes résultats restent dans ton historique.</Muted>
+      <PrimaryButton label="Rejouer dans un salon" onPress={() => router.replace("/rooms")} />
+      <GhostButton label="Historique" onPress={() => router.replace("/rooms/history")} />
     </Card>
   );
 }

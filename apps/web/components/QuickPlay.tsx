@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { GAME_NAMES, GAME_SLUGS, ROOM_MODES, ROOM_MODE_LABEL, type GameSlug, type RoomMode } from "@ranksight/shared";
 import { api } from "@/lib/api";
@@ -11,10 +12,11 @@ const WAIT_EVERY_MS = 5_000;
 const WAIT_MAX_MS = 120_000;
 
 /**
- * « Jouer maintenant » : rejoint aussitôt un salon public compatible (même jeu, même mode). Sans salon ouvert, le joueur
- * choisit de créer un salon public ou de patienter. Partie personnalisée : aucun point de classement.
+ * « Jouer maintenant » (section Salons) : rejoint aussitôt un salon public compatible (même jeu, même mode), salons
+ * gratuits par défaut compris. Sans place libre : patienter, ou, pour un VIP, créer un salon public.
+ * Partie personnalisée : aucun point de classement.
  */
-export function QuickPlay({ compact = false }: { compact?: boolean }) {
+export function QuickPlay({ vip }: { vip: boolean }) {
   const router = useRouter();
   const [game, setGame] = useState<GameSlug>(GAME_SLUGS[0]);
   const [mode, setMode] = useState<RoomMode>("CLASSIC");
@@ -54,7 +56,9 @@ export function QuickPlay({ compact = false }: { compact?: boolean }) {
       if (await attempt(false)) return;
       if (Date.now() - waitingSince.current >= WAIT_MAX_MS) {
         setState("none");
-        setError("Toujours personne sur ce jeu et ce mode. Crée un salon public : les prochains joueurs te rejoindront.");
+        setError(vip
+          ? "Toujours aucune place sur ce jeu et ce mode. Crée un salon public : les prochains joueurs te rejoindront."
+          : "Toujours aucune place sur ce jeu et ce mode. Essaie un autre jeu ou un autre mode, ou réessaie dans un instant.");
         return;
       }
       timer.current = setTimeout(poll, WAIT_EVERY_MS);
@@ -78,8 +82,8 @@ export function QuickPlay({ compact = false }: { compact?: boolean }) {
       <div>
         <h2 className="font-display text-xl font-semibold">Jouer maintenant</h2>
         <p className="text-sm text-muted">
-          Rejoins tout de suite une partie publique. Partie personnalisée : de l&apos;XP, mais aucun point de classement
-          {compact ? "." : " (seuls les duels au hasard comptent pour le classement)."}
+          Rejoins tout de suite une partie publique, gratuitement. Partie personnalisée : de l&apos;XP, mais aucun point de
+          classement (seuls les duels au hasard comptent pour le classement).
         </p>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
@@ -98,17 +102,21 @@ export function QuickPlay({ compact = false }: { compact?: boolean }) {
       </div>
       {state === "none" ? (
         <div className="space-y-3 rounded-xl border border-line/60 p-4 text-sm">
-          <p>Aucun salon public ouvert sur {GAME_NAMES[game]} en mode « {ROOM_MODE_LABEL[mode]} » pour l&apos;instant.</p>
+          <p>Aucune place libre sur {GAME_NAMES[game]} en mode « {ROOM_MODE_LABEL[mode]} » pour l&apos;instant (salons gratuits complets ou en cours).</p>
           <div className="flex flex-wrap gap-2">
-            <button onClick={create} className="btn-primary !py-2">Créer un salon public</button>
-            <button onClick={wait} className="btn-ghost">Patienter</button>
+            {vip ? (
+              <button onClick={create} className="btn-primary !py-2">Créer un salon public</button>
+            ) : (
+              <Link href="/shop" className="btn-ghost">Créer un salon : VIP</Link>
+            )}
+            <button onClick={wait} className={vip ? "btn-ghost" : "btn-primary !py-2"}>Patienter</button>
           </div>
         </div>
       ) : state === "waiting" ? (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-neon/40 p-4 text-sm" aria-live="polite">
           <p>Recherche d&apos;un salon… tu rejoindras le premier qui s&apos;ouvre.</p>
           <div className="flex gap-2">
-            <button onClick={create} className="btn-ghost">Créer plutôt</button>
+            {vip && <button onClick={create} className="btn-ghost">Créer plutôt</button>}
             <button onClick={stopWaiting} className="btn-ghost">Arrêter</button>
           </div>
         </div>

@@ -10,7 +10,7 @@
     "typecheck": "prisma generate && tsc -p tsconfig.json --noEmit",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate deploy",
-    "prisma:migrate:dev": "prisma migrate dev",
+    "prisma:migrate:create": "prisma migrate dev --create-only",
     "prisma:seed": "prisma db seed",
     "promote": "tsx prisma/promote.ts",
     "account:password": "tsx prisma/set-password.ts",

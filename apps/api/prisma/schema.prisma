@@ -2,6 +2,12 @@
 // RankGuess — modèle de données (PostgreSQL 17, Prisma 7)
 // Conventions : UUID v7 côté app, snake_case en base, timestamps UTC,
 // soft-delete uniquement sur User (RGPD : anonymisation, pas d'effacement en cascade des scores).
+//
+// Objets créés en SQL par les migrations, absents de ce fichier (Prisma ne sait pas les décrire) : contraintes CHECK,
+// contrainte d'exclusion `seasons_no_overlap`, index unique partiel `rooms_system_slot_lobby_key`, déclencheur et
+// fonction `audit_logs_append_only`, schéma `archive`. Une migration générée par Prisma peut contenir
+// `DROP INDEX "rooms_system_slot_lobby_key"` : retirer cette ligne avant de l'appliquer. Liste complète vérifiée par
+// apps/api/test/integration/schema-objects.test.mjs ; procédure : README, « Migrations sûres ».
 // =============================================================================
 
 generator client {

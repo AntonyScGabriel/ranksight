@@ -414,6 +414,38 @@ DATABASE_URL=postgresql://ranksight:ranksight@localhost:5432/ranksight_test node
 DATABASE_URL=postgresql://ranksight:ranksight@localhost:5432/ranksight_test npm run test:integration -w @ranksight/api
 ```
 
+### Migrations sûres
+
+Les migrations sont des fichiers SQL versionnés (`apps/api/prisma/migrations`), appliqués **uniquement** par
+`prisma migrate deploy` (au démarrage de l'API, en CI et sur le serveur). Certaines contiennent des objets que
+`schema.prisma` ne sait pas décrire : contraintes `CHECK`, contrainte d'exclusion `seasons_no_overlap` (saisons qui ne se
+chevauchent pas), index unique partiel `rooms_system_slot_lobby_key` (un seul salon par défaut en attente par
+emplacement), déclencheur `audit_logs_append_only` (journal d'audit en ajout seul) et schéma `archive` (jetons archivés).
+
+Pourquoi `prisma migrate dev` est dangereux ici : pour générer une migration, Prisma compare la base obtenue par les
+migrations au fichier `schema.prisma`. L'index partiel n'y étant pas déclaré, Prisma peut le considérer comme superflu
+et écrire `DROP INDEX "rooms_system_slot_lobby_key"` dans la nouvelle migration ; appliquée telle quelle, elle
+autoriserait des salons par défaut en double (comportement non reproduit ici faute du moteur de migration natif : à
+vérifier à la première migration générée). S'il détecte un écart (base modifiée à la main, migration éditée), `migrate dev` propose
+aussi de **réinitialiser la base** (toutes les données effacées). Les contraintes `CHECK` et le déclencheur sont ignorés
+par Prisma : ni supprimés, ni recréés si on les perd.
+
+Procédure :
+
+1. Modifier `schema.prisma`, puis générer la migration **sans l'appliquer**, sur la base de développement locale
+   seulement : `npm run prisma:migrate:create -w @ranksight/api -- --name <nom>`. Ne jamais lancer `migrate dev`,
+   `migrate reset` ou `db push` sur une base qui contient des données à garder (serveur, copie de production).
+2. Relire le SQL généré : supprimer toute ligne qui retire un objet de la liste ci-dessus (en particulier
+   `DROP INDEX "rooms_system_slot_lobby_key"`), vérifier qu'aucune colonne remplie n'est supprimée ou rendue obligatoire
+   sans valeur par défaut, et ajouter à la main le SQL que Prisma ne sait pas écrire (`CHECK`, index partiel…).
+3. Appliquer avec `npx prisma migrate deploy` (dans `apps/api`), puis `npx prisma generate` pour le client. La
+   génération du client ne touche jamais la base.
+4. Lancer les tests d'intégration : `schema-objects.test.mjs` échoue si un objet de la liste a disparu ou si un nouvel
+   objet SQL n'y est pas inscrit (ajouter alors son nom dans `apps/api/prisma/sql-only-objects.txt`, liste partagée
+   avec `deploy/restore.sh`).
+5. Avant la mise en production, répéter la migration sur une copie de la sauvegarde (voir `deploy/README.md`). Une
+   migration déjà appliquée ne se modifie plus : corriger par une nouvelle migration.
+
 ## Arborescence
 
 ```

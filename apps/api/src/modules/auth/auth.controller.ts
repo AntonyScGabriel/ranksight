@@ -289,7 +289,7 @@ export class AuthController {
   }
 
   private meta(req: Request) {
-    return { userAgent: req.headers["user-agent"], ip: req.ip };
+    return { userAgent: sessionUserAgent(req.headers["user-agent"], req.headers["x-app-version"]), ip: req.ip };
   }
 }
 
@@ -297,4 +297,16 @@ function withParam(url: string, key: string, value: string) {
   const u = new URL(url);
   u.searchParams.set(key, value);
   return u.toString();
+}
+
+/**
+ * Appareil d'une session : navigateur ou application, suivi de la version de l'application mobile (en-tête
+ * `X-App-Version`, ex. « RankGuess/0.2.0 ») quand elle est envoyée et valide. Sert seulement à repérer les versions
+ * encore utilisées (liste des sessions) : aucune version n'est refusée.
+ */
+export function sessionUserAgent(userAgent: string | undefined, appVersion: string | string[] | undefined): string | undefined {
+  const v = typeof appVersion === "string" && /^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(appVersion) ? appVersion : null;
+  if (!v) return userAgent;
+  // En tête : l'appareil est tronqué à 255 caractères à l'enregistrement
+  return `RankGuess/${v}${userAgent ? ` ${userAgent}` : ""}`;
 }

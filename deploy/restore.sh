@@ -32,13 +32,15 @@ die() { echo "ERREUR : $*" >&2; exit 1; }
 # Découpage en mots voulu : PG_EXEC est une commande avec ses arguments
 pg() { $PG_EXEC "$@"; }
 # Nom de variable propre à la fonction : sh n'a pas de variables locales (« db » serait écrasée chez l'appelant)
-sql() { _sql_db=$1; shift; pg psql -X -q -v ON_ERROR_STOP=1 -U "$DBUSER" -d "$_sql_db" -At "$@"; }
+sql_in() { _sql_db=$1; shift; pg psql -X -q -v ON_ERROR_STOP=1 -U "$DBUSER" -d "$_sql_db" -At "$@"; }
+# Requête sans entrée : « docker exec -i » (PG_EXEC) lirait sinon l'entrée du script, dont la réponse à confirm()
+sql() { sql_in "$@" < /dev/null; }
 valid_name() { printf '%s' "$1" | grep -Eq '^[a-z][a-z0-9_]{0,62}$'; }
 db_exists() { [ "$(sql postgres -c "SELECT 1 FROM pg_database WHERE datname = '$1'")" = "1" ]; }
 confirm() {
   [ "${RESTORE_YES:-}" = "1" ] && return 0
   printf "%s Taper « %s » pour continuer : " "$1" "$2"
-  read -r answer
+  read -r answer || answer=""
   [ "$answer" = "$2" ] || { echo "Annulé."; exit 1; }
 }
 
@@ -67,7 +69,7 @@ verify() {
   fi
   # 2. Objets SQL hors schema.prisma (index partiel, CHECK, déclencheur, schéma archive) : complets si la base est à jour
   if [ -f "$OBJECTS" ] && [ -f "$CATALOG" ]; then
-    actual=$(sql "$db" -f - < "$CATALOG")
+    actual=$(sql_in "$db" -f - < "$CATALOG")
     missing=$(grep -v '^#' "$OBJECTS" | sed '/^$/d' | while read -r o; do printf '%s\n' "$actual" | grep -qx "$o" || echo "$o"; done)
     if [ -z "$missing" ]; then
       echo "  ✓ index, contraintes et déclencheurs hors schéma Prisma : tous présents"

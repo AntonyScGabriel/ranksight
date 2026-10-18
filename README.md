@@ -414,6 +414,24 @@ DATABASE_URL=postgresql://ranksight:ranksight@localhost:5432/ranksight_test node
 DATABASE_URL=postgresql://ranksight:ranksight@localhost:5432/ranksight_test npm run test:integration -w @ranksight/api
 ```
 
+### Tests d'interface (Playwright)
+
+`apps/web/e2e/` : parcours du site dans Chromium — Duels et Salons séparés (ordinateur et téléphone), joueur gratuit
+(pas de création, salon gratuit rejoint, devenu hôte, aucun bouton « Retirer » et expulsion refusée par l'API), VIP
+(création, lien d'invitation copié, joueur gratuit qui rejoint par le lien, expulsion dans son salon), fin de partie
+(classement, salon fermé), transfert d'hôte (coupure de moins de 30 s sans message ; absence plus longue : rôle
+transféré et message « Tu n'es plus l'hôte » au retour de la connexion). Les données sont préparées dans la base de
+test (même garde-fou que les tests d'intégration) ; aucune attente arbitraire, sauf la durée de coupure simulée.
+La CI les lance dans le travail `e2e-web`. En local, avec l'API de test démarrée (voir ci-dessus) :
+
+```bash
+npm run build -w @ranksight/web && (cd apps/web && npx next start --port 3000) &   # site sur la même API
+cd apps/web && npx playwright install chromium                                   # une seule fois
+DATABASE_URL=postgresql://ranksight:ranksight@localhost:5432/ranksight_test npm run test:e2e
+```
+
+Rapport en cas d'échec : `apps/web/playwright-report` (CI : artefact `playwright-report`).
+
 ### Migrations sûres
 
 Les migrations sont des fichiers SQL versionnés (`apps/api/prisma/migrations`), appliqués **uniquement** par

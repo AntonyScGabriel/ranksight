@@ -35,8 +35,11 @@ jobs:
           cd apps/api
           npx tsx --env-file=../../.env prisma/seed.ts
           node --env-file=../../.env dist/main.js > api.log 2>&1 &
+          api=$!
           for i in $(seq 1 60); do curl -sf http://localhost:4000/v1/games > /dev/null && break; sleep 1; done
-          npm run test:integration || { tail -50 api.log; exit 1; }
+          npm run test:integration || { tail -50 api.log; kill $api; exit 1; }
+          # Arrêtée ici : ses tâches périodiques écriraient sinon dans la base source du test de restauration
+          kill $api
       # Scripts du serveur (deploy/) sur des bases jetables, avec les outils du conteneur PostgreSQL 17 (comme sur le
       # serveur) : sauvegarde puis restauration dans une nouvelle base, bascule et retour arrière, API redémarrée sur
       # la base restaurée ; répétition de la conversion des cotes et requêtes d'audit en lecture seule.

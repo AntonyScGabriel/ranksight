@@ -74,6 +74,12 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
         {canLeave && <button onClick={leave} className="text-sm text-muted hover:text-danger">Quitter</button>}
       </div>
       {live.offline && <p role="status" className="text-center text-sm text-warn">Connexion perdue : reconnexion en cours…</p>}
+      {live.hostNotice && (
+        <div role="status" data-testid="host-lost" className="glass flex flex-wrap items-center justify-between gap-3 border-warn/60 p-4 text-sm">
+          <p className="text-warn">{live.hostNotice}</p>
+          <button onClick={live.dismissHostNotice} className="btn-ghost !py-1.5 text-sm">J&apos;ai compris</button>
+        </div>
+      )}
       {error && <p role="alert" className="text-center text-sm text-danger">{error}</p>}
 
       {phase === "lobby" && <Lobby room={room} meId={me.id} act={act} />}

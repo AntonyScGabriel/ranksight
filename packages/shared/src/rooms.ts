@@ -101,6 +101,28 @@ export const ROOM_SYSTEM_LABEL = "Salon gratuit";
 /** Emplacement d'un salon par défaut (ex. « CLASSIC:1 ») : un seul salon en salle d'attente par emplacement */
 export const roomSystemSlot = (mode: RoomMode, index: number) => `${mode}:${index}`;
 
+/** Hôte de salle d'attente déconnecté depuis plus de ce délai : son rôle passe à un joueur connecté */
+export const ROOM_HOST_AWAY_SEC = 30;
+
+/**
+ * Message pour le joueur qui revient (application rouverte, onglet de nouveau visible, reconnexion) et n'est plus
+ * l'hôte : il l'était au dernier état connu (`before`), la salle d'attente est toujours ouverte, il y est encore et un
+ * autre joueur a pris le relais. Le serveur ne transfère le rôle qu'après ROOM_HOST_AWAY_SEC secondes de déconnexion :
+ * une coupure plus courte ne change rien, donc aucun message. `null` : rien à signaler.
+ */
+export function hostLostNotice(
+  before: { id: string; status: RoomStatus; isHost: boolean } | null,
+  after: { id: string; status: RoomStatus; isHost: boolean; left: boolean; players: { id: string; displayName: string; isHost: boolean; left: boolean }[] },
+  meId: string,
+): string | null {
+  if (!before || before.id !== after.id || !before.isHost || after.isHost) return null;
+  if (before.status !== "LOBBY" || after.status !== "LOBBY" || after.left) return null;
+  if (!after.players.some((p) => p.id === meId && !p.left)) return null;
+  const host = after.players.find((p) => p.isHost && !p.left && p.id !== meId);
+  if (!host) return null;
+  return `Tu n'es plus l'hôte : ta connexion a été coupée plus de ${ROOM_HOST_AWAY_SEC} secondes et ${host.displayName} a pris le relais. Tu restes dans le salon.`;
+}
+
 /**
  * Clips acceptés nécessaires pour jouer un salon : un par manche ; en mode Intrus, un second clip par manche (celui que
  * reçoit l'intrus, d'un autre rang). Les manches de mort subite n'en exigent pas : sans clip libre, la victoire est partagée.

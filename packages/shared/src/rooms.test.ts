@@ -113,3 +113,28 @@ test("salons par défaut : rotation des jeux, jeux sans assez de clips passés",
   for (let i = 0; i < 4; i++) seen.push((last = nextSystemGame(games, all, last, 1)));
   assert.deepEqual([...seen].sort(), [...games].sort());
 });
+
+test("hôte perdu pendant une absence : message seulement si un autre joueur a vraiment pris le relais", async () => {
+  const { hostLostNotice, ROOM_HOST_AWAY_SEC } = await import("./rooms.js");
+  const me = { id: "me", displayName: "Moi", isHost: true, left: false };
+  const bob = { id: "bob", displayName: "Bob", isHost: false, left: false };
+  const lobby = (isHost: boolean, players: (typeof me)[], extra: Partial<{ status: "LOBBY" | "ACTIVE" | "FINISHED" | "CLOSED"; left: boolean; id: string }> = {}) =>
+    ({ id: "r1", status: "LOBBY" as const, isHost, left: false, players, ...extra });
+  const before = lobby(true, [me, bob]);
+  const moved = lobby(false, [{ ...me, isHost: false }, { ...bob, isHost: true }]);
+  const msg = hostLostNotice(before, moved, "me");
+  assert.ok(msg && msg.includes("Bob") && msg.includes(`${ROOM_HOST_AWAY_SEC} secondes`), String(msg));
+  // Coupure courte : toujours hôte côté serveur → aucun message
+  assert.equal(hostLostNotice(before, before, "me"), null);
+  // Premier chargement (aucun état connu), ou n'était pas hôte
+  assert.equal(hostLostNotice(null, moved, "me"), null);
+  assert.equal(hostLostNotice(lobby(false, [me, bob]), moved, "me"), null);
+  // Partie lancée ou terminée entre-temps, autre salon, joueur sorti
+  assert.equal(hostLostNotice(before, { ...moved, status: "ACTIVE" }, "me"), null);
+  assert.equal(hostLostNotice({ ...before, status: "ACTIVE" }, moved, "me"), null);
+  assert.equal(hostLostNotice(before, { ...moved, id: "r2" }, "me"), null);
+  assert.equal(hostLostNotice(before, { ...moved, left: true }, "me"), null);
+  assert.equal(hostLostNotice(before, lobby(false, [{ ...bob, isHost: true }]), "me"), null, "plus dans la liste des joueurs");
+  // Personne d'autre n'est hôte (salon par défaut sans hôte) : rien à annoncer
+  assert.equal(hostLostNotice(before, lobby(false, [{ ...me, isHost: false }, bob]), "me"), null);
+});

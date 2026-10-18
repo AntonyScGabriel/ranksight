@@ -94,6 +94,12 @@ export default function RoomScreen() {
   return (
     <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 40 }}>
       {live.offline && <Text style={{ color: colors.warn, textAlign: "center" }}>Connexion perdue : reconnexion en cours…</Text>}
+      {live.hostNotice && (
+        <Card style={{ gap: 8, borderColor: colors.warn }} testID="host-lost">
+          <Text accessibilityRole="alert" style={{ color: colors.warn }}>{live.hostNotice}</Text>
+          <GhostButton label="J'ai compris" onPress={live.dismissHostNotice} />
+        </Card>
+      )}
       {error && <Text style={{ color: colors.danger, textAlign: "center" }}>{error}</Text>}
 
       {phase === "lobby" && <Lobby room={room} meId={me.id} act={act} />}

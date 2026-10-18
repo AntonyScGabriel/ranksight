@@ -6,7 +6,7 @@ import { randomInt } from "node:crypto";
 import type { Redis } from "ioredis";
 import {
   ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, ROOM_COUNTDOWN_SEC, ROOM_CREATE_VIP_HINT, ROOM_EVENT, ROOM_INVITE_EVENT, ROOM_LOBBY_TTL_MIN, ROOM_MAX_PLAYERS,
-  ROOM_MIN_PLAYERS, ROOM_MODES, ROOM_REVEAL_SEC, ROOM_DEFAULT_ROUNDS, ROOM_DEFAULT_TIME, ROOM_SYSTEM_SLOTS, SUDDEN_DEATH_MAX_ROUNDS, TEAM_NAMES,
+  ROOM_HOST_AWAY_SEC, ROOM_MIN_PLAYERS, ROOM_MODES, ROOM_REVEAL_SEC, ROOM_DEFAULT_ROUNDS, ROOM_DEFAULT_TIME, ROOM_SYSTEM_SLOTS, SUDDEN_DEATH_MAX_ROUNDS, TEAM_NAMES,
   finalPlacements, formatRoomCode, modeSettings, nextSystemGame, pickFinalists, roomClipsNeeded, roomMode, roomRoundSec, roomSystemSlot, suddenDeathOutcome,
   teamPlacements, teamSuddenDeathEntry, teamTotals, tiedLeaders, IMPOSTOR_MIN_PLAYERS, IMPOSTOR_VOTE_SEC, impostorBonuses, pickImpostor,
   type DecidedBy, type PublicRoomDto, type QuickPlayResultDto, type RoomHistoryDto, type RoomMode,
@@ -34,7 +34,7 @@ const ANSWER_GRACE = 2 * SEC;
 const MAX_CODE_FAILURES = 15;
 const LIVE = ["LOBBY", "ACTIVE"] as const;
 /** Hôte déconnecté depuis plus de 30 s en salle d'attente : le rôle passe à un joueur connecté */
-const HOST_AWAY_MS = 30 * SEC;
+const HOST_AWAY_MS = ROOM_HOST_AWAY_SEC * SEC;
 /** Joueur déconnecté depuis plus de 2 min en salle d'attente : retiré du salon (sa place se libère) */
 const PLAYER_AWAY_MS = 120 * SEC;
 /** Salons par défaut et présence : vérifiés toutes les 5 s (dans la boucle d'une seconde) */

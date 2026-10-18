@@ -60,6 +60,7 @@ export type RoomClip = PlayableClipDto & { position: number; rounds: number; end
 const later = (ms: number) => new Date(Date.now() + ms);
 const vipRequired = () => new HttpException({ code: "PREMIUM_REQUIRED", message: ROOM_CREATE_VIP_HINT }, HttpStatus.PAYMENT_REQUIRED);
 const notFound = () => new NotFoundException({ code: "ROOM_NOT_FOUND", message: "Salon introuvable." });
+const systemRoomForbidden = (message: string) => new ForbiddenException({ code: "SYSTEM_ROOM", message });
 const roomFull = () => new ConflictException({ code: "ROOM_FULL", message: "Ce salon est complet." });
 const roomStarted = (status: string) =>
   new ConflictException({ code: "ROOM_STARTED", message: status === "ACTIVE" ? "La partie a déjà commencé." : "Ce salon est fermé." });
@@ -453,7 +454,11 @@ export class RoomsService {
     const room = await this.memberRoom(userId, roomId);
     if (!room.teamSize) throw new BadRequestException({ code: "NO_TEAMS", message: "Ce salon ne se joue pas par équipes." });
     if (room.status !== "LOBBY") throw new ConflictException({ code: "ROOM_STARTED", message: "La partie a déjà commencé." });
-    if (targetId !== userId && room.hostId !== userId) throw new ForbiddenException({ code: "NOT_HOST", message: "Seul l'hôte peut placer les autres joueurs." });
+    if (targetId !== userId) {
+      // Salon par défaut : l'hôte est désigné automatiquement, il ne choisit pas l'équipe des autres (chacun choisit la sienne)
+      if (room.systemSlot) throw systemRoomForbidden("Dans un salon par défaut, chaque joueur choisit lui-même son équipe.");
+      if (room.hostId !== userId) throw new ForbiddenException({ code: "NOT_HOST", message: "Seul l'hôte peut placer les autres joueurs." });
+    }
     await this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM rooms WHERE id = ${roomId}::uuid FOR UPDATE`;
       const seat = await tx.roomPlayer.findUnique({ where: { roomId_userId: { roomId, userId: targetId } } });
@@ -470,6 +475,8 @@ export class RoomsService {
   /** L'hôte retire un joueur de la salle d'attente (il ne pourra pas revenir dans ce salon). */
   async kick(userId: string, roomId: string, targetId: string) {
     const room = await this.memberRoom(userId, roomId);
+    // Salon par défaut : ouvert à tous, son hôte (désigné automatiquement) ne peut retirer personne
+    if (room.systemSlot) throw systemRoomForbidden("Personne ne peut être retiré d'un salon par défaut.");
     if (room.hostId !== userId) throw new ForbiddenException({ code: "NOT_HOST", message: "Seul l'hôte peut retirer un joueur." });
     if (room.status !== "LOBBY") throw new ConflictException({ code: "ROOM_STARTED", message: "La partie a déjà commencé." });
     if (targetId === userId) throw new BadRequestException("Utilise « Quitter » pour partir du salon.");

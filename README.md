@@ -400,7 +400,9 @@ Remise à zéro complète : `docker compose down -v`, supprimer `apps/api/storag
 
 `apps/api/test/integration/` : salons (création VIP, participation gratuite, transfert d'hôte au départ et à la
 déconnexion, salon retiré en fin de partie, salle d'attente vide supprimée, mort subite à 3 finalistes, salons par
-défaut sans doublon), « Jouer maintenant » (demandes simultanées, dernière place),
+défaut sans doublon, sans expulsion ni placement d'équipe par l'hôte, jeux tournants qui ont assez de clips),
+transfert d'hôte (coupure de moins de 30 s sans effet, message au retour après une absence), « Jouer maintenant »
+(demandes simultanées, dernière place), en-tête `X-App-Version`, objets SQL hors Prisma après migration,
 classement (exclusions, limite par adversaire avec duels simultanés, abandon, éligibilité, coefficient, VIP), fin de
 saison (archive, seuils, double exécution), suppression des jetons et VIP. Ils parlent à une API démarrée et lisent la
 base ; ils refusent de tourner ailleurs qu'en CI ou sur une base locale dédiée dont le nom finit par `_test` (le test
@@ -678,7 +680,10 @@ docker compose --env-file .env.production -f docker-compose.prod.yml up -d --bui
 
 - **Caddy** sert le site, l'administration et l'API en HTTPS (certificats Let's Encrypt automatiques).
 - **PostgreSQL** et **Redis** (avec mot de passe) ne sont pas exposés sur Internet.
-- **Sauvegarde** de la base chaque nuit dans `deploy/backups` (14 jours) ; restauration : `sh restore.sh backups/<fichier>.dump`.
+- **Sauvegarde** de la base chaque nuit dans `deploy/backups` (14 jours, avec empreinte SHA-256) ; restauration dans une
+  nouvelle base, sans toucher à la base en service : `sh restore.sh backups/<fichier>.dump`. Procédures (restauration
+  et retour arrière, audit et répétition de la conversion des cotes, déploiement groupé, application Android,
+  protection de `main`) : [`deploy/README.md`](deploy/README.md).
 - L'API applique les migrations et charge les jeux, rangs et succès à chaque démarrage.
 - **Construction de l'image de l'API** : `prisma generate` exige `DATABASE_URL`. Le `Dockerfile` en fournit une
   factice (`postgresql://rankguess:build-only@localhost:5432/rankguess`) à l'étape de construction seulement : elle

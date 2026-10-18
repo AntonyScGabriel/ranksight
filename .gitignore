@@ -16,3 +16,6 @@ dump.rdb
 
 # Fichiers temporaires TypeScript
 *.tsbuildinfo
+
+# Rapports de répétition de migration (pseudos de joueurs) : restent sur le serveur
+deploy/rehearsal/

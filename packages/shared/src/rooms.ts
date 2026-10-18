@@ -101,6 +101,29 @@ export const ROOM_SYSTEM_LABEL = "Salon gratuit";
 /** Emplacement d'un salon par défaut (ex. « CLASSIC:1 ») : un seul salon en salle d'attente par emplacement */
 export const roomSystemSlot = (mode: RoomMode, index: number) => `${mode}:${index}`;
 
+/**
+ * Clips acceptés nécessaires pour jouer un salon : un par manche ; en mode Intrus, un second clip par manche (celui que
+ * reçoit l'intrus, d'un autre rang). Les manches de mort subite n'en exigent pas : sans clip libre, la victoire est partagée.
+ */
+export function roomClipsNeeded(room: { rounds: number; impostor: boolean }): number {
+  return room.rounds * (room.impostor ? 2 : 1);
+}
+
+/**
+ * Jeu d'un nouveau salon par défaut. `games` : jeux actifs dans l'ordre d'affichage ; `playable` : ceux qui ont assez de
+ * clips pour ce mode. Rotation : le jeu jouable qui suit celui du dernier salon de l'emplacement (au premier salon,
+ * décalé d'un jeu par numéro d'emplacement) ; un jeu déjà proposé par l'autre salon du même mode (`avoid`) est passé
+ * s'il reste un autre jeu jouable. `null` : aucun jeu jouable, pas de salon.
+ */
+export function nextSystemGame(games: readonly string[], playable: ReadonlySet<string>, lastGameId: string | null, slotIndex: number, avoid: readonly string[] = []): string | null {
+  if (!games.length) return null;
+  const last = lastGameId ? games.indexOf(lastGameId) : -1;
+  const start = last >= 0 ? last : slotIndex - 2;
+  const order = Array.from({ length: games.length }, (_, i) => games[(((start + 1 + i) % games.length) + games.length) % games.length]!);
+  const eligible = order.filter((g) => playable.has(g));
+  return eligible.find((g) => !avoid.includes(g)) ?? eligible[0] ?? null;
+}
+
 // ---------- Entrées ----------
 
 /** Création d'un salon. Objet strict : aucun champ supplémentaire (statut VIP, score, classement…) n'est accepté du client. */

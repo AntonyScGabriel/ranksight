@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ANNOUNCEMENT_TONE_LABEL, AnnouncementInput, type AnnouncementDto, type AnnouncementTone } from "@ranksight/shared";
+import { ANNOUNCEMENT_TONE_LABEL, AnnouncementInput, ROOM_DEFAULT_ROUNDS, ROOM_MODES, ROOM_MODE_LABEL, modeSettings, roomClipsNeeded, type AnnouncementDto, type AnnouncementTone, type RoomMode } from "@ranksight/shared";
 import { API, adminFetch, session } from "@/lib/api";
 
 type Overview = {
@@ -10,7 +10,7 @@ type Overview = {
   clips: Record<string, number>;
   triaged: number;
   newSuggestions: number;
-  games: { slug: string; guesses: number; avg_distance: number }[];
+  games: { slug: string; name: string; guesses: number; avg_distance: number; approvedClips: number; playableModes: RoomMode[]; systemLobbies: number }[];
 };
 
 export default function Dashboard() {
@@ -65,6 +65,43 @@ export default function Dashboard() {
           ))}
         </ul>
       </div>
+      <ClipsByGame games={o.games} />
+    </div>
+  );
+}
+
+/**
+ * Clips acceptés par jeu et salons gratuits par défaut : un mode n'ouvre de salon gratuit sur un jeu que s'il a assez de
+ * clips pour une partie aux réglages par défaut (le mode Intrus en demande deux par manche).
+ */
+function ClipsByGame({ games }: { games: Overview["games"] }) {
+  const needed = (m: RoomMode) => roomClipsNeeded({ rounds: ROOM_DEFAULT_ROUNDS, ...modeSettings(m) });
+  return (
+    <div className="glass p-6">
+      <p className="hud-label mb-1">Clips acceptés par jeu · salons gratuits</p>
+      <p className="mb-4 text-xs text-muted">
+        Minimum par partie gratuite ({ROOM_DEFAULT_ROUNDS} manches) : {ROOM_MODES.map((m) => `${ROOM_MODE_LABEL[m]} ${needed(m)}`).join(" · ")}.
+        Un jeu en dessous n&apos;est plus proposé dans les salons par défaut de ce mode.
+      </p>
+      <ul className="space-y-3">
+        {games.map((g) => {
+          const missing = ROOM_MODES.filter((m) => !g.playableModes.includes(m));
+          return (
+            <li key={g.slug} data-testid={`clips-${g.slug}`} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+              <span className="min-w-[10rem] font-medium">{g.name}</span>
+              <span className="font-mono">{g.approvedClips} clip{g.approvedClips > 1 ? "s" : ""} accepté{g.approvedClips > 1 ? "s" : ""}</span>
+              <span className={missing.length ? (g.playableModes.length ? "text-warn" : "text-danger") : "text-success"}>
+                {!missing.length
+                  ? "Tous les modes jouables"
+                  : g.playableModes.length
+                    ? `Insuffisant pour : ${missing.map((m) => ROOM_MODE_LABEL[m]).join(", ")}`
+                    : "Aucun salon gratuit possible"}
+              </span>
+              <span className="text-xs text-muted">{g.systemLobbies} salon{g.systemLobbies > 1 ? "s" : ""} gratuit{g.systemLobbies > 1 ? "s" : ""} en attente</span>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }

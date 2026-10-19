@@ -9,8 +9,16 @@ const ACTIVITY = ["pointerdown", "pointermove", "keydown", "wheel", "touchstart"
  * Salle d'attente : après quelques minutes sans aucun geste sur la page, demande « Tu es toujours là ? ». Sans réponse
  * dans les 30 secondes, `onIdle` fait quitter le salon (un hôte absent ne bloque plus le lancement).
  */
-/** `onActive` : signale les gestes au serveur (au plus toutes les 20 s), qui retire aussi les joueurs inactifs */
-export function IdleGuard({ onIdle, onActive }: { onIdle: () => void; onActive?: () => void }) {
+/**
+ * `onActive` : signale les gestes au serveur (au plus toutes les 20 s), qui retire aussi les joueurs inactifs.
+ * `onAway` : l'écran du salon est quitté (autre page) ; le serveur cesse alors de surveiller l'inactivité.
+ */
+export function IdleGuard({ onIdle, onActive, onAway }: { onIdle: () => void; onActive?: () => void; onAway?: () => void }) {
+  const away = useRef(onAway);
+  useEffect(() => {
+    away.current = onAway;
+  }, [onAway]);
+  useEffect(() => () => away.current?.(), []);
   const last = useRef(0);
   const lastPing = useRef(0);
   const fired = useRef(false);

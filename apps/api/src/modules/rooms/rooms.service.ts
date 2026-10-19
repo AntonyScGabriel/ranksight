@@ -39,7 +39,9 @@ const HOST_AWAY_MS = ROOM_HOST_AWAY_SEC * SEC;
 /** Joueur déconnecté depuis plus de 2 min en salle d'attente : retiré du salon (sa place se libère) */
 const PLAYER_AWAY_MS = 120 * SEC;
 /** Salle d'attente : inactivité au-delà de laquelle le serveur retire le joueur (alerte + délai de réponse + 15 s de marge) */
-const IDLE_KICK_MS = (ROOM_IDLE_WARN_SEC + ROOM_IDLE_KICK_SEC + 15) * SEC;
+// Marge plus longue que l'intervalle d'envoi des gestes par l'écran (20 s) : le serveur ne retire jamais un joueur avant
+// la fin de son compte à rebours « Tu es toujours là ? »
+const IDLE_KICK_MS = (ROOM_IDLE_WARN_SEC + ROOM_IDLE_KICK_SEC + 30) * SEC;
 /** Salons par défaut et présence : vérifiés toutes les 5 s (dans la boucle d'une seconde) */
 const SWEEP_MS = 5 * SEC;
 /** Une salle d'attente par défaut n'expire pas (elle attend ses joueurs) ; date lointaine, jamais atteinte en pratique */
@@ -245,6 +247,8 @@ export class RoomsService {
     }
     await tx.roomPlayer.create({ data: { roomId, userId, team } });
     await tx.roomInvite.deleteMany({ where: { roomId, userId } });
+    // Ancien geste d'une visite précédente : ne compte pas (sinon le joueur serait retiré aussitôt revenu)
+    await this.redis.hdel(`room:active:${roomId}`, userId);
     if (!room.host_id) await tx.room.update({ where: { id: roomId }, data: { hostId: userId } });
   }
 
@@ -494,11 +498,6 @@ export class RoomsService {
     return this.detail(userId, roomId);
   }
 
-  /**
-   * Quitter : en salle d'attente, le joueur sort du salon ; pendant la partie, il garde ses points mais ne répond plus.
-   * Si l'hôte part, le joueur présent arrivé le plus tôt devient hôte (VIP non requis). Sans plus personne : une salle
-   * d'attente est supprimée (salon par défaut : il reste ouvert, sans hôte), une partie se termine.
-   */
   /** Geste du joueur en salle d'attente (signalé par son écran) : remet à zéro son inactivité */
   async markActive(userId: string, roomId: string) {
     const seat = await this.prisma.roomPlayer.findUnique({ where: { roomId_userId: { roomId, userId } }, select: { leftAt: true, room: { select: { status: true } } } });
@@ -506,6 +505,20 @@ export class RoomsService {
     const key = `room:active:${roomId}`;
     await this.redis.multi().hset(key, userId, String(Date.now())).expire(key, 24 * 3600).exec();
   }
+
+  /**
+   * Le joueur a quitté l'écran du salon sans quitter le salon (autre page du site) : ses gestes ne sont plus signalés,
+   * le serveur ne le retire donc plus pour inactivité (il reste soumis aux règles d'absence habituelles).
+   */
+  async clearActive(userId: string, roomId: string) {
+    await this.redis.hdel(`room:active:${roomId}`, userId);
+  }
+
+  /**
+   * Quitter : en salle d'attente, le joueur sort du salon ; pendant la partie, il garde ses points mais ne répond plus.
+   * Si l'hôte part, le joueur présent arrivé le plus tôt devient hôte (VIP non requis). Sans plus personne : une salle
+   * d'attente est supprimée (salon par défaut : il reste ouvert, sans hôte), une partie se termine.
+   */
 
   async leave(userId: string, roomId: string) {
     const room = await this.memberRoom(userId, roomId);
@@ -1388,7 +1401,7 @@ export class RoomsService {
 
   /** État temporaire d'un salon retiré ou supprimé (Redis) : joueurs retirés par l'hôte, absences. */
   private async forget(roomId: string) {
-    await this.redis.del(`room:kicked:${roomId}`, `room:away:${roomId}`).catch(() => undefined);
+    await this.redis.del(`room:kicked:${roomId}`, `room:away:${roomId}`, `room:active:${roomId}`).catch(() => undefined);
   }
 
   /** Verrou sur le joueur : deux demandes simultanées ne peuvent pas l'inscrire dans deux salons. */

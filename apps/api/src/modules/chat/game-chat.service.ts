@@ -28,6 +28,8 @@ const toDto = ({ user: { subscription, title, badge, frame, ...author }, ...m }:
 type Access = {
   open: boolean; myTeam: number | null; canRead: boolean; canWrite: boolean; canModerate: boolean; muted: boolean;
   hostId: string | null; recipients: { userId: string; team: number | null }[];
+  /** Organisateur d'un événement, qui n'y joue pas mais suit son tchat */
+  watcherId: string | null;
 };
 
 /**
@@ -83,7 +85,9 @@ export class GameChatService {
       data: { ...(scope === "room" ? { roomId: id } : { tournamentId: id }), userId, team, body },
       include: { user: { select: authorSelect } },
     }));
-    this.broadcast(a, scope, id, { scope, id, message }, team);
+    // Comme l'historique : ceux qui ont bloqué l'auteur ne reçoivent pas ses messages en direct
+    const blockers = await this.prisma.userBlock.findMany({ where: { blockedId: userId }, select: { blockerId: true } });
+    this.broadcast(a, scope, id, { scope, id, message }, team, new Set(blockers.map((b) => b.blockerId)));
     return message;
   }
 
@@ -113,11 +117,11 @@ export class GameChatService {
     return { muted };
   }
 
-  private broadcast(a: Access, scope: GameChatScope, id: string, event: GameChatEvent, team: number | null) {
+  private broadcast(a: Access, scope: GameChatScope, id: string, event: GameChatEvent, team: number | null, exclude?: Set<string>) {
     const to = new Set(a.recipients.filter((r) => team === null || r.team === team).map((r) => r.userId));
     // Organisateur d'un événement (sans y jouer) : il suit le tchat de son tournoi
-    if (scope === "tournament" && a.hostId && team === null) to.add(a.hostId);
-    for (const userId of to) this.gateway.emitToUser(userId, GAME_CHAT_EVENT, event);
+    if (scope === "tournament" && a.watcherId && team === null) to.add(a.watcherId);
+    for (const userId of to) if (!exclude?.has(userId)) this.gateway.emitToUser(userId, GAME_CHAT_EVENT, event);
   }
 
   private notFound(scope: GameChatScope) {
@@ -134,18 +138,22 @@ export class GameChatService {
       return {
         open: room.status === "LOBBY" || room.status === "ACTIVE",
         myTeam: me?.team ?? null,
-        canRead: !!me,
+        // L'équipe de modération lit (et peut supprimer) les messages d'un salon sans y jouer
+        canRead: !!me || staff,
         canWrite: !!me && !me.leftAt,
         canModerate: staff,
         muted: false,
         hostId: room.hostId,
+        watcherId: null,
         recipients: room.players.filter((p) => !p.leftAt).map((p) => ({ userId: p.userId, team: p.team })),
       };
     }
-    const t = await this.prisma.tournament.findUnique({ where: { id }, select: { status: true, hostId: true, players: { select: { userId: true, leftAt: true, chatMuted: true } } } });
+    const t = await this.prisma.tournament.findUnique({ where: { id }, select: { status: true, hostId: true, isEvent: true, players: { select: { userId: true, leftAt: true, chatMuted: true } } } });
     if (!t) throw this.notFound(scope);
     const me = t.players.find((p) => p.userId === userId);
-    const moderator = staff || t.hostId === userId;
+    // Organisateur : celui d'un événement (qui n'y joue pas), ou celui d'un tournoi de joueurs tant qu'il y est inscrit
+    const hosting = t.hostId === userId && (t.isEvent || (!!me && !me.leftAt));
+    const moderator = staff || hosting;
     return {
       open: t.status === "LOBBY" || t.status === "ACTIVE",
       myTeam: null,
@@ -155,6 +163,7 @@ export class GameChatService {
       canModerate: moderator,
       muted: !!me?.chatMuted,
       hostId: t.hostId,
+      watcherId: t.isEvent ? t.hostId : null,
       recipients: t.players.filter((p) => !p.leftAt).map((p) => ({ userId: p.userId, team: null })),
     };
   }

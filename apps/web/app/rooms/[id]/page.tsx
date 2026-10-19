@@ -62,6 +62,9 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
   const markActive = useCallback(() => {
     void api.roomActive(id).catch(() => undefined);
   }, [id]);
+  const markAway = useCallback(() => {
+    void api.roomInactive(id).catch(() => undefined);
+  }, [id]);
   const leaveIdle = useCallback(() => {
     void api.leaveRoom(id).catch(() => undefined).finally(() => router.push("/rooms?inactif=1"));
   }, [id, router]);
@@ -93,7 +96,7 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
 
       {phase === "lobby" && <Lobby room={room} meId={me.id} act={act} />}
       {/* Joueur inactif trop longtemps en salle d'attente : alerte, puis départ du salon (hors tournoi) */}
-      {phase === "lobby" && !room.tournamentId && <IdleGuard onIdle={leaveIdle} onActive={markActive} />}
+      {phase === "lobby" && !room.tournamentId && <IdleGuard onIdle={leaveIdle} onActive={markActive} onAway={markAway} />}
 
       {room.status === "ACTIVE" && (
         <div className="grid gap-6 lg:grid-cols-[1fr_17rem]">

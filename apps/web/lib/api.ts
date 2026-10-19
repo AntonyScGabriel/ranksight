@@ -292,6 +292,7 @@ export const api = {
   leaveRoom: (id: string) => post(`/rooms/${id}/leave`),
   /** Geste du joueur en salle d'attente (inactivité vérifiée par le serveur) */
   roomActive: (id: string) => post(`/rooms/${id}/active`),
+  roomInactive: (id: string) => del(`/rooms/${id}/active`),
   inviteToRoom: (id: string, userId: string) => post<{ invited: boolean }>(`/rooms/${id}/invite`, { userId }),
   declineRoomInvite: (id: string) => del(`/rooms/${id}/invite`),
   kickFromRoom: (id: string, userId: string) => post<RoomDto>(`/rooms/${id}/kick/${userId}`),

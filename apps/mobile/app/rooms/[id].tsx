@@ -54,7 +54,10 @@ export default function RoomScreen() {
   const markActive = useCallback(() => {
     void api.roomActive(id).catch(() => undefined);
   }, [id]);
-  const idle = useIdleGuard(phase === "lobby" && !!room && !room.tournamentId && !room.left, leaveIdle, markActive);
+  const markAway = useCallback(() => {
+    void api.roomInactive(id).catch(() => undefined);
+  }, [id]);
+  const idle = useIdleGuard(phase === "lobby" && !!room && !room.tournamentId && !room.left, leaveIdle, markActive, markAway);
 
   if (loading) return <Loading />;
   if (!me) return <View style={{ padding: 16 }}><LoginRequired text="Connecte-toi pour rejoindre ce salon. Pas besoin d'être VIP." /></View>;

@@ -168,6 +168,48 @@ test("modération du tchat de tournoi : l'organisateur supprime un message et r�
   assert.equal(chat.canModerate, false);
   assert.equal((await host.s.get(`/chat/game/tournament/${t.id}`)).body.canModerate, true);
 });
+test("événement : un inscrit VIP ne prend jamais l'organisation à la place de l'administration", async () => {
+  const [admin, vip] = await Promise.all([adminUser("eh1"), vipUser("eh2")]);
+  const r = await admin.s.post("/admin/tournaments", { title: "Coupe organisée", game: GAME, capacity: 8, rounds: 3, roundSec: 30 });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  events.push(r.body.id);
+  assert.equal((await vip.s.post("/tournaments/join", { code: r.body.code })).status, 200);
+  const claim = await vip.s.post(`/tournaments/${r.body.id}/claim-host`);
+  assert.equal(claim.status, 409, JSON.stringify(claim.body));
+  assert.equal((await vip.s.get(`/chat/game/tournament/${r.body.id}`)).body.canModerate, false);
+  assert.equal((await admin.s.get(`/chat/game/tournament/${r.body.id}`)).body.canModerate, true, "l'organisateur de l'événement modère toujours");
+});
+
+test("tchat de tournoi : silence gardé après un départ puis un retour ; l'organisateur parti perd ses droits", async () => {
+  const [host, a, b] = await Promise.all([vipUser("tq1"), newUser("tq2"), newUser("tq3")]);
+  const t = (await host.s.post("/tournaments", { game: GAME, capacity: 4, rounds: 3 })).body;
+  for (const u of [a, b]) assert.equal((await u.s.post("/tournaments/join", { code: t.code })).status, 200);
+  assert.equal((await host.s.post(`/chat/game/tournament/${t.id}/mute/${a.id}`, { muted: true })).status, 200);
+  assert.equal((await a.s.post(`/tournaments/${t.id}/leave`)).status, 204);
+  assert.equal((await a.s.post("/tournaments/join", { code: t.code })).status, 200);
+  assert.equal((await a.s.get(`/chat/game/tournament/${t.id}`)).body.muted, true, "toujours réduit au silence");
+  assert.equal((await a.s.post(`/chat/game/tournament/${t.id}`, { body: "Me revoilà" })).status, 403);
+
+  // L'organisateur part sans inscrit VIP pour le remplacer : il ne lit plus, n'écrit plus et ne modère plus le tchat
+  const msg = (await b.s.post(`/chat/game/tournament/${t.id}`, { body: "Message de b" })).body;
+  assert.equal((await host.s.post(`/tournaments/${t.id}/leave`)).status, 204);
+  assert.equal((await host.s.get(`/chat/game/tournament/${t.id}`)).status, 404);
+  assert.equal((await host.s.post(`/chat/game/tournament/${t.id}`, { body: "Toujours là" })).status, 404);
+  assert.equal((await host.s.del(`/chat/game/tournament/${t.id}/messages/${msg.id}`)).status, 404);
+  assert.equal((await host.s.post(`/chat/game/tournament/${t.id}/mute/${b.id}`, { muted: true })).status, 403);
+});
+
+test("tchat de salon : l'équipe de modération lit et supprime un message sans être dans le salon", async () => {
+  const [host, mod] = await Promise.all([vipUser("rm1"), adminUser("rm2")]);
+  const room = (await host.s.post("/rooms", { game: GAME, visibility: "PRIVATE" })).body;
+  assert.ok(room.id, JSON.stringify(room));
+  const msg = (await host.s.post(`/chat/game/room/${room.id}`, { body: "Message à modérer" })).body;
+  assert.equal((await mod.s.get(`/chat/game/room/${room.id}`)).status, 200);
+  assert.equal((await mod.s.post(`/chat/game/room/${room.id}`, { body: "Je n'y joue pas" })).status, 403, "lecture seule pour l'équipe");
+  assert.equal((await mod.s.del(`/chat/game/room/${room.id}/messages/${msg.id}`)).status, 204);
+  assert.equal((await host.s.del(`/rooms/${room.id}/active`)).status, 204, "écran du salon quitté");
+});
+
 test("un seul tournoi à la fois : inscription refusée tant qu'on participe à un autre tournoi", async () => {
   const [h1, h2, p] = await Promise.all([vipUser("to1"), vipUser("to2"), newUser("to3")]);
   const t1 = (await h1.s.post("/tournaments", { game: GAME, capacity: 4, rounds: 3, visibility: "PUBLIC" })).body;

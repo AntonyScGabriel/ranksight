@@ -9,7 +9,15 @@ import { Card, PrimaryButton } from "./ui";
  * « Tu es toujours là ? ». Sans réponse dans les 30 secondes, `onIdle` fait quitter le salon. `touch` est à brancher sur
  * les touchers de l'écran (onTouchStart, qui remonte depuis les éléments touchés).
  */
-export function useIdleGuard(enabled: boolean, onIdle: () => void, onActive?: () => void) {
+export function useIdleGuard(enabled: boolean, onIdle: () => void, onActive?: () => void, onAway?: () => void) {
+  // Écran du salon quitté (ou surveillance arrêtée) : le serveur cesse de surveiller l'inactivité
+  const away = useRef(onAway);
+  useEffect(() => {
+    away.current = onAway;
+  }, [onAway]);
+  useEffect(() => {
+    if (enabled) return () => away.current?.();
+  }, [enabled]);
   const last = useRef(0);
   const lastPing = useRef(0);
   // Gestes signalés au serveur (au plus toutes les 20 s), qui retire aussi les joueurs inactifs

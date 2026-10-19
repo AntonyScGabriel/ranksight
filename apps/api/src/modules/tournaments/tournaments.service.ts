@@ -25,6 +25,8 @@ const SEC = 1000;
 /** Codes faux tolérés par joueur et par heure (compteur partagé avec les salons) */
 const MAX_CODE_FAILURES = 15;
 const LIVE = ["LOBBY", "ACTIVE"] as const;
+/** Inscrits réduits au silence partis avant le lancement (la sanction est reprise s'ils reviennent) */
+const mutedKey = (tournamentId: string) => `tournament:muted:${tournamentId}`;
 
 const playerSelect = { id: true, displayName: true, avatarUrl: true, status: true, ...vipSelect, ...flairSelect } as const;
 const tournamentInclude = {
@@ -202,7 +204,9 @@ export class TournamentsService {
       if (!t || t.status !== "LOBBY") throw new ConflictException({ code: "TOURNAMENT_STARTED", message: "Le tournoi a déjà commencé." });
       const count = await tx.tournamentPlayer.count({ where: { tournamentId: found.id } });
       if (count >= t.capacity) throw new ConflictException({ code: "TOURNAMENT_FULL", message: "Ce tournoi est complet." });
-      await tx.tournamentPlayer.create({ data: { tournamentId: found.id, userId } });
+      // Réduit au silence puis reparti avant le lancement : la sanction est reprise à son retour
+      const muted = !!(await this.redis.sismember(mutedKey(found.id), userId));
+      await tx.tournamentPlayer.create({ data: { tournamentId: found.id, userId, chatMuted: muted } });
       return count + 1 >= t.capacity;
     });
     // Tournoi de joueurs complet : lancé tout de suite, sans attendre l'organisateur (même s'il est parti sans VIP pour
@@ -228,14 +232,17 @@ export class TournamentsService {
     const t = await this.memberTournament(userId, tournamentId);
     const seat = t.players.find((p) => p.userId === userId)!;
     if (t.status === "LOBBY") {
+      let wasMuted = false;
       await this.prisma.$transaction(async (tx) => {
         // Verrou du tournoi : départs, reprises de l'organisation et lancement simultanés passent l'un après l'autre
         const row = await this.lockTournament(tx, tournamentId);
         if (row.status !== "LOBBY") {
           throw new ConflictException({ code: "TOURNAMENT_STARTED", message: "Le tournoi vient de commencer : quitter maintenant compte comme un forfait, réessaie." });
         }
-        const { count } = await tx.tournamentPlayer.deleteMany({ where: { tournamentId, userId } });
-        if (!count) return;
+        const mine = await tx.tournamentPlayer.findUnique({ where: { tournamentId_userId: { tournamentId, userId } }, select: { chatMuted: true } });
+        if (!mine) return;
+        wasMuted = mine.chatMuted;
+        await tx.tournamentPlayer.delete({ where: { tournamentId_userId: { tournamentId, userId } } });
         const remaining = await tx.tournamentPlayer.findMany({
           where: { tournamentId },
           orderBy: { joinedAt: "asc" },
@@ -250,6 +257,7 @@ export class TournamentsService {
           if (heir) await tx.tournament.update({ where: { id: tournamentId }, data: { hostId: heir.userId } });
         }
       });
+      if (wasMuted) await this.redis.multi().sadd(mutedKey(tournamentId), userId).expire(mutedKey(tournamentId), (EVENT_LOBBY_TTL_DAYS + 1) * 86_400).exec();
       this.gateway.emitToUser(userId, TOURNAMENT_EVENT, { id: tournamentId });
       await this.notify(tournamentId);
       return;
@@ -272,7 +280,9 @@ export class TournamentsService {
    * réservée à un inscrit VIP, avant le lancement. Sous verrou : une seule reprise aboutit si plusieurs VIP essaient.
    */
   async claimHost(userId: string, tournamentId: string): Promise<TournamentDto> {
-    await this.memberTournament(userId, tournamentId);
+    const t = await this.memberTournament(userId, tournamentId);
+    // Un événement est organisé par l'administration, sans y jouer : aucun inscrit ne peut en prendre la place
+    if (t.isEvent) throw new ConflictException({ code: "TOURNAMENT_HAS_HOST", message: "Ce tournoi a déjà un organisateur." });
     if (!(await canHostVipGames(this.prisma, userId))) {
       throw new HttpException(
         { code: "PREMIUM_REQUIRED", message: "Reprendre l'organisation d'un tournoi est réservé aux joueurs VIP. Tu peux rester inscrit ou quitter le tournoi." },
@@ -294,8 +304,8 @@ export class TournamentsService {
     return this.detail(userId, tournamentId);
   }
 
-  /** Lancement par l'hôte (3 joueurs au moins) : têtes de série au hasard, tableau complet, qualifiés d'office. */
   /**
+   * Lancement par l'hôte (3 joueurs au moins) : têtes de série au hasard, tableau complet, qualifiés d'office.
    * `asAdmin` : lancement d'un événement depuis l'administration (n'importe quel administrateur).
    * `auto` : tournoi de joueurs lancé automatiquement quand il est complet (ni organisateur, ni VIP requis).
    */
@@ -747,7 +757,8 @@ export class TournamentsService {
    */
   private async assertNoOtherTournament(userId: string) {
     const other = await this.prisma.tournamentPlayer.findFirst({
-      where: { userId, leftAt: null, tournament: { status: { in: [...LIVE] } } },
+      // Un joueur éliminé (classement attribué) n'y participe plus : il peut rejoindre un autre tournoi
+      where: { userId, leftAt: null, placement: null, tournament: { status: { in: [...LIVE] } } },
       select: { tournamentId: true, tournament: { select: { title: true, isEvent: true } } },
     });
     if (other) {

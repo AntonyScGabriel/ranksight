@@ -22,6 +22,9 @@ const NAV = [
   { href: "/chat", label: "Chat", short: "Chat" },
   { href: "/friends", label: "Amis", short: "Amis" },
 ];
+/** Téléphone : entrées de la barre du bas ; les autres sont dans le menu « Plus » */
+const PHONE = NAV.filter((n) => ["/play/daily", "/versus", "/rooms", "/tournaments"].includes(n.href));
+const MORE = NAV.filter((n) => !PHONE.includes(n));
 /** Onglet affiché dans la barre du haut sur grand écran (et toujours dans le menu du compte) */
 const NAV_WIDE = { href: "/suggestions", label: "Suggestions" };
 
@@ -30,6 +33,7 @@ export function Header() {
   const { me, loading, logout } = useSession();
   const { unread, versusPending, roomInvites } = useChat();
   const [open, setOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -127,22 +131,52 @@ export function Header() {
         </nav>
       </header>
 
+      {/* Téléphone : 4 entrées principales et « Plus » pour le reste (comme l'application) */}
+      {moreOpen && (
+        <div className="fixed inset-0 z-30 bg-black/50 md:hidden" onClick={() => setMoreOpen(false)} aria-hidden />
+      )}
+      {moreOpen && (
+        <div id="more-menu" role="menu" className="glass fixed inset-x-3 bottom-[4.5rem] z-40 space-y-1 p-2 md:hidden">
+          {[...MORE, NAV_WIDE, { href: "/profile", label: "Profil" }].map((n) => (
+            <Link
+              key={n.href}
+              href={n.href}
+              role="menuitem"
+              onClick={() => setMoreOpen(false)}
+              className={`relative flex items-center justify-between rounded-lg px-4 py-3 text-sm ${isActive(n.href) ? "bg-surface-2 text-neon" : "text-ink hover:bg-surface-2"}`}
+            >
+              {n.label}
+              {n.href === "/friends" && unread > 0 && <span className="rounded-full bg-danger px-1.5 text-[11px] font-bold text-white">{unread}</span>}
+              {n.href === "/profile" && (me?.newRewards ?? 0) > 0 && <span className="rounded-full bg-neon px-1.5 text-[11px] font-bold text-void">{me?.newRewards}</span>}
+            </Link>
+          ))}
+        </div>
+      )}
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-line/60 bg-void/85 backdrop-blur-xl md:hidden">
-        <ul className="grid grid-cols-8">
-          {/* 8 colonnes : le profil reste accessible par l'avatar, en haut à droite */}
-          {NAV.map((n) => (
+        <ul className="grid grid-cols-5">
+          {PHONE.map((n) => (
             <li key={n.href}>
               <Link
                 href={n.href}
-                className={`relative flex h-16 items-center justify-center text-[10px] font-medium ${isActive(n.href) ? "text-neon" : "text-muted"}`}
+                className={`relative flex h-16 items-center justify-center text-[11px] font-medium ${isActive(n.href) ? "text-neon" : "text-muted"}`}
               >
                 {n.short}
-                {n.href === "/friends" && unread > 0 && <Badge n={unread} />}
                 {n.href === "/versus" && versusPending > 0 && <Badge n={versusPending} />}
                 {n.href === "/rooms" && roomInvites > 0 && <Badge n={roomInvites} />}
               </Link>
             </li>
           ))}
+          <li>
+            <button
+              onClick={() => setMoreOpen((o) => !o)}
+              aria-expanded={moreOpen}
+              aria-controls="more-menu"
+              className={`relative flex h-16 w-full items-center justify-center text-[11px] font-medium ${moreOpen || MORE.some((n) => isActive(n.href)) || isActive("/profile") ? "text-neon" : "text-muted"}`}
+            >
+              ☰ Plus
+              {unread + (me?.newRewards ?? 0) > 0 && <Badge n={unread + (me?.newRewards ?? 0)} />}
+            </button>
+          </li>
         </ul>
       </nav>
     </>

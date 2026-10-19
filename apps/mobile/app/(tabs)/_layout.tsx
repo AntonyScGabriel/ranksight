@@ -20,12 +20,13 @@ export default function TabsLayout() {
         tabBarActiveTintColor: colors.neon,
         tabBarInactiveTintColor: colors.muted,
         sceneStyle: { backgroundColor: colors.void },
-        // 9 onglets : libellés compacts pour tenir sur les petits écrans
-        tabBarLabelStyle: { fontSize: 10 },
+        // 5 onglets visibles ; Infini, Classements, Chat, Amis et Profil sont regroupés dans « Plus »
+        tabBarLabelStyle: { fontSize: 11 },
       }}
     >
       <Tabs.Screen name="index" options={{ title: "Défis du jour", tabBarLabel: "Défis", tabBarIcon: icon("◎") }} />
-      <Tabs.Screen name="infinite" options={{ title: "Infini", tabBarIcon: icon("∞") }} />
+      {/* Rubriques sans onglet (href: null) : ouvertes depuis « Plus », la barre du bas reste affichée */}
+      <Tabs.Screen name="infinite" options={{ title: "Infini", href: null }} />
       <Tabs.Screen
         name="versus"
         options={{ title: "Duels", tabBarIcon: icon("⚔"), tabBarBadge: versusPending > 0 ? versusPending : undefined }}
@@ -36,13 +37,14 @@ export default function TabsLayout() {
         options={{ title: "Salons", tabBarIcon: icon("▦"), tabBarBadge: roomInvites > 0 ? roomInvites : undefined }}
       />
       <Tabs.Screen name="tournaments" options={{ title: "Tournois", tabBarIcon: icon("🏆") }} />
-      <Tabs.Screen name="leaderboard" options={{ title: "Classements", tabBarLabel: "Top", tabBarIcon: icon("▲") }} />
-      <Tabs.Screen name="chat" options={{ title: "Chat global", tabBarLabel: "Chat", tabBarIcon: icon("✉") }} />
+      <Tabs.Screen name="leaderboard" options={{ title: "Classements", href: null }} />
+      <Tabs.Screen name="chat" options={{ title: "Chat global", href: null }} />
+      <Tabs.Screen name="friends" options={{ title: "Amis", href: null }} />
+      <Tabs.Screen name="profile" options={{ title: "Profil", href: null }} />
       <Tabs.Screen
-        name="friends"
-        options={{ title: "Amis", tabBarIcon: icon("☺"), tabBarBadge: unread > 0 ? (unread > 9 ? "9+" : unread) : undefined }}
+        name="more"
+        options={{ title: "Plus", tabBarIcon: icon("☰"), tabBarBadge: unread + newRewards > 0 ? (unread + newRewards > 9 ? "9+" : unread + newRewards) : undefined }}
       />
-      <Tabs.Screen name="profile" options={{ title: "Profil", tabBarIcon: icon("◉"), tabBarBadge: newRewards > 0 ? newRewards : undefined }} />
     </Tabs>
   );
 }

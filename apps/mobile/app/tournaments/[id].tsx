@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AppState, Platform, Pressable, ScrollView, Share, Text, View } from "react-native";
+import { AppState, Platform, Pressable, Share, Text, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import {
   STAGE_NAME, TOURNAMENT_DECIDED_BY_LABEL, TOURNAMENT_MIN_PLAYERS, TOURNAMENT_RULES, TOURNAMENT_STATUS_LABEL, tournamentRewardLabel, formatRoomCode, stageCount,
@@ -12,6 +12,7 @@ import { useSession } from "@/lib/session";
 import { colors, font } from "@/lib/theme";
 import { errorMessage } from "@/components/AuthUi";
 import { GameChat } from "@/components/GameChat";
+import { KeyboardScroll } from "@/components/Keyboard";
 import { Avatar, Card, GhostButton, Hud, Loading, LoginRequired, Message, Muted, PrimaryButton } from "@/components/ui";
 
 /** Tournoi : inscriptions (code), match du joueur (« Je suis prêt »), tableau par tour, classement final. */
@@ -102,7 +103,7 @@ export default function TournamentScreen() {
   const code = formatRoomCode(t.code);
 
   return (
-    <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 40 }}>
+    <KeyboardScroll contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 40 }}>
       <Card style={{ gap: 6 }}>
         <Hud>{TOURNAMENT_STATUS_LABEL[t.status]}</Hud>
         <Text style={{ color: colors.ink, fontSize: 20, fontWeight: "700" }}>{t.isEvent ? t.title : "Tournoi"} · {t.game.name}</Text>
@@ -199,7 +200,7 @@ export default function TournamentScreen() {
           }}
         />
       )}
-    </ScrollView>
+    </KeyboardScroll>
   );
 }
 

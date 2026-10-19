@@ -11,7 +11,8 @@
     "build:preview": "npx eas-cli build --profile preview --platform all",
     "build:prod": "npx eas-cli build --profile production --platform all",
     "build:android": "npx eas-cli build --profile production --platform android",
-    "submit:android": "npx eas-cli submit --profile production --platform android --latest"
+    "submit:android": "npx eas-cli submit --profile production --platform android --latest",
+    "eas-build-post-install": "node ../../scripts/build-mobile-deps.mjs"
   },
   "dependencies": {
     "@ranksight/shared": "*",

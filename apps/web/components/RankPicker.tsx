@@ -26,13 +26,14 @@ export function RankPicker({
             aria-checked={active}
             disabled={disabled}
             onClick={() => onChange(r.id)}
-            className={`group relative overflow-hidden rounded-xl border px-3 py-3 text-left transition active:scale-[0.97] ${
+            className={`group relative min-w-0 overflow-hidden rounded-xl border px-2.5 py-3 text-left transition active:scale-[0.97] ${
               active ? "border-transparent" : "border-line bg-surface hover:border-violet/60"
             }`}
             style={active ? { background: `linear-gradient(135deg, ${r.color}33, ${r.color}11)`, boxShadow: `0 0 0 1.5px ${r.color}, 0 0 24px -8px ${r.color}` } : undefined}
           >
             <RankEmblem rank={r} size={40} className="mb-2 transition group-hover:scale-105" />
-            <span className="block font-display text-sm font-semibold leading-tight">{r.name}</span>
+            {/* Noms longs (« Grand Champion », « Supersonic Legend ») : coupés à la ligne au lieu d'être rognés */}
+            <span className="block hyphens-auto break-words font-display text-[13px] font-semibold leading-tight">{r.name}</span>
           </button>
         );
       })}

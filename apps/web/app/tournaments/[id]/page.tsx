@@ -4,7 +4,7 @@ import { use, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  STAGE_NAME, TOURNAMENT_DECIDED_BY_LABEL, TOURNAMENT_MIN_PLAYERS, TOURNAMENT_RULES, TOURNAMENT_STATUS_LABEL, formatRoomCode, stageCount,
+  STAGE_NAME, TOURNAMENT_DECIDED_BY_LABEL, TOURNAMENT_MIN_PLAYERS, TOURNAMENT_RULES, TOURNAMENT_STATUS_LABEL, formatRoomCode, stageCount, tournamentRewardLabel,
   type TournamentDecidedBy, type TournamentDto, type TournamentMatchDto, type TournamentPlayerDto,
 } from "@ranksight/shared";
 import { api, ApiError } from "@/lib/api";
@@ -14,6 +14,7 @@ import { useSession } from "@/lib/session";
 import { Avatar } from "@/components/Header";
 import { errorMessage } from "@/components/AuthForm";
 import { FlairBadge } from "@/components/Flair";
+import { GameChat } from "@/components/GameChat";
 import { PlayerLink } from "@/components/PlayerLink";
 import { LoginRequired, Panel, Skeleton } from "@/components/States";
 import { VipBadge } from "@/components/VipBadge";
@@ -51,6 +52,14 @@ export default function TournamentPage({ params }: { params: Promise<{ id: strin
       document.removeEventListener("visibilitychange", refresh);
     };
   }, [me, id, load, onTournament]);
+
+  // Événement consulté sans être inscrit : pas de mise à jour en direct, relu toutes les 10 secondes
+  const watching = !!t && !t.member;
+  useEffect(() => {
+    if (!watching) return;
+    const timer = window.setInterval(load, 10_000);
+    return () => window.clearInterval(timer);
+  }, [watching, load]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now() + offset.current), 500);
@@ -97,8 +106,9 @@ export default function TournamentPage({ params }: { params: Promise<{ id: strin
   if (!t) return <Skeleton />;
 
   const name = (uid: string | null) => (uid ? (uid === me.id ? "Toi" : t.players.find((p) => p.id === uid)?.displayName ?? "?") : null);
-  const meP = t.players.find((p) => p.id === me.id)!;
-  const canLeave = (t.status === "LOBBY" || t.status === "ACTIVE") && !t.left;
+  const meP = t.players.find((p) => p.id === me.id);
+  const canLeave = t.member && (t.status === "LOBBY" || t.status === "ACTIVE") && !t.left;
+  const reward = tournamentRewardLabel(t.reward);
 
   return (
     <section className="space-y-6">
@@ -111,9 +121,9 @@ export default function TournamentPage({ params }: { params: Promise<{ id: strin
                 title: "Quitter le tournoi ?",
                 message: t.status === "ACTIVE"
                   ? "Tu perdras ton match en cours ou à venir par forfait."
-                  : t.isHost
-                    ? "L'organisation passera à un inscrit VIP. S'il n'y en a aucun, le tournoi restera en attente : un joueur VIP inscrit pourra reprendre l'organisation."
-                    : "Tu pourras te réinscrire avec le code tant que le tournoi n'a pas commencé.",
+                  : t.isHost && !t.isEvent
+                    ? "Tu ne seras plus l'organisateur : c'est un autre inscrit VIP qui pourra lancer le tournoi. Si aucun inscrit n'est VIP, le tournoi reste en attente sans organisateur, jusqu'à ce qu'un joueur devenu VIP le reprenne ou qu'il se ferme au bout de 2 heures. Tu ne pourras pas créer d'autre tournoi tant que celui-ci est en attente."
+                    : t.isEvent ? "Tu pourras te réinscrire tant que l'événement n'a pas commencé." : "Tu pourras te réinscrire avec le code tant que le tournoi n'a pas commencé.",
                 confirmLabel: "Quitter",
                 danger: true,
               });
@@ -133,10 +143,16 @@ export default function TournamentPage({ params }: { params: Promise<{ id: strin
       <header className="glass flex flex-wrap items-center justify-between gap-4 p-5">
         <div>
           <p className="hud-label">{TOURNAMENT_STATUS_LABEL[t.status]}</p>
-          <h1 className="font-display text-2xl font-bold">Tournoi · {t.game.name}</h1>
-          <p className="text-sm text-muted">{t.rounds} manches par match · {t.roundSec} s par manche · {t.players.length}/{t.capacity} joueurs</p>
+          <h1 className="font-display text-2xl font-bold">{t.isEvent ? t.title : "Tournoi"} · {t.game.name}</h1>
+          <p className="text-sm text-muted">{t.isEvent && "Événement RankGuess · "}{t.rounds} manches par match · {t.roundSec} s par manche · {t.players.length}/{t.capacity} joueurs</p>
+          {reward && <p className="mt-1 text-sm font-semibold text-warn">🏆 Récompense du vainqueur : {reward}</p>}
         </div>
-        {t.status === "LOBBY" && <CodeBox code={t.code} />}
+        {t.status === "LOBBY" && t.member && <CodeBox code={t.code} />}
+        {t.status === "LOBBY" && !t.member && (
+          <button disabled={t.players.length >= t.capacity} onClick={() => act(() => api.joinTournament(t.code))} className="btn-primary">
+            {t.players.length >= t.capacity ? "Complet" : "S'inscrire gratuitement"}
+          </button>
+        )}
       </header>
       {error && <p role="alert" className="text-center text-sm text-danger">{error}</p>}
 
@@ -152,7 +168,13 @@ export default function TournamentPage({ params }: { params: Promise<{ id: strin
                 </li>
               ))}
             </ul>
-            {t.isHost ? (
+            {t.isEvent ? (
+              <p className="text-sm text-muted">
+                {t.startsAt
+                  ? `Début prévu le ${new Date(t.startsAt).toLocaleString("fr-FR", { dateStyle: "full", timeStyle: "short" })} : le tournoi se lancera tout seul à cette heure (3 inscrits au moins). Tu recevras un rappel 10 minutes avant.`
+                  : "Le tournoi sera lancé par l'équipe RankGuess. Il ne démarre jamais tout seul, même quand il y a assez d'inscrits."}
+              </p>
+            ) : t.isHost ? (
               <div className="space-y-2">
                 <button disabled={!t.canStart} onClick={() => act(() => api.startTournament(id))} className="btn-primary w-full sm:w-auto">Lancer le tournoi</button>
                 {!t.canStart && <p className="text-sm text-muted">Il faut au moins {TOURNAMENT_MIN_PLAYERS} inscrits pour lancer le tournoi.</p>}
@@ -174,12 +196,19 @@ export default function TournamentPage({ params }: { params: Promise<{ id: strin
               <p className="text-sm text-muted">En attente du lancement par {t.players.find((p) => p.isHost)?.displayName ?? "l'hôte"}…</p>
             )}
           </div>
-          <Rules />
+          <div className="space-y-6">
+            {(t.member || t.isHost) && <GameChat scope="tournament" id={t.id} meId={me.id} mutedIds={t.players.filter((p) => p.chatMuted).map((p) => p.id)} onModerated={load} />}
+            <Rules />
+          </div>
         </div>
       )}
 
-      {t.status === "ACTIVE" && (
-        <MyMatchCard t={t} match={myMatch} me={meP} now={now} name={name} onReady={() => act(() => api.readyForMatch(id))} />
+      {t.status === "ACTIVE" && (meP || t.isHost) && (
+        <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
+          {meP ? <MyMatchCard t={t} match={myMatch} me={meP} now={now} name={name} onReady={() => act(() => api.readyForMatch(id))} /> : <Panel title="Tu organises cet événement" text="Suis le tableau ci-dessous et échange avec les joueurs dans le tchat." />}
+          {/* Tchat de tous les inscrits jusqu'à la fin du tournoi (pendant qu'un match se termine, par exemple) */}
+          <GameChat scope="tournament" id={t.id} meId={me.id} mutedIds={t.players.filter((p) => p.chatMuted).map((p) => p.id)} onModerated={load} />
+        </div>
       )}
 
       {t.status === "FINISHED" && <Standings t={t} meId={me.id} />}

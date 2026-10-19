@@ -20,7 +20,7 @@ export default function TabsLayout() {
         tabBarActiveTintColor: colors.neon,
         tabBarInactiveTintColor: colors.muted,
         sceneStyle: { backgroundColor: colors.void },
-        // 8 onglets : libellés compacts pour tenir sur les petits écrans
+        // 9 onglets : libellés compacts pour tenir sur les petits écrans
         tabBarLabelStyle: { fontSize: 10 },
       }}
     >
@@ -35,6 +35,7 @@ export default function TabsLayout() {
         name="salons"
         options={{ title: "Salons", tabBarIcon: icon("▦"), tabBarBadge: roomInvites > 0 ? roomInvites : undefined }}
       />
+      <Tabs.Screen name="tournaments" options={{ title: "Tournois", tabBarIcon: icon("🏆") }} />
       <Tabs.Screen name="leaderboard" options={{ title: "Classements", tabBarLabel: "Top", tabBarIcon: icon("▲") }} />
       <Tabs.Screen name="chat" options={{ title: "Chat global", tabBarLabel: "Chat", tabBarIcon: icon("✉") }} />
       <Tabs.Screen

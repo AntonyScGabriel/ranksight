@@ -101,7 +101,7 @@ export default function HigherLowerPage() {
                   {revealing ? "" : shown.current.rank.name}
                 </span>
               </div>
-              {!revealing && <ClipPlayer key={shown.current.id} src={media(shown.current.videoUrl)} poster={shown.current.posterUrl ? media(shown.current.posterUrl) : null} onWatched={noop} />}
+              {!revealing && <ClipPlayer key={shown.current.id} src={media(shown.current.videoUrl)} poster={shown.current.posterUrl ? media(shown.current.posterUrl) : null} onWatched={noop} kind={shown.current.videoKind} durationSec={shown.current.durationSec} />}
               {revealing && (
                 <div className="grid place-items-center gap-2 py-10 text-center">
                   <RankEmblem rank={last.revealed} size={72} />
@@ -124,7 +124,7 @@ export default function HigherLowerPage() {
                 </div>
               ) : shown.next ? (
                 <>
-                  <ClipPlayer key={shown.next.id} src={media(shown.next.videoUrl)} poster={shown.next.posterUrl ? media(shown.next.posterUrl) : null} onWatched={noop} />
+                  <ClipPlayer key={shown.next.id} src={media(shown.next.videoUrl)} poster={shown.next.posterUrl ? media(shown.next.posterUrl) : null} onWatched={noop} kind={shown.next.videoKind} durationSec={shown.next.durationSec} />
                   <div className="grid grid-cols-2 gap-3">
                     <button disabled={busy} onClick={() => answer("higher")} className="btn-primary">▲ Plus haut</button>
                     <button disabled={busy} onClick={() => answer("lower")} className="btn-ghost">▼ Plus bas</button>

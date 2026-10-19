@@ -4,6 +4,7 @@ import { PrismaService } from "../../prisma/prisma.service.js";
 import { AuditService } from "../../common/audit/audit.module.js";
 import { assertCanManage, assertCanSetRole } from "../../common/staff-policy.js";
 import { KEY_PATTERN, StorageService, type UploadContentType } from "../storage/storage.service.js";
+import { clipLinkUrl, clipVideo } from "../clips/clip-video.js";
 import { AchievementEngine } from "../achievements/achievement-engine.service.js";
 import { ClipRemovalService } from "../clips/clip-removal.service.js";
 import { ClipsService, todayUtc } from "../clips/clips.service.js";
@@ -186,7 +187,9 @@ export class AdminService {
       },
     });
     if (!clip || clip.deletedAt) throw new NotFoundException();
-    return { ...clip, previewUrl: clip.fileDeletedAt ? null : await this.storage.signedReadUrl(clip.storageKey) };
+    // Clip à lien : lecteur intégré YouTube / Medal et page d'origine (titre, chaîne et description à vérifier)
+    const video = clip.fileDeletedAt && !clip.linkProvider ? { videoUrl: null, videoKind: "FILE" as const } : await clipVideo(this.storage, { ...clip, hlsKey: null, posterKey: null });
+    return { ...clip, previewUrl: video.videoUrl, videoKind: video.videoKind, linkUrl: clipLinkUrl(clip) };
   }
 
   async reviewClip(actorId: string, id: string, b: z.infer<typeof ReviewClipBody>) {

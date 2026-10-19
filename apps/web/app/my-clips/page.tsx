@@ -81,7 +81,10 @@ export default function MyClipsPage() {
         <ul className="grid gap-4 md:grid-cols-2">
           {clips.map((c) => (
             <li key={c.id} className="glass overflow-hidden">
-              {c.previewUrl && <video src={media(c.previewUrl)} className="aspect-video w-full bg-black" controls preload="metadata" />}
+              {c.previewUrl && (c.videoKind === "FILE"
+                ? <video src={media(c.previewUrl)} className="aspect-video w-full bg-black" controls preload="metadata" />
+                // Clip proposé par un lien : lecteur intégré, sans lecture automatique dans la liste
+                : <iframe src={c.previewUrl.replace("autoplay=1", "autoplay=0")} title={`Clip ${c.game.name}`} loading="lazy" allow="encrypted-media; fullscreen" referrerPolicy="strict-origin-when-cross-origin" className="aspect-video w-full bg-black" />)}
               <div className="space-y-2 p-4">
                 <div className="flex items-center justify-between gap-2">
                   <p className="font-medium">

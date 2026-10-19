@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { CosmeticRefDto, FlairDto } from "./rewards.js";
+import { CLIP_LINK_MAX_START_SEC, ClipVideoKind, parseClipLink } from "./clip-links.js";
 
 /** Contrats d'API partagés (validation côté client et serveur, typage des réponses). */
 
@@ -68,6 +69,8 @@ export const PlayableClipDto = z.object({
   ranks: z.array(RankDto),
   /** Absolue (stockage S3/R2) ou relative à l'API (/v1/storage/…) : utiliser resolveMediaUrl() */
   videoUrl: z.string(),
+  /** FILE : videoUrl est un fichier vidéo ; YOUTUBE / MEDAL : videoUrl est l'adresse du lecteur intégré (iframe) */
+  videoKind: ClipVideoKind.default("FILE"),
   posterUrl: z.string().nullable(),
   durationSec: z.number(),
   mode: z.enum(["DAILY", "INFINITE", "VERSUS", "ROOM"]),
@@ -426,12 +429,19 @@ export const SubmitClipInput = z.object({
   inGamePseudo: InGamePseudo,
   platform: Platform.optional(),
   region: Region.optional(),
-  storageKey: z.string().regex(/^raw\/[0-9a-f-]{36}\.(mp4|webm)$/),
+  /** Fichier envoyé au stockage (upload-url) ; absent pour un clip proposé par un lien */
+  storageKey: z.string().regex(/^raw\/[0-9a-f-]{36}\.(mp4|webm)$/).optional(),
+  /** Lien YouTube ou Medal (au lieu d'un fichier) : rien n'est téléchargé, la vidéo est lue avec leur lecteur intégré */
+  link: z.string().trim().url("Le lien n'est pas valide.").max(300).optional(),
+  /** Début du passage dans la vidéo YouTube, en secondes (ignoré pour Medal) */
+  startSec: z.number().int().min(0).max(CLIP_LINK_MAX_START_SEC).optional(),
+  /** Durée du clip : celle du fichier, ou celle du passage choisi dans la vidéo YouTube / du clip Medal */
   durationSec: z.number().min(CLIP_MIN_SEC - 0.3, `Le clip doit durer de ${CLIP_DURATION_LABEL}.`).max(CLIP_MAX_SEC + 0.5, `Le clip doit durer de ${CLIP_DURATION_LABEL}.`),
   proofUrl: z.string().url().max(500).optional(),
   note: z.string().max(300).optional(),
   ownsRights: z.literal(true, { message: "Tu dois être l'auteur du clip ou avoir l'accord de son auteur." }),
-});
+}).refine((c) => !!c.storageKey !== !!c.link, { message: "Envoie un fichier vidéo ou un lien YouTube / Medal.", path: ["link"] })
+  .refine((c) => !c.link || parseClipLink(c.link), { message: "Seuls les liens YouTube et Medal sont acceptés.", path: ["link"] });
 export type SubmitClipInput = z.infer<typeof SubmitClipInput>;
 
 /** Statut vu par le joueur : les états internes (traitement, archivage) n'apparaissent pas. */
@@ -457,6 +467,9 @@ export const MyClipDto = z.object({
   createdAt: z.string(),
   reviewedAt: z.string().nullable(),
   previewUrl: z.string().nullable(),
+  /** Même sens que PlayableClipDto.videoKind ; linkUrl : page YouTube / Medal d'origine d'un clip proposé par un lien */
+  videoKind: ClipVideoKind.default("FILE"),
+  linkUrl: z.string().nullable().default(null),
 });
 export type MyClipDto = z.infer<typeof MyClipDto>;
 
@@ -989,9 +1002,10 @@ export const ReportPlayerInput = z.object({
   targetUserId: z.string().uuid(),
   reason: ChatReportReason,
   details: z.string().trim().max(500).optional(),
-  /** Message signalé (chat global ou message privé), facultatif */
+  /** Message signalé (chat global, message privé, tchat d'un salon ou d'un tournoi), facultatif */
   globalMessageId: z.string().uuid().optional(),
   directMessageId: z.string().uuid().optional(),
+  gameMessageId: z.string().uuid().optional(),
 });
 export type ReportPlayerInput = z.input<typeof ReportPlayerInput>;
 
@@ -1039,6 +1053,9 @@ export const TriageClipDto = z.object({
   game: z.object({ slug: z.string(), name: z.string() }),
   claimedRank: z.object({ id: z.string().uuid(), name: z.string(), color: z.string(), iconUrl: z.string().nullable() }),
   previewUrl: z.string().nullable(),
+  videoKind: ClipVideoKind.default("FILE"),
+  /** Page YouTube / Medal d'origine : à vérifier (titre, chaîne, description ne doivent pas révéler le rang) */
+  linkUrl: z.string().nullable().default(null),
   durationSec: z.number(),
   proofUrl: z.string().nullable(),
   inGamePseudo: z.string().nullable(),

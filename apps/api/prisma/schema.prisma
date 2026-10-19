@@ -144,6 +144,7 @@ model User {
   chatReportsDone  ChatReport[]       @relation("chatResolver")
   globalMessages   GlobalMessage[]    @relation("author")
   moderatedGlobal  GlobalMessage[]    @relation("moderator")
+  gameChat         GameChatMessage[]
   cosmetics        UserCosmetic[]     @relation("owner")
   cosmeticsGranted UserCosmetic[]     @relation("granter")
   suggestions      Suggestion[]       @relation("suggestionAuthor")
@@ -333,6 +334,11 @@ enum TriageDecision {
   REJECT
 }
 
+enum ClipLinkProvider {
+  YOUTUBE
+  MEDAL
+}
+
 enum ClipSource {
   ADMIN
   COMMUNITY
@@ -347,7 +353,13 @@ model Clip {
   source          ClipSource @default(ADMIN)
   status          ClipStatus @default(PROCESSING)
 
+  /// Fichier vidéo ; pour un clip proposé par un lien : clé « link/<fournisseur>/<vidéo>/<début> » (aucun fichier)
   storageKey      String     @unique @map("storage_key")
+  /// Clip proposé par un lien YouTube ou Medal : vidéo lue avec leur lecteur intégré, jamais téléchargée ni stockée
+  linkProvider    ClipLinkProvider? @map("link_provider")
+  linkVideoId     String?    @map("link_video_id") @db.VarChar(64)
+  /// Début du passage joué dans la vidéo YouTube (secondes) ; la fin est début + durationSec
+  linkStartSec    Int?       @map("link_start_sec")
   hlsKey          String?    @map("hls_key")
   posterKey       String?    @map("poster_key")
   durationSec     Float      @map("duration_sec")
@@ -942,6 +954,8 @@ model ChatReport {
   targetUserId    String           @map("target_user_id") @db.Uuid
   globalMessageId String?          @map("global_message_id") @db.Uuid
   directMessageId String?          @map("direct_message_id") @db.Uuid
+  /// Message du tchat d'un salon ou d'un tournoi
+  gameMessageId   String?          @map("game_message_id") @db.Uuid
   reason          ChatReportReason
   details         String?          @db.VarChar(500)
   /// Copie du message signalé au moment du signalement (il peut être supprimé ensuite)
@@ -957,6 +971,7 @@ model ChatReport {
   resolver      User?          @relation("chatResolver", fields: [resolverId], references: [id], onDelete: SetNull)
   globalMessage GlobalMessage? @relation(fields: [globalMessageId], references: [id], onDelete: SetNull)
   directMessage DirectMessage? @relation(fields: [directMessageId], references: [id], onDelete: SetNull)
+  gameMessage   GameChatMessage? @relation(fields: [gameMessageId], references: [id], onDelete: SetNull)
 
   @@index([status, createdAt])
   @@index([targetUserId])
@@ -1007,6 +1022,7 @@ model Cosmetic {
   titleOf           User[]        @relation("equippedTitle")
   badgeOf           User[]        @relation("equippedBadge")
   frameOf           User[]        @relation("equippedFrame")
+  tournamentRewards Tournament[]
 
   @@index([unlockLevel])
   @@map("cosmetics")
@@ -1145,7 +1161,8 @@ model Room {
   /// Salon par défaut entretenu par le serveur (ex. « CLASSIC:1 ») ; NULL pour un salon créé par un joueur.
   /// Index unique partiel (migration SQL, non exprimable ici) : un seul salon en salle d'attente par emplacement.
   systemSlot    String?    @map("system_slot") @db.VarChar(32)
-  gameId        String     @map("game_id") @db.Uuid
+  /// NULL = tous les jeux (match de tournoi « Tous les jeux ») : chaque manche tire un clip de n'importe quel jeu actif
+  gameId        String?    @map("game_id") @db.Uuid
   status        RoomStatus @default(LOBBY)
   rounds        Int
   /// Temps de réponse par manche (secondes) ; allongé pour un clip plus long
@@ -1177,7 +1194,7 @@ model Room {
 
   createdBy User?        @relation("roomCreator", fields: [createdById], references: [id], onDelete: SetNull)
   host      User?        @relation("roomHost", fields: [hostId], references: [id], onDelete: SetNull)
-  game      Game         @relation(fields: [gameId], references: [id])
+  game      Game?        @relation(fields: [gameId], references: [id])
   players   RoomPlayer[]
   roundList RoomRound[]
   invites   RoomInvite[]
@@ -1185,6 +1202,7 @@ model Room {
   votes     RoomVote[]
   tournamentMatch TournamentMatch?
   bonuses   RoomBonus[]
+  chat      GameChatMessage[]
 
   @@index([status, expiresAt])
   @@index([status, roundEndsAt])
@@ -1334,9 +1352,23 @@ model Tournament {
   createdById String           @map("created_by_id") @db.Uuid
   /// Hôte actuel : lance le tableau ; le joueur inscrit le plus tôt s'il part avant le lancement
   hostId      String           @map("host_id") @db.Uuid
-  gameId      String           @map("game_id") @db.Uuid
-  /// Places : 4, 8 ou 16
+  /// NULL = tous les jeux : les clips des matchs viennent de tous les jeux actifs
+  gameId      String?          @map("game_id") @db.Uuid
+  /// Places : 4, 8 ou 16 (tournoi d'un joueur VIP) ; jusqu'à 64 pour un événement
   capacity    Int
+  /// Public : listé dans la page Tournois et rejoignable sans code ; privé : code d'invitation seulement (événements : publics)
+  visibility  RoomVisibility   @default(PRIVATE)
+  /// Événement créé par l'administration : visible par tous, sans organisateur inscrit, récompense pour le vainqueur
+  isEvent     Boolean          @default(false) @map("is_event")
+  /// Nom de l'événement (affiché à la place de « Tournoi »)
+  title       String?          @db.VarChar(60)
+  /// Récompense du vainqueur : titre, badge ou cadre, et/ou jours de VIP ; donnée une seule fois (rewardGrantedAt)
+  rewardCosmeticId String?     @map("reward_cosmetic_id") @db.Uuid
+  rewardVipDays    Int?        @map("reward_vip_days")
+  rewardGrantedAt  DateTime?   @map("reward_granted_at")
+  /// Événement programmé : lancé automatiquement à cette heure (s'il y a assez d'inscrits), rappel 10 minutes avant
+  startsAt         DateTime?   @map("starts_at")
+  reminderSentAt   DateTime?   @map("reminder_sent_at")
   /// Taille du tableau au lancement (puissance de 2 suffisante pour les inscrits)
   bracketSize Int?             @map("bracket_size")
   /// Manches par match et temps de réponse par manche
@@ -1350,11 +1382,16 @@ model Tournament {
 
   createdBy User               @relation("tournamentCreator", fields: [createdById], references: [id], onDelete: Cascade)
   host      User               @relation("tournamentHost", fields: [hostId], references: [id], onDelete: Cascade)
-  game      Game               @relation(fields: [gameId], references: [id])
+  game      Game?              @relation(fields: [gameId], references: [id])
   players   TournamentPlayer[]
   matches   TournamentMatch[]
+  chat      GameChatMessage[]
+  rewardCosmetic Cosmetic?    @relation(fields: [rewardCosmeticId], references: [id], onDelete: SetNull)
 
   @@index([status, expiresAt])
+  @@index([isEvent, status])
+  @@index([visibility, status])
+  @@index([status, startsAt])
   @@map("tournaments")
 }
 
@@ -1368,6 +1405,8 @@ model TournamentPlayer {
   leftAt       DateTime? @map("left_at")
   /// Place finale (1 = vainqueur ; places partagées entre éliminés d'un même tour)
   placement    Int?
+  /// Réduit au silence dans le tchat du tournoi par l'organisateur ou l'équipe de modération
+  chatMuted    Boolean   @default(false) @map("chat_muted")
 
   tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
   user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1486,4 +1525,33 @@ model CompetitiveSeasonResult {
   @@index([seasonId, scope, placement])
   @@index([userId])
   @@map("competitive_season_results")
+}
+
+// ----------------------------------------------------------------------------
+// Tchat d'un salon (salle d'attente et partie ; canal d'équipe en duel par équipes) ou d'un tournoi (jusqu'à sa fin)
+// ----------------------------------------------------------------------------
+
+model GameChatMessage {
+  id           String    @id @default(uuid(7)) @db.Uuid
+  /// Salon ou tournoi (un seul des deux)
+  roomId       String?   @map("room_id") @db.Uuid
+  tournamentId String?   @map("tournament_id") @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  /// Canal d'équipe (1 ou 2) en duel par équipes : lu seulement par cette équipe ; NULL = tout le salon
+  team         Int?
+  body         String    @db.VarChar(300)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  /// Supprimé par son auteur, l'organisateur du tournoi ou l'équipe de modération (plus affiché)
+  deletedAt    DateTime? @map("deleted_at")
+  deletedById  String?   @map("deleted_by_id") @db.Uuid
+
+  room       Room?       @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  tournament Tournament? @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reports    ChatReport[]
+
+  @@index([roomId, createdAt])
+  @@index([tournamentId, createdAt])
+  @@index([userId])
+  @@map("game_chat_messages")
 }

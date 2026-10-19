@@ -28,7 +28,7 @@ test("places des éliminés et match suivant", () => {
 });
 
 test("création : réglages proposés uniquement", () => {
-  assert.deepEqual(CreateTournamentInput.parse({ game: "lol" }), { game: "lol", capacity: 8, rounds: 3, roundSec: 30 });
+  assert.deepEqual(CreateTournamentInput.parse({ game: "lol" }), { game: "lol", capacity: 8, rounds: 3, roundSec: 30, visibility: "PRIVATE" });
   assert.equal(CreateTournamentInput.safeParse({ game: "lol", capacity: 6 }).success, false);
   assert.equal(CreateTournamentInput.safeParse({ game: "lol", rounds: 7 }).success, false);
   assert.equal(CreateTournamentInput.safeParse({ game: "lol", isVip: true }).success, false);

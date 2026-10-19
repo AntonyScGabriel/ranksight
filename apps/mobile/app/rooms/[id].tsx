@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
-import { Pressable, ScrollView, Share, Text, View } from "react-native";
+import { useCallback, useEffect, useState } from "react";
+import { Alert, Pressable, ScrollView, Share, Text, View } from "react-native";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import {
-  DECIDED_BY_LABEL, IMPOSTOR_MIN_PLAYERS, IMPOSTOR_RULES, ROOM_MIN_PLAYERS, ROOM_RULES, SUDDEN_DEATH_RULES, TEAM_COLORS, TEAM_NAMES, TEAM_RULES, ROOM_MODE_LABEL, ROOM_VISIBILITY_LABEL, formatRoomCode, type RoomDto, type RoomPlayerDto, type RoomRoundDto, type UserSummaryDto,
+  DECIDED_BY_LABEL, IMPOSTOR_MIN_PLAYERS, ROOM_IDLE_KICKED_MESSAGE, IMPOSTOR_RULES, ROOM_MIN_PLAYERS, ROOM_RULES, SUDDEN_DEATH_RULES, TEAM_COLORS, TEAM_NAMES, TEAM_RULES, ROOM_MODE_LABEL, ROOM_VISIBILITY_LABEL, formatRoomCode, type RoomDto, type RoomPlayerDto, type RoomRoundDto, type UserSummaryDto,
 } from "@ranksight/shared";
 import { api, WEB_URL } from "@/lib/api";
 import { useConfirm } from "@/lib/confirm";
@@ -11,6 +11,8 @@ import { useSession } from "@/lib/session";
 import { colors, font } from "@/lib/theme";
 import { errorMessage } from "@/components/AuthUi";
 import { FlairBadge } from "@/components/Flair";
+import { GameChat } from "@/components/GameChat";
+import { IdleWarning, useIdleGuard } from "@/components/IdleGuard";
 import { LiveRound, TimerBar } from "@/components/LiveRound";
 import { RankEmblem } from "@/components/RankEmblem";
 import { Avatar, Card, GhostButton, Hud, Loading, LoginRequired, Message, Muted, PrimaryButton } from "@/components/ui";
@@ -40,6 +42,18 @@ export default function RoomScreen() {
       live.load();
     }
   };
+
+  // Joueur inactif trop longtemps en salle d'attente : alerte, puis départ du salon (hors tournoi)
+  const leaveIdle = useCallback(() => {
+    void api.leaveRoom(id).catch(() => undefined).finally(() => {
+      router.replace("/rooms");
+      Alert.alert("Salon quitté", ROOM_IDLE_KICKED_MESSAGE);
+    });
+  }, [id]);
+  const markActive = useCallback(() => {
+    void api.roomActive(id).catch(() => undefined);
+  }, [id]);
+  const idle = useIdleGuard(phase === "lobby" && !!room && !room.tournamentId && !room.left, leaveIdle, markActive);
 
   if (loading) return <Loading />;
   if (!me) return <View style={{ padding: 16 }}><LoginRequired text="Connecte-toi pour rejoindre ce salon. Pas besoin d'être VIP." /></View>;
@@ -92,7 +106,8 @@ export default function RoomScreen() {
 
   const lastRound = room.details.at(-1);
   return (
-    <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 40 }}>
+    <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 40 }} onTouchStart={idle.touch} onScrollBeginDrag={idle.touch}>
+      <IdleWarning secondsLeft={idle.warning} onStay={idle.stillHere} />
       {live.offline && <Text style={{ color: colors.warn, textAlign: "center" }}>Connexion perdue : reconnexion en cours…</Text>}
       {live.hostNotice && (
         <Card style={{ gap: 8, borderColor: colors.warn }} testID="host-lost">
@@ -142,6 +157,9 @@ export default function RoomScreen() {
       {phase === "left" && <Message title="Tu as quitté la partie" text="Tes points sont conservés. Le classement final s'affichera ici à la fin de la partie." />}
 
       {room.status === "ACTIVE" && <Scoreboard room={room} meId={me.id} />}
+
+      {/* Tchat du salon (canal d'équipe en duel par équipes), de la salle d'attente à la fin de la partie */}
+      {(room.status === "LOBBY" || room.status === "ACTIVE") && <GameChat scope="room" id={room.id} meId={me.id} team={room.players.find((p) => p.id === me.id)?.team ?? null} />}
 
       {phase === "over" && <FinalResult room={room} meId={me.id} />}
 

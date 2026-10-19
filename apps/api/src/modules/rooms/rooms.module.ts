@@ -80,6 +80,14 @@ export class RoomsController {
   }
 
   /** POST /v1/rooms/:id/close — l'hôte ferme sa salle d'attente */
+  /** POST /v1/rooms/:id/active — geste du joueur en salle d'attente (au plus toutes les 20 s) : remet à zéro son inactivité */
+  @Post(":id/active")
+  @HttpCode(204)
+  @Throttle({ default: { ttl: 60_000, limit: 20 } })
+  active(@CurrentUser() u: AuthUser, @Param("id", ParseUUIDPipe) id: string) {
+    return this.rooms.markActive(u.sub, id);
+  }
+
   @Post(":id/close")
   @HttpCode(204)
   close(@CurrentUser() u: AuthUser, @Param("id", ParseUUIDPipe) id: string) {

@@ -1,8 +1,10 @@
 import { BadRequestException, Body, Controller, Get, HttpCode, Module, Param, ParseUUIDPipe, Post } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
-import { CreateTournamentInput, JoinTournamentInput, normalizeRoomCode } from "@ranksight/shared";
+import { CreateEventTournamentInput, CreateTournamentInput, JoinTournamentInput, normalizeRoomCode } from "@ranksight/shared";
 import type { z } from "zod";
+import { AuditService } from "../../common/audit/audit.module.js";
 import { CurrentUser, type AuthUser } from "../../common/decorators/current-user.decorator.js";
+import { Roles } from "../../common/decorators/roles.decorator.js";
 import { ZodPipe } from "../../common/pipes/zod.pipe.js";
 import { ChatModule } from "../chat/chat.module.js";
 import { RoomsModule } from "../rooms/rooms.module.js";
@@ -76,9 +78,39 @@ export class TournamentsController {
   }
 }
 
+/** Événements (administration) : tournois visibles par tous, jusqu'à 64 places, récompense du vainqueur */
+@Controller("admin/tournaments")
+@Roles("ADMIN")
+export class TournamentsAdminController {
+  constructor(private readonly tournaments: TournamentsService, private readonly audit: AuditService) {}
+
+  /** GET /v1/admin/tournaments — événements, les plus récents d'abord */
+  @Get()
+  list() {
+    return this.tournaments.listEvents();
+  }
+
+  /** POST /v1/admin/tournaments — { title, game, capacity, rounds, roundSec, rewardCosmeticId?, rewardVipDays? } */
+  @Post()
+  async create(@CurrentUser() u: AuthUser, @Body(new ZodPipe(CreateEventTournamentInput)) body: z.output<typeof CreateEventTournamentInput>) {
+    const t = await this.tournaments.createEvent(u.sub, body);
+    await this.audit.log(u.sub, "tournament.event.create", "tournament", t.id, { title: body.title, capacity: body.capacity, rewardCosmeticId: body.rewardCosmeticId ?? null, rewardVipDays: body.rewardVipDays ?? null });
+    return t;
+  }
+
+  /** POST /v1/admin/tournaments/:id/start — lance l'événement (3 inscrits au moins) */
+  @Post(":id/start")
+  @HttpCode(200)
+  async start(@CurrentUser() u: AuthUser, @Param("id", ParseUUIDPipe) id: string) {
+    const t = await this.tournaments.start(u.sub, id, true);
+    await this.audit.log(u.sub, "tournament.event.start", "tournament", id, { players: t.players.length });
+    return t;
+  }
+}
+
 @Module({
   imports: [RoomsModule, ChatModule],
-  controllers: [TournamentsController],
+  controllers: [TournamentsController, TournamentsAdminController],
   providers: [TournamentsService],
 })
 export class TournamentsModule {}

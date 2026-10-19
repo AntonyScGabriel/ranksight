@@ -5,6 +5,9 @@ import {
   type ConversationDto,
   type DailyOverviewDto,
   type GlobalMessageDto,
+  type GameChatDto,
+  type GameChatMessageDto,
+  type GameChatScope,
   type LeaderboardGame,
   type FriendRequestsDto,
   type GameDto,
@@ -287,6 +290,8 @@ export const api = {
     request<PlayableClipDto & { position: number; rounds: number; endsAt: string; serverNow: string }>(`/rooms/${id}/next`),
   startRoom: (id: string) => post<RoomDto>(`/rooms/${id}/start`),
   leaveRoom: (id: string) => post(`/rooms/${id}/leave`),
+  /** Geste du joueur en salle d'attente (inactivité vérifiée par le serveur) */
+  roomActive: (id: string) => post(`/rooms/${id}/active`),
   inviteToRoom: (id: string, userId: string) => post<{ invited: boolean }>(`/rooms/${id}/invite`, { userId }),
   declineRoomInvite: (id: string) => del(`/rooms/${id}/invite`),
   kickFromRoom: (id: string, userId: string) => post<RoomDto>(`/rooms/${id}/kick/${userId}`),
@@ -311,6 +316,11 @@ export const api = {
   sendGlobal: (body: string) => post<GlobalMessageDto>("/chat/global", { body }),
   deleteGlobal: (id: string) => del(`/chat/global/${id}`),
   chatSettings: () => request<{ slowModeSec: number }>("/chat/global/settings"),
+  // Tchat d'un salon ou d'un tournoi
+  gameChat: (scope: GameChatScope, id: string) => request<GameChatDto>(`/chat/game/${scope}/${id}`),
+  sendGameChat: (scope: GameChatScope, id: string, body: string, team = false) => post<GameChatMessageDto>(`/chat/game/${scope}/${id}`, { body, team }),
+  deleteGameChat: (scope: GameChatScope, id: string, messageId: string) => del(`/chat/game/${scope}/${id}/messages/${messageId}`),
+  muteInTournament: (tournamentId: string, userId: string, muted: boolean) => post<{ muted: boolean }>(`/chat/game/tournament/${tournamentId}/mute/${userId}`, { muted }),
   announcement: () => request<{ announcement: AnnouncementDto | null }>("/announcement"),
   /** Code de double authentification (équipe) : déverrouille la modération pour la session */
   mfaVerify: (code: string) => post<{ unlocked: boolean }>("/auth/mfa/verify", { code }),

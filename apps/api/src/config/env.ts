@@ -56,6 +56,11 @@ const EnvSchema = z.object({
   // Compression des vidéos (720p). Vide = "ffmpeg" et "ffprobe" trouvés dans le PATH ; sans ffmpeg, pas de compression.
   FFMPEG_PATH: z.string().default(""),
   FFPROBE_PATH: z.string().default(""),
+  /** Clips proposés par un lien YouTube / Medal joués dans les parties (exige l'application 0.3.0 chez les joueurs) */
+  LINK_CLIPS_IN_GAMES: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
   // Sécurité
   /** Clé de chiffrement des données sensibles en base (secret 2FA). Vide = dérivée de JWT_REFRESH_SECRET */
   ENCRYPTION_KEY: z.string().default(""),

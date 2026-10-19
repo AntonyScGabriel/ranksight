@@ -16,6 +16,8 @@ const NAV = [
   { href: "/versus", label: "Duels", short: "Duels" },
   /** Salons (publics, privés, salons gratuits par défaut) : section à part, séparée des duels 1 contre 1 */
   { href: "/rooms", label: "Salons", short: "Salons" },
+  /** Tournois (joueurs VIP, publics ou privés) et événements de l'équipe : onglet à part, facile à trouver */
+  { href: "/tournaments", label: "Tournois", short: "Tournois" },
   { href: "/leaderboard", label: "Classements", short: "Top" },
   { href: "/chat", label: "Chat", short: "Chat" },
   { href: "/friends", label: "Amis", short: "Amis" },
@@ -52,7 +54,7 @@ export function Header() {
                   href={n.href}
                   className={`relative whitespace-nowrap rounded-lg px-3 py-2 text-sm transition hover:bg-surface hover:text-ink ${isActive(n.href) ? "text-ink" : "text-muted"}`}
                 >
-                  {/* Libellés courts sur tablette (8 entrées), complets sur grand écran */}
+                  {/* Libellés courts sur tablette (9 entrées), complets sur grand écran */}
                   <span className="lg:hidden">{n.short}</span>
                   <span className="hidden lg:inline">{n.label}</span>
                   {n.href === "/friends" && unread > 0 && <Badge n={unread} />}
@@ -127,11 +129,12 @@ export function Header() {
 
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-line/60 bg-void/85 backdrop-blur-xl md:hidden">
         <ul className="grid grid-cols-8">
-          {[...NAV, { href: "/profile", label: "Profil", short: "Profil" }].map((n) => (
+          {/* 8 colonnes : le profil reste accessible par l'avatar, en haut à droite */}
+          {NAV.map((n) => (
             <li key={n.href}>
               <Link
                 href={n.href}
-                className={`relative flex h-16 items-center justify-center text-[11px] font-medium ${isActive(n.href) ? "text-neon" : "text-muted"}`}
+                className={`relative flex h-16 items-center justify-center text-[10px] font-medium ${isActive(n.href) ? "text-neon" : "text-muted"}`}
               >
                 {n.short}
                 {n.href === "/friends" && unread > 0 && <Badge n={unread} />}

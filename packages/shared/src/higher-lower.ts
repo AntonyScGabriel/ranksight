@@ -4,6 +4,7 @@
  */
 import { z } from "zod";
 import { GameSlug, RankDto } from "./schemas.js";
+import { ClipVideoKind } from "./clip-links.js";
 
 export const HigherLowerChoice = z.enum(["higher", "lower"]);
 export type HigherLowerChoice = z.infer<typeof HigherLowerChoice>;
@@ -28,6 +29,8 @@ export function higherLowerCorrect(currentOrder: number, nextOrder: number, choi
 const ClipView = z.object({
   id: z.string().uuid(),
   videoUrl: z.string(),
+  /** FILE : fichier vidéo ; YOUTUBE / MEDAL : adresse du lecteur intégré */
+  videoKind: ClipVideoKind.default("FILE"),
   posterUrl: z.string().nullable(),
   durationSec: z.number(),
 });

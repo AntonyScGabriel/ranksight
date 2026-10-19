@@ -8,7 +8,7 @@ import { useConfirm } from "@/lib/confirm";
 type Status = "OPEN" | "RESOLVED" | "DISMISSED";
 type Report = {
   id: string; createdAt: string; reason: ChatReportReason; details: string | null; excerpt: string | null; status: Status;
-  resolution: string | null; resolvedAt: string | null; globalMessageId: string | null; directMessageId: string | null;
+  resolution: string | null; resolvedAt: string | null; globalMessageId: string | null; directMessageId: string | null; gameMessageId: string | null;
   reporter: { id: string; displayName: string };
   target: {
     id: string; displayName: string; username: string; status: string; chatMutedUntil: string | null; avatarUrl: string | null;
@@ -16,6 +16,8 @@ type Report = {
   };
   resolver: { displayName: string } | null;
   globalMessage: { id: string; deletedAt: string | null } | null;
+  /** Tchat d'un salon ou d'un tournoi */
+  gameMessage: { id: string; deletedAt: string | null; roomId: string | null; tournamentId: string | null } | null;
 };
 
 const TABS: [Status, string][] = [["OPEN", "À traiter"], ["RESOLVED", "Sanctionnés"], ["DISMISSED", "Classés sans suite"]];
@@ -55,7 +57,7 @@ export default function ModerationPage() {
         body: JSON.stringify({
           status,
           resolution: c.note || undefined,
-          deleteMessage: status === "RESOLVED" && c.del && !!r.globalMessageId,
+          deleteMessage: status === "RESOLVED" && c.del && !!(r.globalMessageId || r.gameMessageId),
           muteHours: status === "RESOLVED" ? c.mute : 0,
           ban,
         }),
@@ -114,11 +116,11 @@ export default function ModerationPage() {
                     </p>
                   </div>
                   <span className="rounded-full bg-violet/20 px-2.5 py-0.5 text-xs text-violet-soft">
-                    {r.globalMessageId ? "Chat global" : r.directMessageId ? "Message privé" : "Profil"}
+                    {r.globalMessageId ? "Chat global" : r.directMessageId ? "Message privé" : r.gameMessage?.tournamentId ? "Tchat de tournoi" : r.gameMessageId ? "Tchat de salon" : "Profil"}
                   </span>
                 </div>
                 {r.excerpt && (
-                  <blockquote className={`rounded-lg border-l-2 border-danger/60 bg-surface-2 p-3 text-sm ${r.globalMessage?.deletedAt ? "line-through opacity-60" : ""}`}>
+                  <blockquote className={`rounded-lg border-l-2 border-danger/60 bg-surface-2 p-3 text-sm ${r.globalMessage?.deletedAt || r.gameMessage?.deletedAt ? "line-through opacity-60" : ""}`}>
                     {r.excerpt}
                   </blockquote>
                 )}
@@ -140,7 +142,7 @@ export default function ModerationPage() {
                     <select value={c.mute} onChange={(e) => setChoice(r.id, { mute: Number(e.target.value) })} className="input !w-auto" aria-label="Sanction">
                       {MUTES.map(([h, label]) => <option key={h} value={h}>{label}</option>)}
                     </select>
-                    {r.globalMessageId && !r.globalMessage?.deletedAt && (
+                    {((r.globalMessageId && !r.globalMessage?.deletedAt) || (r.gameMessageId && !r.gameMessage?.deletedAt)) && (
                       <label className="flex items-center gap-2"><input type="checkbox" checked={c.del} onChange={(e) => setChoice(r.id, { del: e.target.checked })} className="accent-violet" /> Supprimer le message</label>
                     )}
                     <input value={c.note} onChange={(e) => setChoice(r.id, { note: e.target.value })} maxLength={300} placeholder="Note interne (facultatif)" className="input min-w-48 flex-1" />

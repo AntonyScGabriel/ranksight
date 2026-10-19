@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -13,6 +13,8 @@ import { useSession } from "@/lib/session";
 import { Avatar } from "@/components/Header";
 import { errorMessage } from "@/components/AuthForm";
 import { FlairBadge } from "@/components/Flair";
+import { GameChat } from "@/components/GameChat";
+import { IdleGuard } from "@/components/IdleGuard";
 import { LiveRound, TimerBar } from "@/components/LiveRound";
 import { PlayerLink } from "@/components/PlayerLink";
 import { RankEmblem } from "@/components/RankEmblem";
@@ -57,6 +59,13 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
     });
   };
 
+  const markActive = useCallback(() => {
+    void api.roomActive(id).catch(() => undefined);
+  }, [id]);
+  const leaveIdle = useCallback(() => {
+    void api.leaveRoom(id).catch(() => undefined).finally(() => router.push("/rooms?inactif=1"));
+  }, [id, router]);
+
   if (loading) return <Skeleton />;
   if (!me) return <LoginRequired next={`/rooms/${id}`} text="Connecte-toi pour rejoindre ce salon. Pas besoin d'être VIP." />;
   if (live.missing) return <Panel title="Salon introuvable" text="Ce salon n'existe pas ou tu n'en fais pas partie."><Link href="/rooms" className="btn-ghost mx-auto w-fit">Salons</Link></Panel>;
@@ -83,6 +92,8 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
       {error && <p role="alert" className="text-center text-sm text-danger">{error}</p>}
 
       {phase === "lobby" && <Lobby room={room} meId={me.id} act={act} />}
+      {/* Joueur inactif trop longtemps en salle d'attente : alerte, puis départ du salon (hors tournoi) */}
+      {phase === "lobby" && !room.tournamentId && <IdleGuard onIdle={leaveIdle} onActive={markActive} />}
 
       {room.status === "ACTIVE" && (
         <div className="grid gap-6 lg:grid-cols-[1fr_17rem]">
@@ -143,7 +154,10 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
               <Panel title="Tu as quitté la partie" text="Tes points sont conservés. Le classement final s'affichera ici à la fin de la partie." />
             )}
           </div>
-          <Scoreboard room={room} meId={me.id} />
+          <div className="space-y-6">
+            <Scoreboard room={room} meId={me.id} />
+            <GameChat scope="room" id={room.id} meId={me.id} team={room.players.find((p) => p.id === me.id)?.team ?? null} />
+          </div>
         </div>
       )}
 
@@ -335,6 +349,7 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
         </div>
 
         <div className="space-y-6">
+          <GameChat scope="room" id={room.id} meId={meId} team={room.players.find((p) => p.id === meId)?.team ?? null} />
           <div className="glass space-y-3 p-6">
             <h2 className="font-display text-lg font-semibold">Inviter des amis</h2>
             {invitable.length ? (

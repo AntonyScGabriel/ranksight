@@ -74,6 +74,12 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
         {canLeave && <button onClick={leave} className="text-sm text-muted hover:text-danger">Quitter</button>}
       </div>
       {live.offline && <p role="status" className="text-center text-sm text-warn">Connexion perdue : reconnexion en cours…</p>}
+      {live.hostNotice && (
+        <div role="status" data-testid="host-lost" className="glass flex flex-wrap items-center justify-between gap-3 border-warn/60 p-4 text-sm">
+          <p className="text-warn">{live.hostNotice}</p>
+          <button onClick={live.dismissHostNotice} className="btn-ghost !py-1.5 text-sm">J&apos;ai compris</button>
+        </div>
+      )}
       {error && <p role="alert" className="text-center text-sm text-danger">{error}</p>}
 
       {phase === "lobby" && <Lobby room={room} meId={me.id} act={act} />}
@@ -192,7 +198,7 @@ function TeamsLobby({ room, meId, act, kick }: { room: RoomDto; meId: string; ac
                 <li key={p.id} className="flex items-center gap-2 text-sm">
                   <Avatar name={p.displayName} url={p.avatarUrl} size={28} frame={p.flair.frame} />
                   <div className="min-w-0 flex-1"><PlayerName p={p} meId={meId} /></div>
-                  {room.isHost && p.id !== meId && (
+                  {room.isHost && !room.system && p.id !== meId && (
                     <>
                       <button onClick={() => act(() => api.setRoomTeam(room.id, t === 1 ? 2 : 1, p.id))} className="text-xs text-muted hover:text-ink" aria-label={`Changer ${p.displayName} d'équipe`}>⇄</button>
                       <button onClick={() => kick(p)} className="text-xs text-muted hover:text-danger" aria-label={`Retirer ${p.displayName}`}>Retirer</button>
@@ -280,7 +286,7 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
         </p>
         {room.system && (
           <p className="text-xs text-success">
-            Salon gratuit par défaut : ouvert à tous, sans VIP. Le premier joueur arrivé est l&apos;hôte ; s&apos;il part, le suivant prend le relais.
+            Salon gratuit par défaut : ouvert à tous, sans VIP. Le premier joueur arrivé est l&apos;hôte ; s&apos;il part, le suivant prend le relais. Personne ne peut y être retiré, et chacun choisit son équipe.
           </p>
         )}
       </div>
@@ -299,7 +305,7 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
               <li key={p.id} className="flex items-center gap-3 rounded-xl border border-line/60 bg-surface/60 p-3">
                 <Avatar name={p.displayName} url={p.avatarUrl} size={36} frame={p.flair.frame} />
                 <div className="min-w-0 flex-1 text-sm"><PlayerName p={p} meId={meId} /></div>
-                {room.isHost && p.id !== meId && (
+                {room.isHost && !room.system && p.id !== meId && (
                   <button onClick={() => kick(p)} className="text-xs text-muted hover:text-danger" aria-label={`Retirer ${p.displayName}`}>
                     Retirer
                   </button>

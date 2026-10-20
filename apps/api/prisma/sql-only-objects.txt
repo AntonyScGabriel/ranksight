@@ -1,0 +1,35 @@
+# Objets SQL créés par les migrations et absents de schema.prisma (Prisma ne sait pas les décrire).
+# Un par ligne : type:table.nom (check, exclude, index, trigger) ou type:nom (function, schema).
+# Vérifiés après migration par apps/api/test/integration/schema-objects.test.mjs et après restauration par
+# deploy/restore.sh. À mettre à jour dans la migration qui ajoute ou retire l'un d'eux (README, « Migrations sûres »).
+check:competitive_ratings.competitive_ratings_career_check
+check:competitive_ratings.competitive_ratings_counts_check
+check:competitive_ratings.competitive_ratings_rating_check
+check:competitive_season_results.competitive_season_results_check
+check:higher_lower_runs.higher_lower_runs_score_check
+check:rating_changes.rating_changes_delta_check
+check:rating_changes.rating_changes_reason_check
+check:rating_changes.rating_changes_result_check
+check:room_bonuses.room_bonuses_points_check
+check:room_players.room_players_score_check
+check:room_players.room_players_team_check
+check:room_votes.room_votes_not_self_check
+check:rooms.rooms_max_players_check
+check:rooms.rooms_phase_check
+check:rooms.rooms_round_sec_check
+check:rooms.rooms_rounds_check
+check:rooms.rooms_sudden_death_rounds_check
+check:rooms.rooms_team_size_check
+check:seasons.seasons_valid_dates
+check:tournament_matches.tournament_matches_decided_by_check
+check:tournament_matches.tournament_matches_players_check
+check:tournament_matches.tournament_matches_winner_check
+check:tournaments.tournaments_bracket_size_check
+check:tournaments.tournaments_capacity_check
+check:tournaments.tournaments_round_sec_check
+check:tournaments.tournaments_rounds_check
+exclude:seasons.seasons_no_overlap
+function:audit_logs_append_only
+index:rooms.rooms_system_slot_lobby_key
+schema:archive
+trigger:audit_logs.audit_logs_append_only

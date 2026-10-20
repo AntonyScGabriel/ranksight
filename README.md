@@ -400,7 +400,9 @@ Remise à zéro complète : `docker compose down -v`, supprimer `apps/api/storag
 
 `apps/api/test/integration/` : salons (création VIP, participation gratuite, transfert d'hôte au départ et à la
 déconnexion, salon retiré en fin de partie, salle d'attente vide supprimée, mort subite à 3 finalistes, salons par
-défaut sans doublon), « Jouer maintenant » (demandes simultanées, dernière place),
+défaut sans doublon, sans expulsion ni placement d'équipe par l'hôte, jeux tournants qui ont assez de clips),
+transfert d'hôte (coupure de moins de 30 s sans effet, message au retour après une absence), « Jouer maintenant »
+(demandes simultanées, dernière place), en-tête `X-App-Version`, objets SQL hors Prisma après migration,
 classement (exclusions, limite par adversaire avec duels simultanés, abandon, éligibilité, coefficient, VIP), fin de
 saison (archive, seuils, double exécution), suppression des jetons et VIP. Ils parlent à une API démarrée et lisent la
 base ; ils refusent de tourner ailleurs qu'en CI ou sur une base locale dédiée dont le nom finit par `_test` (le test
@@ -413,6 +415,56 @@ DATABASE_URL=postgresql://ranksight:ranksight@localhost:5432/ranksight_test npx 
 DATABASE_URL=postgresql://ranksight:ranksight@localhost:5432/ranksight_test node --env-file=../../.env dist/main.js   # API de test
 DATABASE_URL=postgresql://ranksight:ranksight@localhost:5432/ranksight_test npm run test:integration -w @ranksight/api
 ```
+
+### Tests d'interface (Playwright)
+
+`apps/web/e2e/` : parcours du site dans Chromium — Duels et Salons séparés (ordinateur et téléphone), joueur gratuit
+(pas de création, salon gratuit rejoint, devenu hôte, aucun bouton « Retirer » et expulsion refusée par l'API), VIP
+(création, lien d'invitation copié, joueur gratuit qui rejoint par le lien, expulsion dans son salon), fin de partie
+(classement, salon fermé), transfert d'hôte (coupure de moins de 30 s sans message ; absence plus longue : rôle
+transféré et message « Tu n'es plus l'hôte » au retour de la connexion). Les données sont préparées dans la base de
+test (même garde-fou que les tests d'intégration) ; aucune attente arbitraire, sauf la durée de coupure simulée.
+La CI les lance dans le travail `e2e-web`. En local, avec l'API de test démarrée (voir ci-dessus) :
+
+```bash
+npm run build -w @ranksight/web && (cd apps/web && npx next start --port 3000) &   # site sur la même API
+cd apps/web && npx playwright install chromium                                   # une seule fois
+DATABASE_URL=postgresql://ranksight:ranksight@localhost:5432/ranksight_test npm run test:e2e
+```
+
+Rapport en cas d'échec : `apps/web/playwright-report` (CI : artefact `playwright-report`).
+
+### Migrations sûres
+
+Les migrations sont des fichiers SQL versionnés (`apps/api/prisma/migrations`), appliqués **uniquement** par
+`prisma migrate deploy` (au démarrage de l'API, en CI et sur le serveur). Certaines contiennent des objets que
+`schema.prisma` ne sait pas décrire : contraintes `CHECK`, contrainte d'exclusion `seasons_no_overlap` (saisons qui ne se
+chevauchent pas), index unique partiel `rooms_system_slot_lobby_key` (un seul salon par défaut en attente par
+emplacement), déclencheur `audit_logs_append_only` (journal d'audit en ajout seul) et schéma `archive` (jetons archivés).
+
+Pourquoi `prisma migrate dev` est dangereux ici : pour générer une migration, Prisma compare la base obtenue par les
+migrations au fichier `schema.prisma`. L'index partiel n'y étant pas déclaré, Prisma peut le considérer comme superflu
+et écrire `DROP INDEX "rooms_system_slot_lobby_key"` dans la nouvelle migration ; appliquée telle quelle, elle
+autoriserait des salons par défaut en double (comportement non reproduit ici faute du moteur de migration natif : à
+vérifier à la première migration générée). S'il détecte un écart (base modifiée à la main, migration éditée), `migrate dev` propose
+aussi de **réinitialiser la base** (toutes les données effacées). Les contraintes `CHECK` et le déclencheur sont ignorés
+par Prisma : ni supprimés, ni recréés si on les perd.
+
+Procédure :
+
+1. Modifier `schema.prisma`, puis générer la migration **sans l'appliquer**, sur la base de développement locale
+   seulement : `npm run prisma:migrate:create -w @ranksight/api -- --name <nom>`. Ne jamais lancer `migrate dev`,
+   `migrate reset` ou `db push` sur une base qui contient des données à garder (serveur, copie de production).
+2. Relire le SQL généré : supprimer toute ligne qui retire un objet de la liste ci-dessus (en particulier
+   `DROP INDEX "rooms_system_slot_lobby_key"`), vérifier qu'aucune colonne remplie n'est supprimée ou rendue obligatoire
+   sans valeur par défaut, et ajouter à la main le SQL que Prisma ne sait pas écrire (`CHECK`, index partiel…).
+3. Appliquer avec `npx prisma migrate deploy` (dans `apps/api`), puis `npx prisma generate` pour le client. La
+   génération du client ne touche jamais la base.
+4. Lancer les tests d'intégration : `schema-objects.test.mjs` échoue si un objet de la liste a disparu ou si un nouvel
+   objet SQL n'y est pas inscrit (ajouter alors son nom dans `apps/api/prisma/sql-only-objects.txt`, liste partagée
+   avec `deploy/restore.sh`).
+5. Avant la mise en production, répéter la migration sur une copie de la sauvegarde (voir `deploy/README.md`). Une
+   migration déjà appliquée ne se modifie plus : corriger par une nouvelle migration.
 
 ## Arborescence
 
@@ -628,7 +680,10 @@ docker compose --env-file .env.production -f docker-compose.prod.yml up -d --bui
 
 - **Caddy** sert le site, l'administration et l'API en HTTPS (certificats Let's Encrypt automatiques).
 - **PostgreSQL** et **Redis** (avec mot de passe) ne sont pas exposés sur Internet.
-- **Sauvegarde** de la base chaque nuit dans `deploy/backups` (14 jours) ; restauration : `sh restore.sh backups/<fichier>.dump`.
+- **Sauvegarde** de la base chaque nuit dans `deploy/backups` (14 jours, avec empreinte SHA-256) ; restauration dans une
+  nouvelle base, sans toucher à la base en service : `sh restore.sh backups/<fichier>.dump`. Procédures (restauration
+  et retour arrière, audit et répétition de la conversion des cotes, déploiement groupé, application Android,
+  protection de `main`) : [`deploy/README.md`](deploy/README.md).
 - L'API applique les migrations et charge les jeux, rangs et succès à chaque démarrage.
 - **Construction de l'image de l'API** : `prisma generate` exige `DATABASE_URL`. Le `Dockerfile` en fournit une
   factice (`postgresql://rankguess:build-only@localhost:5432/rankguess`) à l'étape de construction seulement : elle

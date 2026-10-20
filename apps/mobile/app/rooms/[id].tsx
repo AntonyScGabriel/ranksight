@@ -94,6 +94,12 @@ export default function RoomScreen() {
   return (
     <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 40 }}>
       {live.offline && <Text style={{ color: colors.warn, textAlign: "center" }}>Connexion perdue : reconnexion en cours…</Text>}
+      {live.hostNotice && (
+        <Card style={{ gap: 8, borderColor: colors.warn }} testID="host-lost">
+          <Text accessibilityRole="alert" style={{ color: colors.warn }}>{live.hostNotice}</Text>
+          <GhostButton label="J'ai compris" onPress={live.dismissHostNotice} />
+        </Card>
+      )}
       {error && <Text style={{ color: colors.danger, textAlign: "center" }}>{error}</Text>}
 
       {phase === "lobby" && <Lobby room={room} meId={me.id} act={act} />}
@@ -208,7 +214,7 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
         </Muted>
         {room.system && (
           <Text style={{ color: colors.success, textAlign: "center" }}>
-            Salon gratuit par défaut : ouvert à tous, sans VIP. Le premier joueur arrivé est l&apos;hôte ; s&apos;il part, le suivant prend le relais.
+            Salon gratuit par défaut : ouvert à tous, sans VIP. Le premier joueur arrivé est l&apos;hôte ; s&apos;il part, le suivant prend le relais. Personne ne peut y être retiré, et chacun choisit son équipe.
           </Text>
         )}
         <View style={{ alignSelf: "stretch" }}>
@@ -234,7 +240,7 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
                 <View key={p.id} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                   <Avatar name={p.displayName} url={p.avatarUrl} size={28} frame={p.flair.frame} />
                   <PlayerName p={p} meId={meId} />
-                  {room.isHost && p.id !== meId && (
+                  {room.isHost && !room.system && p.id !== meId && (
                     <Pressable onPress={() => act(() => api.setRoomTeam(room.id, t === 1 ? 2 : 1, p.id))} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Changer ${p.displayName} d'équipe`}>
                       <Text style={{ color: colors.muted }}>⇄</Text>
                     </Pressable>
@@ -250,7 +256,7 @@ function Lobby({ room, meId, act }: { room: RoomDto; meId: string; act: (a: () =
           <View key={p.id} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
             <Avatar name={p.displayName} url={p.avatarUrl} size={34} frame={p.flair.frame} />
             <PlayerName p={p} meId={meId} />
-            {room.isHost && p.id !== meId && (
+            {room.isHost && !room.system && p.id !== meId && (
               <Pressable onPress={() => void kick(p)} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Retirer ${p.displayName}`}>
                 <Text style={{ color: colors.muted, fontSize: 13 }}>Retirer</Text>
               </Pressable>

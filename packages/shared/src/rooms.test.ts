@@ -79,3 +79,62 @@ test("mort subite : 3 finalistes au plus, choisis par rangs exacts, vitesse puis
   // Déterministe : l'ordre d'entrée ne change rien
   assert.deepEqual(pickFinalists([...players].reverse()), pickFinalists(players));
 });
+
+test("clips nécessaires : un par manche, deux en mode Intrus", async () => {
+  const { roomClipsNeeded, modeSettings, ROOM_DEFAULT_ROUNDS } = await import("./rooms.js");
+  assert.equal(roomClipsNeeded({ rounds: ROOM_DEFAULT_ROUNDS, ...modeSettings("CLASSIC") }), ROOM_DEFAULT_ROUNDS);
+  assert.equal(roomClipsNeeded({ rounds: 5, ...modeSettings("TEAMS_3") }), 5);
+  assert.equal(roomClipsNeeded({ rounds: 5, ...modeSettings("IMPOSTOR") }), 10);
+});
+
+test("salons par défaut : rotation des jeux, jeux sans assez de clips passés", async () => {
+  const { nextSystemGame } = await import("./rooms.js");
+  const games = ["lol", "valorant", "rocket-league", "cs2"];
+  const all = new Set(games);
+  // Premier salon : décalé d'un jeu par emplacement
+  assert.equal(nextSystemGame(games, all, null, 1), "lol");
+  assert.equal(nextSystemGame(games, all, null, 2), "valorant");
+  // Rotation : le jeu suivant celui du dernier salon, en boucle
+  assert.equal(nextSystemGame(games, all, "lol", 1), "valorant");
+  assert.equal(nextSystemGame(games, all, "cs2", 1), "lol");
+  // Jeu sans assez de clips : passé
+  assert.equal(nextSystemGame(games, new Set(["lol", "cs2"]), "lol", 1), "cs2");
+  // L'autre salon du même mode propose déjà ce jeu : le suivant, s'il y en a un
+  assert.equal(nextSystemGame(games, all, "lol", 1, ["valorant"]), "rocket-league");
+  assert.equal(nextSystemGame(games, new Set(["valorant"]), "lol", 1, ["valorant"]), "valorant", "seul jeu jouable : proposé quand même");
+  // Dernier jeu retiré ou désactivé : rotation reprise comme au premier salon
+  assert.equal(nextSystemGame(games, all, "fortnite", 2), "valorant");
+  // Aucun jeu jouable : pas de salon
+  assert.equal(nextSystemGame(games, new Set(), "lol", 1), null);
+  assert.equal(nextSystemGame([], all, null, 1), null);
+  // Les quatre jeux sont proposés tour à tour
+  const seen: (string | null)[] = [];
+  let last: string | null = null;
+  for (let i = 0; i < 4; i++) seen.push((last = nextSystemGame(games, all, last, 1)));
+  assert.deepEqual([...seen].sort(), [...games].sort());
+});
+
+test("hôte perdu pendant une absence : message seulement si un autre joueur a vraiment pris le relais", async () => {
+  const { hostLostNotice, ROOM_HOST_AWAY_SEC } = await import("./rooms.js");
+  const me = { id: "me", displayName: "Moi", isHost: true, left: false };
+  const bob = { id: "bob", displayName: "Bob", isHost: false, left: false };
+  const lobby = (isHost: boolean, players: (typeof me)[], extra: Partial<{ status: "LOBBY" | "ACTIVE" | "FINISHED" | "CLOSED"; left: boolean; id: string }> = {}) =>
+    ({ id: "r1", status: "LOBBY" as const, isHost, left: false, players, ...extra });
+  const before = lobby(true, [me, bob]);
+  const moved = lobby(false, [{ ...me, isHost: false }, { ...bob, isHost: true }]);
+  const msg = hostLostNotice(before, moved, "me");
+  assert.ok(msg && msg.includes("Bob") && msg.includes(`${ROOM_HOST_AWAY_SEC} secondes`), String(msg));
+  // Coupure courte : toujours hôte côté serveur → aucun message
+  assert.equal(hostLostNotice(before, before, "me"), null);
+  // Premier chargement (aucun état connu), ou n'était pas hôte
+  assert.equal(hostLostNotice(null, moved, "me"), null);
+  assert.equal(hostLostNotice(lobby(false, [me, bob]), moved, "me"), null);
+  // Partie lancée ou terminée entre-temps, autre salon, joueur sorti
+  assert.equal(hostLostNotice(before, { ...moved, status: "ACTIVE" }, "me"), null);
+  assert.equal(hostLostNotice({ ...before, status: "ACTIVE" }, moved, "me"), null);
+  assert.equal(hostLostNotice(before, { ...moved, id: "r2" }, "me"), null);
+  assert.equal(hostLostNotice(before, { ...moved, left: true }, "me"), null);
+  assert.equal(hostLostNotice(before, lobby(false, [{ ...bob, isHost: true }]), "me"), null, "plus dans la liste des joueurs");
+  // Personne d'autre n'est hôte (salon par défaut sans hôte) : rien à annoncer
+  assert.equal(hostLostNotice(before, lobby(false, [{ ...me, isHost: false }, bob]), "me"), null);
+});

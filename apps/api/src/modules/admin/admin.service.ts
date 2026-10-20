@@ -18,7 +18,7 @@ import type { ClipStatus, Prisma, ReportStatus } from "../../generated/prisma/cl
 import type {
   AchievementBody, CreateClipBody, ResolveReportBody, ReviewClipBody, ScheduleDailyBody, UpdateUserBody,
 } from "./admin.dto.js";
-import { DAILY_PER_GAME, pseudoKey } from "@ranksight/shared";
+import { DAILY_PER_GAME, ROOM_DEFAULT_ROUNDS, ROOM_MODES, modeSettings, pseudoKey, roomClipsNeeded } from "@ranksight/shared";
 
 const PAGE = 25;
 const paginate = (page: number) => ({ take: PAGE, skip: (Math.max(page, 1) - 1) * PAGE });
@@ -49,11 +49,13 @@ export class AdminService {
       this.prisma.clip.groupBy({ by: ["status"], where: { deletedAt: null }, _count: true }),
       this.prisma.report.count({ where: { status: "OPEN" } }),
       this.prisma.subscription.count({ where: { status: { in: ["ACTIVE", "TRIALING"] }, currentPeriodEnd: { gt: new Date() } } }),
-      this.prisma.$queryRaw<{ slug: string; guesses: bigint; avg_distance: number }[]>`
-        SELECT g.slug, COUNT(gu.id) AS guesses, COALESCE(AVG(gu.distance), 0)::float AS avg_distance
+      this.prisma.$queryRaw<{ slug: string; name: string; guesses: bigint; avg_distance: number; approved_clips: bigint; system_lobbies: bigint }[]>`
+        SELECT g.slug, g.name, COUNT(gu.id) AS guesses, COALESCE(AVG(gu.distance), 0)::float AS avg_distance,
+          (SELECT COUNT(*) FROM clips a WHERE a.game_id = g.id AND a.status = 'APPROVED' AND a.deleted_at IS NULL) AS approved_clips,
+          (SELECT COUNT(*) FROM rooms r WHERE r.game_id = g.id AND r.status = 'LOBBY' AND r.system_slot IS NOT NULL) AS system_lobbies
         FROM games g LEFT JOIN clips c ON c.game_id = g.id LEFT JOIN guesses gu ON gu.clip_id = c.id
         WHERE g.is_active
-        GROUP BY g.slug, g.sort_order ORDER BY g.sort_order`,
+        GROUP BY g.id, g.slug, g.name, g.sort_order ORDER BY g.sort_order`,
       this.prisma.clip.count({ where: { status: "PENDING_REVIEW", deletedAt: null, triageDecision: { not: null } } }),
       this.prisma.suggestion.count({ where: { status: "NEW" } }),
     ]);
@@ -65,7 +67,20 @@ export class AdminService {
       triaged,
       /** Suggestions de joueurs pas encore traitées */
       newSuggestions,
-      games: games.map((g) => ({ ...g, guesses: Number(g.guesses) })),
+      /**
+       * Par jeu : clips acceptés disponibles, modes dont les salons gratuits par défaut peuvent se jouer sur ce jeu (assez
+       * de clips pour une partie aux réglages par défaut), salles d'attente par défaut ouvertes sur ce jeu
+       */
+      games: games.map(({ approved_clips, system_lobbies, ...g }) => {
+        const approvedClips = Number(approved_clips);
+        return {
+          ...g,
+          guesses: Number(g.guesses),
+          approvedClips,
+          playableModes: ROOM_MODES.filter((m) => approvedClips >= roomClipsNeeded({ rounds: ROOM_DEFAULT_ROUNDS, ...modeSettings(m) })),
+          systemLobbies: Number(system_lobbies),
+        };
+      }),
     };
   }
 

@@ -36,6 +36,8 @@ interface ChatValue {
   roomInvites: number;
   /** Un tournoi du joueur a changé (inscription, match prêt, résultat) */
   onTournament: (fn: Listener<{ id: string }>) => () => void;
+  /** Connexion temps réel (re)établie, après une coupure par exemple : l'écran relit son état sur le serveur */
+  onConnect: (fn: () => void) => () => void;
 }
 
 type GlobalHandlers = Parameters<ChatValue["joinGlobal"]>[0];
@@ -43,7 +45,7 @@ type GlobalHandlers = Parameters<ChatValue["joinGlobal"]>[0];
 const noop = () => () => {};
 const ChatContext = createContext<ChatValue>({
   unread: 0, refreshUnread: () => {}, onMessage: noop, onTyping: noop, sendTyping: () => {}, joinGlobal: noop, onVersus: noop, versusPending: 0,
-  onRoom: noop, roomInvites: 0, onTournament: noop,
+  onRoom: noop, roomInvites: 0, onTournament: noop, onConnect: noop,
 });
 
 /**
@@ -84,6 +86,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const roomListeners = useRef(new Set<Listener<{ id: string }>>());
+  const connectListeners = useRef(new Set<() => void>());
   const tournamentListeners = useRef(new Set<Listener<{ id: string }>>());
   const [roomInvites, setRoomInvites] = useState(0);
   // Invitation dans un salon : bandeau « Voir le salon » sur toutes les pages
@@ -138,6 +141,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     // (Re)connexion : on rejoint le salon global si l'écran du chat est ouvert
     s.on("connect", () => {
       if (globalHandlers.current.size) s.emit(GLOBAL_CHAT_EVENTS.join);
+      connectListeners.current.forEach((fn) => fn());
     });
     socketRef.current = s;
     return () => {
@@ -171,6 +175,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  const onConnect = useCallback((fn: () => void) => {
+    connectListeners.current.add(fn);
+    return () => {
+      connectListeners.current.delete(fn);
+    };
+  }, []);
+
   const onRoom = useCallback((fn: Listener<{ id: string }>) => {
     roomListeners.current.add(fn);
     return () => {
@@ -195,7 +206,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <ChatContext.Provider value={{ unread: me ? unread : 0, refreshUnread, onMessage, onTyping, sendTyping, joinGlobal, onVersus, versusPending: me ? versusPending : 0, onRoom, roomInvites: me ? roomInvites : 0, onTournament }}>
+    <ChatContext.Provider value={{ unread: me ? unread : 0, refreshUnread, onMessage, onTyping, sendTyping, joinGlobal, onVersus, versusPending: me ? versusPending : 0, onRoom, roomInvites: me ? roomInvites : 0, onTournament, onConnect }}>
       {children}
       {invite && (
         <div role="alert" className="glass animate-rise fixed bottom-20 left-4 right-4 z-50 flex items-center gap-3 p-4 shadow-2xl sm:left-auto sm:max-w-sm md:bottom-6">

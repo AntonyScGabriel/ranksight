@@ -15,6 +15,8 @@ export default tseslint.config(
       "apps/api/src/generated/**",
       "**/next-env.d.ts",
       "**/expo-env.d.ts",
+      "**/playwright-report/**",
+      "**/test-results/**",
     ],
   },
   js.configs.recommended,
@@ -27,7 +29,7 @@ export default tseslint.config(
   },
   // API, scripts et package partagé : environnement Node
   {
-    files: ["apps/api/**/*.ts", "packages/**/*.ts", "scripts/**/*.mjs", "**/*.config.{ts,mjs,js}"],
+    files: ["apps/api/**/*.ts", "packages/**/*.ts", "scripts/**/*.mjs", "**/*.config.{ts,mjs,js}", "apps/web/e2e/**/*.ts"],
     languageOptions: { globals: globals.node },
   },
   // NestJS : l'injection de dépendances lit les types des constructeurs à l'exécution,

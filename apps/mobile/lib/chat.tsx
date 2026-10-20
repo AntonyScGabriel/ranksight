@@ -39,11 +39,13 @@ interface ChatValue {
   dismissRoomInvite: () => void;
   /** Tournois : un tournoi du joueur a changé (inscription, match prêt, résultat) */
   onTournament: (fn: (e: { id: string }) => void) => () => void;
+  /** Connexion temps réel (re)établie, après une coupure réseau par exemple : l'écran relit son état sur le serveur */
+  onConnect: (fn: () => void) => () => void;
 }
 
 const ChatContext = createContext<ChatValue>({
   unread: 0, refreshUnread: () => {}, onMessage: () => () => {}, joinGlobal: () => () => {}, socket: null, onVersus: () => () => {}, versusPending: 0, invite: null, dismissInvite: () => {},
-  onRoom: () => () => {}, roomInvites: 0, roomInvite: null, dismissRoomInvite: () => {}, onTournament: () => () => {},
+  onRoom: () => () => {}, roomInvites: 0, roomInvite: null, dismissRoomInvite: () => {}, onTournament: () => () => {}, onConnect: () => () => {},
 });
 
 /**
@@ -63,6 +65,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const seenInvites = useRef(new Set<string>());
 
   const roomListeners = useRef(new Set<(e: { id: string }) => void>());
+  const connectListeners = useRef(new Set<() => void>());
   const tournamentListeners = useRef(new Set<(e: { id: string }) => void>());
   const [roomInvites, setRoomInvites] = useState(0);
   const [roomInvite, setRoomInvite] = useState<RoomInviteDto | null>(null);
@@ -122,6 +125,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     s.on(GLOBAL_CHAT_EVENTS.settings, (p: { slowModeSec: number }) => globalHandlers.current.forEach((h) => h.onSettings?.(p)));
     s.on("connect", () => {
       if (globalHandlers.current.size) s.emit(GLOBAL_CHAT_EVENTS.join);
+      connectListeners.current.forEach((fn) => fn());
     });
     socketRef.current = s;
     setSocket(s);
@@ -162,6 +166,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  const onConnect = useCallback((fn: () => void) => {
+    connectListeners.current.add(fn);
+    return () => {
+      connectListeners.current.delete(fn);
+    };
+  }, []);
+
   const onRoom = useCallback((fn: (e: { id: string }) => void) => {
     roomListeners.current.add(fn);
     return () => {
@@ -181,7 +192,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       value={{ unread: me ? unread : 0, refreshUnread, onMessage, joinGlobal, socket, onVersus, versusPending: me ? versusPending : 0,
         invite: me ? invite : null, dismissInvite: () => setInvite(null),
         onRoom, roomInvites: me ? roomInvites : 0, roomInvite: me ? roomInvite : null, dismissRoomInvite: () => setRoomInvite(null),
-        onTournament,
+        onTournament, onConnect,
       }}
     >{children}</ChatContext.Provider>
   );

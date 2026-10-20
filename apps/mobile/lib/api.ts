@@ -1,3 +1,4 @@
+import Constants from "expo-constants";
 import * as SecureStore from "expo-secure-store";
 import { FileSystemUploadType, getInfoAsync, uploadAsync } from "expo-file-system/legacy";
 import {
@@ -60,6 +61,12 @@ import {
 } from "@ranksight/shared";
 
 export const API = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:4000/v1";
+/**
+ * Version de l'application (champ `version` de app.json, intégrée au build), envoyée à l'API dans l'en-tête
+ * `X-App-Version` : elle permet de repérer les anciennes versions encore utilisées. L'API ne refuse aucune version.
+ */
+export const APP_VERSION = Constants.expoConfig?.version ?? "0.0.0";
+const VERSION_HEADER = { "X-App-Version": APP_VERSION };
 /** Site web (pages légales, contact) */
 export const WEB_URL = (process.env.EXPO_PUBLIC_WEB_URL ?? "http://localhost:3000").replace(/\/+$/, "");
 /** Administration (équipe) : ouverte dans le navigateur depuis le profil */
@@ -128,7 +135,7 @@ async function refresh(): Promise<boolean> {
     if (!r) return false;
     const res = await fetch(`${API}/auth/refresh`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...VERSION_HEADER },
       body: JSON.stringify({ refreshToken: r, client: "mobile" }),
     }).catch(() => null);
     if (!res?.ok) {
@@ -150,7 +157,7 @@ export async function request<T>(path: string, init: RequestInit = {}, retry = t
   try {
     res = await fetch(`${API}${path}`, {
       ...init,
-      headers: { "Content-Type": "application/json", ...(access ? { Authorization: `Bearer ${access}` } : {}), ...init.headers },
+      headers: { "Content-Type": "application/json", ...VERSION_HEADER, ...(access ? { Authorization: `Bearer ${access}` } : {}), ...init.headers },
     });
   } catch {
     throw new ApiError(0, "NETWORK", "Connexion au serveur impossible. Vérifie ta connexion internet.");
@@ -188,7 +195,7 @@ export const api = {
   forgotPassword: (email: string) => authPost("/auth/password/forgot", { email }),
   logout: async () => {
     const [, r] = await tokens.get();
-    await fetch(`${API}/auth/logout`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refreshToken: r }) }).catch(() => undefined);
+    await fetch(`${API}/auth/logout`, { method: "POST", headers: { "Content-Type": "application/json", ...VERSION_HEADER }, body: JSON.stringify({ refreshToken: r }) }).catch(() => undefined);
     await tokens.clear();
   },
   me: () => request<Me>("/users/me"),
@@ -373,7 +380,8 @@ async function sendFile<T>(url: string, fileUri: string, contentType: string, au
     res = await uploadAsync(url, fileUri, {
       httpMethod: "PUT",
       uploadType: FileSystemUploadType.BINARY_CONTENT,
-      headers: { "Content-Type": contentType, ...(access ? { Authorization: `Bearer ${access}` } : {}) },
+      // Vers l'API seulement : une URL signée de stockage n'accepte que les en-têtes prévus à la signature
+      headers: { "Content-Type": contentType, ...(auth ? VERSION_HEADER : {}), ...(access ? { Authorization: `Bearer ${access}` } : {}) },
     });
   } catch {
     throw new ApiError(0, "NETWORK", "L'envoi a été interrompu. Vérifie ta connexion internet et réessaie.");

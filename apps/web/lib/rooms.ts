@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { RoomDto } from "@ranksight/shared";
+import { hostLostNotice, type RoomDto } from "@ranksight/shared";
 import type { LiveClip } from "@/components/LiveRound";
 import { api, ApiError } from "./api";
 import { useChat } from "./chat";
+import { useSession } from "./session";
 
 export type RoomPhase = "lobby" | "countdown" | "playing" | "answered" | "timeout" | "spectating" | "voting" | "left" | "over";
 
@@ -13,7 +14,8 @@ export type RoomPhase = "lobby" | "countdown" | "playing" | "answered" | "timeou
  * récupération du clip au début de chaque manche et rechargement automatique après une coupure de connexion.
  */
 export function useLiveRoom(id: string, enabled: boolean) {
-  const { onRoom } = useChat();
+  const { onRoom, onConnect } = useChat();
+  const { me } = useSession();
   const [room, setRoom] = useState<RoomDto | null>(null);
   const [missing, setMissing] = useState(false);
   const [offline, setOffline] = useState(false);
@@ -23,11 +25,23 @@ export function useLiveRoom(id: string, enabled: boolean) {
   const offset = useRef(0);
   const fetching = useRef(0);
 
+  // Rôle d'hôte perdu pendant une absence de plus de 30 s : message au retour (jamais pour une coupure plus courte,
+  // le serveur ne transférant pas le rôle avant ce délai)
+  const [hostNotice, setHostNotice] = useState<string | null>(null);
+  const previous = useRef<RoomDto | null>(null);
+  const meId = me?.id;
+
   const apply = useCallback((r: RoomDto) => {
     if (r.live) offset.current = new Date(r.live.serverNow).getTime() - Date.now();
     setOffline(false);
+    if (meId) {
+      const notice = hostLostNotice(previous.current, r, meId);
+      if (notice) setHostNotice(notice);
+      else if (r.isHost || r.status !== "LOBBY") setHostNotice(null);
+    }
+    previous.current = r;
     setRoom(r);
-  }, []);
+  }, [meId]);
 
   const load = useCallback(() => {
     api.room(id).then(apply, (e) => {
@@ -44,12 +58,14 @@ export function useLiveRoom(id: string, enabled: boolean) {
     document.addEventListener("visibilitychange", refresh);
     window.addEventListener("online", load);
     const off = onRoom((e) => e.id === id && load());
+    const offConnect = onConnect(load);
     return () => {
       off();
+      offConnect();
       document.removeEventListener("visibilitychange", refresh);
       window.removeEventListener("online", load);
     };
-  }, [enabled, id, load, onRoom]);
+  }, [enabled, id, load, onRoom, onConnect]);
 
   useEffect(() => {
     const t = window.setInterval(() => setNow(Date.now() + offset.current), 250);
@@ -88,6 +104,7 @@ export function useLiveRoom(id: string, enabled: boolean) {
 
   return {
     room, missing, offline, phase, load, apply,
+    hostNotice, dismissHostNotice: () => setHostNotice(null),
     clip: clip && clip.position === round ? clip : null,
     secondsLeft: Math.max(0, Math.ceil(((phase === "countdown" ? startsAt : endsAt) - now) / 1000)),
     roundProgress: live ? Math.min(1, Math.max(0, (endsAt - now) / (endsAt - startsAt))) : 0,

@@ -35,9 +35,68 @@ jobs:
           cd apps/api
           npx tsx --env-file=../../.env prisma/seed.ts
           node --env-file=../../.env dist/main.js > api.log 2>&1 &
+          api=$!
           for i in $(seq 1 60); do curl -sf http://localhost:4000/v1/games > /dev/null && break; sleep 1; done
-          npm run test:integration || { tail -50 api.log; exit 1; }
+          npm run test:integration || { tail -50 api.log; kill $api; exit 1; }
+          # Arrêtée ici : ses tâches périodiques écriraient sinon dans la base source du test de restauration
+          kill $api
+      # Scripts du serveur (deploy/) sur des bases jetables, avec les outils du conteneur PostgreSQL 17 (comme sur le
+      # serveur) : sauvegarde puis restauration dans une nouvelle base, bascule et retour arrière, API redémarrée sur
+      # la base restaurée ; répétition de la conversion des cotes et requêtes d'audit en lecture seule.
+      - name: Restauration et répétition de la conversion des cotes
+        env:
+          PGHOST: localhost
+          PGUSER: ranksight
+          PGPASSWORD: ranksight
+          PG_EXEC: docker exec -i ${{ job.services.postgres.id }}
+        run: |
+          SOURCE_DB=ranksight RESTORE_TEST_MIGRATE=1 sh deploy/tests/restore-test.sh
+          sh deploy/tests/elo-rehearsal-test.sh
       # Code exécuté sur les serveurs (API, site, administration). Les dépendances de l'application mobile
       # sont surtout l'outillage de build Expo/Metro, suivi à chaque montée de version du SDK Expo.
       - name: Audit des dépendances
         run: npm audit --audit-level=high --omit=dev --workspace @ranksight/api --workspace @ranksight/web --workspace @ranksight/admin --workspace @ranksight/shared
+
+  # Tests d'interface du site (Playwright, Chromium) : parcours Duels, Salons, VIP, joueurs gratuits, fin de partie,
+  # transfert d'hôte. Site (next start) et API démarrés sur la base de la CI.
+  e2e-web:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env: { POSTGRES_USER: ranksight, POSTGRES_PASSWORD: ranksight, POSTGRES_DB: ranksight }
+        ports: ["5432:5432"]
+        options: --health-cmd pg_isready --health-interval 5s
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: cp .env.example .env
+      - run: npm run prisma:migrate -w @ranksight/api
+      - run: npm run build
+      - name: Navigateur Chromium
+        working-directory: apps/web
+        run: npx playwright install --with-deps chromium
+      - name: Tests d'interface
+        run: |
+          cd apps/api
+          npx tsx --env-file=../../.env prisma/seed.ts
+          node --env-file=../../.env dist/main.js > api.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://localhost:4000/v1/games > /dev/null && break; sleep 1; done
+          cd ../web
+          npx next start --port 3000 > web.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://localhost:3000/ > /dev/null && break; sleep 1; done
+          npm run test:e2e || { tail -50 ../api/api.log; tail -30 web.log; exit 1; }
+      - name: Rapport des tests d'interface
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+          retention-days: 7

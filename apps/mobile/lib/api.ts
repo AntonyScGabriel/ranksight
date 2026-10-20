@@ -61,6 +61,8 @@ import {
   type HigherLowerChoice,
   type HigherLowerOverviewDto,
   type HigherLowerRunDto,
+  type ChangePasswordInput,
+  type SessionDto,
 } from "@ranksight/shared";
 
 export const API = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:4000/v1";
@@ -203,7 +205,10 @@ export const api = {
   },
   me: () => request<Me>("/users/me"),
   resendVerification: () => post<{ sent: boolean }>("/auth/email/resend"),
-  changeEmail: (email: string, password: string) => post<{ sent: boolean }>("/auth/email/change", { email, password }),
+  changeEmail: (email: string, password: string) => post<{ sent: boolean; pending?: boolean }>("/auth/email/change", { email, password }),
+  changePassword: (body: ChangePasswordInput) => post<void>("/auth/password/change", body),
+  sessions: () => request<SessionDto[]>("/auth/sessions"),
+  revokeSession: (id: string) => del(`/auth/sessions/${id}`),
   acceptTerms: () => post<void>("/users/me/terms", { accept: true }),
   logoutAll: async () => {
     await post<void>("/auth/logout-all").catch(() => undefined);

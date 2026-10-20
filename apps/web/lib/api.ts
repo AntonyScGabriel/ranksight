@@ -61,6 +61,8 @@ import {
   type RatingScope,
   type RatingSeasonsDto,
   type SeasonArchiveDto,
+  type ChangePasswordInput,
+  type SessionDto,
 } from "@ranksight/shared";
 
 export const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/v1";
@@ -163,7 +165,10 @@ export const api = {
     authPost("/auth/password/reset", { token, password, passwordConfirm }),
   verifyEmail: (token: string) => post<void>("/auth/email/verify", { token }),
   resendVerification: () => post<{ sent: boolean }>("/auth/email/resend"),
-  changeEmail: (email: string, password: string) => post<{ sent: boolean }>("/auth/email/change", { email, password }),
+  changeEmail: (email: string, password: string) => post<{ sent: boolean; pending?: boolean }>("/auth/email/change", { email, password }),
+  changePassword: (body: ChangePasswordInput) => post<void>("/auth/password/change", body),
+  sessions: () => request<SessionDto[]>("/auth/sessions"),
+  revokeSession: (id: string) => del(`/auth/sessions/${id}`),
   acceptTerms: () => post<void>("/users/me/terms", { accept: true }),
   logoutAll: () => post<void>("/auth/logout-all"),
   blocks: () => request<{ id: string; displayName: string; avatarUrl: string | null; blockedAt: string }[]>("/users/me/blocks"),

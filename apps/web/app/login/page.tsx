@@ -57,6 +57,9 @@ function Login() {
         <div className="text-right">
           <Link href="/forgot-password" className="text-sm text-violet-soft hover:underline">Mot de passe oublié ?</Link>
         </div>
+        {params.get("motdepasse") === "1" && !error && (
+          <p role="status" className="rounded-lg bg-success/10 p-3 text-sm text-success">Mot de passe modifié : reconnecte-toi avec le nouveau.</p>
+        )}
         <FormError message={error} />
         <button disabled={pending} className="btn-primary w-full">{pending ? "Connexion…" : "Se connecter"}</button>
       </form>

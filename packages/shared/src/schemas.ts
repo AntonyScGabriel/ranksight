@@ -629,6 +629,35 @@ export const ResetPasswordInput = z
   .refine((v) => v.password === v.passwordConfirm, { path: ["passwordConfirm"], message: "Les mots de passe ne correspondent pas." });
 export type ResetPasswordInput = z.infer<typeof ResetPasswordInput>;
 
+/** Changement du mot de passe depuis le profil : l'actuel est demandé */
+export const ChangePasswordInput = z
+  .object({ currentPassword: z.string().min(1, "Mot de passe actuel requis.").max(128), password: Password, passwordConfirm: z.string() })
+  .refine((v) => v.password === v.passwordConfirm, { path: ["passwordConfirm"], message: "Les mots de passe ne correspondent pas." })
+  .refine((v) => v.password !== v.currentPassword, { path: ["password"], message: "Le nouveau mot de passe doit être différent de l'actuel." });
+export type ChangePasswordInput = z.infer<typeof ChangePasswordInput>;
+
+/** Appareil connecté au compte (une session : navigateur ou application), pour « Mes appareils » dans le profil */
+export interface SessionDto {
+  id: string;
+  /** « Chrome sur Windows », « Application RankGuess 0.3.0 (Android) »… */
+  device: string;
+  /** Première connexion de cet appareil */
+  createdAt: string;
+  /** Dernière activité connue (la session est renouvelée toutes les 15 minutes environ quand elle sert) */
+  lastActiveAt: string;
+  current: boolean;
+}
+
+/** Nom lisible d'un appareil d'après son User-Agent */
+export function describeUserAgent(ua: string | null | undefined): string {
+  if (!ua) return "Appareil inconnu";
+  const app = /RankGuess\/(\d+(?:\.\d+)*)/.exec(ua);
+  const os = /Android/i.test(ua) ? "Android" : /iPhone|iPad|iOS/i.test(ua) ? "iPhone" : /Windows/i.test(ua) ? "Windows" : /Mac OS X|Macintosh/i.test(ua) ? "Mac" : /Linux/i.test(ua) ? "Linux" : null;
+  if (app) return `Application RankGuess ${app[1]}${os ? ` (${os})` : ""}`;
+  const browser = /Edg\//.test(ua) ? "Edge" : /OPR\/|Opera/.test(ua) ? "Opera" : /Firefox\//.test(ua) ? "Firefox" : /Chrome\//.test(ua) ? "Chrome" : /Safari\//.test(ua) ? "Safari" : "Navigateur";
+  return os ? `${browser} sur ${os}` : browser;
+}
+
 /** Première erreur lisible d'une validation Zod (affichage dans les formulaires). */
 export function firstIssue(error: z.ZodError): string {
   return error.issues[0]?.message ?? "Données invalides.";

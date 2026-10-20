@@ -432,6 +432,17 @@ export class AdminService {
   }
 
   /** Confirmation de l'adresse email par un administrateur (email jamais reçu), journalisée. */
+  /** Le compte existe et l'auteur a autorité sur lui (rôle supérieur) */
+  async assertManageable(actorId: string, id: string) {
+    await assertCanManage(this.prisma, actorId, id);
+    const target = await this.prisma.user.findUnique({ where: { id }, select: { status: true } });
+    if (!target || target.status === "DELETED") throw new NotFoundException("Compte introuvable.");
+  }
+
+  async logAction(actorId: string, action: string, userId: string) {
+    await this.audit.log(actorId, action, "user", userId, {}, { targetUserId: userId });
+  }
+
   async verifyEmail(actorId: string, id: string) {
     await assertCanManage(this.prisma, actorId, id);
     const target = await this.prisma.user.findUnique({ where: { id }, select: { status: true, email: true, emailVerifiedAt: true } });

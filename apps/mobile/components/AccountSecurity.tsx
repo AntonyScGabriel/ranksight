@@ -6,6 +6,8 @@ import { useConfirm } from "@/lib/confirm";
 import { useSession } from "@/lib/session";
 import { colors } from "@/lib/theme";
 import { errorMessage } from "./AuthUi";
+import { AccountCredentials } from "./AccountCredentials";
+import { AccountDevices } from "./AccountDevices";
 import { WebLink } from "./Checkbox";
 import { Avatar, Card, GhostButton, Hud } from "./ui";
 
@@ -63,6 +65,7 @@ export function AccountSecurity({ me }: { me: Me }) {
             )}
           </View>
         )}
+        <AccountCredentials />
         {me.chatMutedUntil && (
           <Text style={{ color: colors.danger, fontSize: 13 }}>
             L&apos;équipe a suspendu ton accès au chat jusqu&apos;au {new Date(me.chatMutedUntil).toLocaleString("fr-FR")}.
@@ -82,6 +85,7 @@ export function AccountSecurity({ me }: { me: Me }) {
         ) : (
           <Text style={{ color: colors.muted, fontSize: 12 }}>Aucun. Tu peux bloquer un joueur depuis son profil.</Text>
         )}
+        <AccountDevices />
         <GhostButton label="Se déconnecter de tous les appareils" onPress={logoutAll} />
         {notice && <Text style={{ color: notice.ok ? colors.success : colors.danger, fontSize: 13 }}>{notice.text}</Text>}
       </Card>

@@ -36,5 +36,5 @@ COPY --from=build --chown=node:node /repo/apps/admin/.next/standalone ./
 COPY --from=build --chown=node:node /repo/apps/admin/.next/static ./apps/admin/.next/static
 USER node
 EXPOSE 3001
-HEALTHCHECK --interval=30s --timeout=5s --start-period=30s CMD wget -qO- http://localhost:3001/ >/dev/null || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s CMD wget -qO- http://127.0.0.1:3001/ >/dev/null || exit 1
 CMD ["node", "apps/admin/server.js"]

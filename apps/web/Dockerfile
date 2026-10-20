@@ -9,6 +9,8 @@ COPY apps/web/package.json apps/web/
 RUN npm ci --workspace @ranksight/web --workspace @ranksight/shared --include-workspace-root
 COPY packages/shared packages/shared
 COPY apps/web apps/web
+# Garde-fou partagé avec les tests d'intégration, importé par les tests d'interface (vérifiés par next build)
+COPY apps/api/test/integration/guard.mjs apps/api/test/integration/guard.d.mts apps/api/test/integration/
 ARG API_PUBLIC_URL
 ARG WEB_URL
 ARG ADMIN_URL
@@ -37,5 +39,5 @@ COPY --from=build --chown=node:node /repo/apps/web/.next/static ./apps/web/.next
 COPY --from=build --chown=node:node /repo/apps/web/public ./apps/web/public
 USER node
 EXPOSE 3000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=30s CMD wget -qO- http://localhost:3000/ >/dev/null || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s CMD wget -qO- http://127.0.0.1:3000/ >/dev/null || exit 1
 CMD ["node", "apps/web/server.js"]

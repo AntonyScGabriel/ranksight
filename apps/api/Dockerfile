@@ -31,6 +31,6 @@ WORKDIR /repo/apps/api
 RUN mkdir -p storage && chown node:node storage
 USER node
 EXPOSE 4000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=60s CMD wget -qO- http://localhost:4000/health || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s CMD wget -qO- http://127.0.0.1:4000/health || exit 1
 # Migrations de la base, puis jeux, rangs et succès (sans effacer l'existant), puis démarrage
 CMD ["sh", "-c", "npx prisma migrate deploy && npx tsx prisma/seed.ts && node dist/main.js"]

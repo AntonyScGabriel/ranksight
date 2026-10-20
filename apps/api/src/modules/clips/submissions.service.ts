@@ -7,9 +7,11 @@ import { ModerationService } from "../moderation/moderation.service.js";
 import { ClipProcessingService } from "./clip-processing.service.js";
 import { ClipRemovalService } from "./clip-removal.service.js";
 import { clipLinkUrl, clipVideo } from "./clip-video.js";
+import { canHostVipGames } from "../shop/vip.js";
 
-/** Nombre maximum de clips en attente de validation par joueur. */
-const MAX_PENDING_PER_USER = 5;
+/** Nombre maximum de clips en attente de validation par joueur (plus pour les VIP et l'administration). */
+const MAX_PENDING_PER_USER = 25;
+const MAX_PENDING_PER_VIP = 50;
 
 export function submissionStatus(status: ClipStatus): SubmissionStatus {
   if (status === "APPROVED") return "ACCEPTED";
@@ -96,9 +98,14 @@ export class SubmissionsService {
   }
 
   private async assertQuota(userId: string) {
-    const pending = await this.prisma.clip.count({ where: { uploaderId: userId, status: { in: ["PENDING_REVIEW", "PROCESSING"] }, deletedAt: null } });
-    if (pending >= MAX_PENDING_PER_USER) {
-      throw new ConflictException({ code: "TOO_MANY_PENDING", message: `Tu as déjà ${MAX_PENDING_PER_USER} clips en attente de validation.` });
+    const [pending, vip] = await Promise.all([
+      this.prisma.clip.count({ where: { uploaderId: userId, status: { in: ["PENDING_REVIEW", "PROCESSING"] }, deletedAt: null } }),
+      canHostVipGames(this.prisma, userId),
+    ]);
+    const max = vip ? MAX_PENDING_PER_VIP : MAX_PENDING_PER_USER;
+    if (pending >= max) {
+      const more = vip ? "" : ` Les VIP peuvent en avoir ${MAX_PENDING_PER_VIP}.`;
+      throw new ConflictException({ code: "TOO_MANY_PENDING", message: `Tu as déjà ${max} clips en attente de validation.${more}` });
     }
   }
 

@@ -4,7 +4,7 @@
 /* global URL */
 import assert from "node:assert/strict";
 import { after, test } from "node:test";
-import { cleanup, newUser, sql } from "./lib.mjs";
+import { cleanup, grantVip, newUser, sql } from "./lib.mjs";
 
 const uploaders = [];
 after(async () => {
@@ -71,5 +71,28 @@ test("lien Medal accepté ; autres sites, lien et fichier à la fois, ou rien : 
   ]) {
     r = await u.s.post("/clips", body);
     assert.equal(r.status, 400, JSON.stringify(body));
+  }
+});
+
+test("clips en attente : 25 au plus par joueur, 50 pour un VIP", async () => {
+  const t = await target();
+  const base = { ...t, inGamePseudo: "Joueur#EUW", durationSec: 20, ownsRights: true };
+  const fill = (userId, n) =>
+    sql(
+      `INSERT INTO clips (id, game_id, rank_id, uploader_id, source, status, storage_key, duration_sec, creator_consent, difficulty, created_at, updated_at)
+       SELECT gen_random_uuid(), $1, $2, $3, 'ADMIN', 'PENDING_REVIEW', 'clips/quota-' || gen_random_uuid() || '.mp4', 20, true, 2, now(), now() FROM generate_series(1, $4::int)`,
+      [t.gameId, t.rankId, userId, n],
+    );
+  const link = () => `https://youtu.be/${VIDEO}?t=${Math.floor(Math.random() * 40000)}`;
+  for (const [vip, max] of [[false, 25], [true, 50]]) {
+    const u = await newUser(vip ? "qv" : "qf");
+    uploaders.push(u.id);
+    if (vip) await grantVip(u.id);
+    await fill(u.id, max - 1);
+    let r = await u.s.post("/clips", { ...base, link: link() });
+    assert.equal(r.status, 201, `${max}e clip accepté : ${JSON.stringify(r.body)}`);
+    r = await u.s.post("/clips", { ...base, link: link() });
+    assert.equal(r.status, 409, JSON.stringify(r.body));
+    assert.equal(r.body.code, "TOO_MANY_PENDING");
   }
 });

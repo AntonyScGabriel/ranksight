@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ANNOUNCEMENT_TONE_LABEL, AnnouncementInput, ROOM_DEFAULT_ROUNDS, ROOM_MODES, ROOM_MODE_LABEL, modeSettings, roomClipsNeeded, type AnnouncementDto, type AnnouncementTone, type RoomMode } from "@ranksight/shared";
+import { DAILY_PER_GAME, ANNOUNCEMENT_TONE_LABEL, AnnouncementInput, ROOM_DEFAULT_ROUNDS, ROOM_MODES, ROOM_MODE_LABEL, modeSettings, roomClipsNeeded, type AnnouncementDto, type AnnouncementTone, type RoomMode } from "@ranksight/shared";
 import { API, adminFetch, session } from "@/lib/api";
 
 type Overview = {
@@ -37,6 +37,7 @@ export default function Dashboard() {
   return (
     <div className="space-y-8">
       <h1 className="font-display text-3xl font-bold">Vue d&apos;ensemble</h1>
+      <DailyAlerts games={o.games} />
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
         {kpis.map(([k, v, href]) => {
           const content = (
@@ -200,5 +201,46 @@ function AnnouncementEditor() {
         {current && <button type="button" onClick={remove} className="btn-ghost">Retirer</button>}
       </div>
     </form>
+  );
+}
+
+type DailyRow = { date: string; slot: number; game: { slug: string } };
+
+/**
+ * Défis du jour à surveiller : en rouge, un jeu sans assez de clips acceptés (ses défis ne peuvent pas tous être tirés
+ * au sort) ; en orange, les défis de demain pas encore choisis à la main (un clip sera tiré au sort, rien ne casse).
+ */
+function DailyAlerts({ games }: { games: Overview["games"] }) {
+  const [days, setDays] = useState<DailyRow[] | null>(null);
+  const [tomorrow, setTomorrow] = useState("");
+  useEffect(() => {
+    adminFetch<DailyRow[]>("/daily").then((d) => {
+      setTomorrow(new Date(Date.now() + 86_400_000).toISOString().slice(0, 10));
+      setDays(d);
+    }, () => setDays([]));
+  }, []);
+  const short = games.filter((g) => g.approvedClips < DAILY_PER_GAME);
+  const unplanned = days && tomorrow
+    ? games
+        .map((g) => ({ name: g.name, missing: DAILY_PER_GAME - days.filter((d) => d.game.slug === g.slug && d.date.slice(0, 10) === tomorrow).length }))
+        .filter((g) => g.missing > 0)
+    : [];
+  if (!short.length && !unplanned.length) return null;
+  return (
+    <div className="space-y-2" data-testid="daily-alerts">
+      {short.length > 0 && (
+        <Link href="/clips" className="block rounded-xl border border-danger/40 bg-danger/10 p-4 text-sm text-danger transition hover:border-danger">
+          <strong>Pas assez de clips acceptés pour les défis du jour</strong> :{" "}
+          {short.map((g) => `${g.name} (${g.approvedClips} sur ${DAILY_PER_GAME})`).join(", ")}. Il manquera des défis tant que des clips ne
+          sont pas acceptés.
+        </Link>
+      )}
+      {unplanned.length > 0 && (
+        <Link href="/daily" className="block rounded-xl border border-warn/40 bg-warn/10 p-4 text-sm text-warn transition hover:border-warn">
+          <strong>Défis de demain pas encore choisis</strong> : {unplanned.map((g) => `${g.name} (${g.missing})`).join(", ")}. Sans choix,
+          un clip accepté sera tiré au sort.
+        </Link>
+      )}
+    </div>
   );
 }

@@ -10,11 +10,13 @@ import { errorMessage } from "./AuthForm";
  * Le message signalé est copié côté serveur : il reste consultable même s'il est supprimé ensuite.
  */
 export function ReportButton({
-  target, globalMessageId, directMessageId, label = "Signaler", className = "",
+  target, globalMessageId, directMessageId, gameMessageId, label = "Signaler", className = "",
 }: {
   target: { id: string; name: string };
   globalMessageId?: string;
   directMessageId?: string;
+  /** Message du tchat d'un salon ou d'un tournoi */
+  gameMessageId?: string;
   label?: string;
   className?: string;
 }) {
@@ -34,7 +36,7 @@ export function ReportButton({
     if (!reason) return;
     setState({ pending: true });
     try {
-      await api.reportPlayer({ targetUserId: target.id, reason, details: details.trim() || undefined, globalMessageId, directMessageId });
+      await api.reportPlayer({ targetUserId: target.id, reason, details: details.trim() || undefined, globalMessageId, directMessageId, gameMessageId });
       setState({ done: true });
     } catch (e) {
       setState({ error: errorMessage(e, "Le signalement n'a pas pu être envoyé.") });
@@ -56,7 +58,7 @@ export function ReportButton({
             ) : (
               <>
                 <fieldset className="space-y-2">
-                  <legend className="mb-1 text-sm text-muted">{globalMessageId || directMessageId ? "Que se passe-t-il avec ce message ?" : "Que se passe-t-il ?"}</legend>
+                  <legend className="mb-1 text-sm text-muted">{globalMessageId || directMessageId || gameMessageId ? "Que se passe-t-il avec ce message ?" : "Que se passe-t-il ?"}</legend>
                   {CHAT_REPORT_REASONS.map((r) => (
                     <label key={r} className="flex items-center gap-3 rounded-lg border border-line px-3 py-2 text-sm hover:bg-surface-2">
                       <input type="radio" name="reason" checked={reason === r} onChange={() => setReason(r)} className="accent-violet" />

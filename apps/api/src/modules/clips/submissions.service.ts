@@ -1,14 +1,17 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
-import { GAME_PLATFORMS, type GameSlug, type MyClipDto, type SubmissionStatus, type SubmitClipInput, type UploadUrlInput } from "@ranksight/shared";
-import type { ClipStatus } from "../../generated/prisma/client.js";
+import { GAME_PLATFORMS, clipLinkKey, parseClipLink, type GameSlug, type MyClipDto, type SubmissionStatus, type SubmitClipInput, type UploadUrlInput } from "@ranksight/shared";
+import type { ClipLinkProvider, ClipStatus } from "../../generated/prisma/client.js";
 import { PrismaService } from "../../prisma/prisma.service.js";
 import { StorageService } from "../storage/storage.service.js";
 import { ModerationService } from "../moderation/moderation.service.js";
 import { ClipProcessingService } from "./clip-processing.service.js";
 import { ClipRemovalService } from "./clip-removal.service.js";
+import { clipLinkUrl, clipVideo } from "./clip-video.js";
+import { canHostVipGames } from "../shop/vip.js";
 
-/** Nombre maximum de clips en attente de validation par joueur. */
-const MAX_PENDING_PER_USER = 5;
+/** Nombre maximum de clips en attente de validation par joueur (plus pour les VIP et l'administration). */
+const MAX_PENDING_PER_USER = 25;
+const MAX_PENDING_PER_VIP = 50;
 
 export function submissionStatus(status: ClipStatus): SubmissionStatus {
   if (status === "APPROVED") return "ACCEPTED";
@@ -41,10 +44,17 @@ export class SubmissionsService {
     if (input.platform && !(GAME_PLATFORMS[rank.game.slug as GameSlug] ?? []).includes(input.platform)) {
       throw new BadRequestException(`Cette plateforme n'existe pas pour ${rank.game.name}.`);
     }
-    if (!(await this.storage.exists(input.storageKey))) {
+    // Lien YouTube / Medal : rien à recevoir ni à compresser, la vidéo reste chez le fournisseur
+    const link = input.link ? parseClipLink(input.link) : null;
+    if (input.link && !link) throw new BadRequestException("Seuls les liens YouTube et Medal sont acceptés.");
+    const startSec = link?.provider === "YOUTUBE" ? (input.startSec ?? link.startSec ?? 0) : 0;
+    const storageKey = link ? clipLinkKey(link.provider, link.videoId, startSec) : input.storageKey!;
+    if (!link && !(await this.storage.exists(storageKey))) {
       throw new BadRequestException("La vidéo n'a pas été reçue. Réessaie l'envoi.");
     }
-    if (await this.prisma.clip.findUnique({ where: { storageKey: input.storageKey } })) throw new ConflictException("Cette vidéo a déjà été proposée.");
+    if (await this.prisma.clip.findUnique({ where: { storageKey } })) {
+      throw new ConflictException(link ? "Ce passage de cette vidéo a déjà été proposé." : "Cette vidéo a déjà été proposée.");
+    }
 
     const clip = await this.prisma.clip.create({
       data: {
@@ -53,7 +63,8 @@ export class SubmissionsService {
         uploaderId: userId,
         source: "COMMUNITY",
         status: "PENDING_REVIEW",
-        storageKey: input.storageKey,
+        storageKey,
+        ...(link ? { linkProvider: link.provider, linkVideoId: link.videoId, linkStartSec: link.provider === "YOUTUBE" ? startSec : null, processedAt: new Date() } : {}),
         durationSec: input.durationSec,
         inGamePseudo: input.inGamePseudo,
         platform: input.platform ?? null,
@@ -65,7 +76,7 @@ export class SubmissionsService {
       include: { game: true, rank: true },
     });
     // Compression en arrière-plan (720p) ; le joueur n'attend pas
-    void this.processing.enqueue(clip.id);
+    if (!link) void this.processing.enqueue(clip.id);
     return this.toDto(clip);
   }
 
@@ -87,15 +98,27 @@ export class SubmissionsService {
   }
 
   private async assertQuota(userId: string) {
-    const pending = await this.prisma.clip.count({ where: { uploaderId: userId, status: { in: ["PENDING_REVIEW", "PROCESSING"] }, deletedAt: null } });
-    if (pending >= MAX_PENDING_PER_USER) {
-      throw new ConflictException({ code: "TOO_MANY_PENDING", message: `Tu as déjà ${MAX_PENDING_PER_USER} clips en attente de validation.` });
+    const [pending, vip] = await Promise.all([
+      this.prisma.clip.count({ where: { uploaderId: userId, status: { in: ["PENDING_REVIEW", "PROCESSING"] }, deletedAt: null } }),
+      canHostVipGames(this.prisma, userId),
+    ]);
+    const max = vip ? MAX_PENDING_PER_VIP : MAX_PENDING_PER_USER;
+    if (pending >= max) {
+      const more = vip ? "" : ` Les VIP peuvent en avoir ${MAX_PENDING_PER_VIP}.`;
+      throw new ConflictException({ code: "TOO_MANY_PENDING", message: `Tu as déjà ${max} clips en attente de validation.${more}` });
     }
+  }
+
+  /** Aperçu dans « Mes clips » : la vidéo d'origine (sans compression) ou le lecteur intégré du lien */
+  private async preview(c: Parameters<typeof clipVideo>[1]) {
+    const { videoUrl, videoKind } = await clipVideo(this.storage, { ...c, hlsKey: null, posterKey: null });
+    return { previewUrl: videoUrl, videoKind };
   }
 
   private async toDto(c: {
     id: string; status: ClipStatus; rejectionReason: string | null;
     inGamePseudo: string | null; platform: string | null; region: string | null; timesPlayed: number; createdAt: Date; reviewedAt: Date | null; storageKey: string; fileDeletedAt: Date | null;
+    durationSec: number; linkProvider: ClipLinkProvider | null; linkVideoId: string | null; linkStartSec: number | null;
     game: { slug: string; name: string }; rank: { name: string; color: string };
   }): Promise<MyClipDto> {
     const status = submissionStatus(c.status);
@@ -111,8 +134,9 @@ export class SubmissionsService {
       timesPlayed: c.timesPlayed,
       createdAt: c.createdAt.toISOString(),
       reviewedAt: c.reviewedAt?.toISOString() ?? null,
-      // Vidéo d'un clip refusé depuis plus de 14 jours : supprimée du stockage
-      previewUrl: c.fileDeletedAt ? null : await this.storage.signedReadUrl(c.storageKey),
+      // Vidéo d'un clip refusé depuis plus de 14 jours : supprimée du stockage (un clip à lien reste lisible)
+      ...(c.fileDeletedAt && !c.linkProvider ? { previewUrl: null, videoKind: "FILE" as const } : await this.preview(c)),
+      linkUrl: clipLinkUrl(c),
     };
   }
 }

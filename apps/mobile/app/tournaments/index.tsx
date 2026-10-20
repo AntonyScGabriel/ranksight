@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import {
-  GAME_NAMES, GAME_SLUGS, ROOM_TIME_CHOICES, TOURNAMENT_CAPACITIES, TOURNAMENT_ROUND_CHOICES, TOURNAMENT_RULES, TOURNAMENT_STATUS_LABEL,
+  ALL_GAMES, GAME_NAMES, GAME_SLUGS, ROOM_TIME_CHOICES, TOURNAMENT_CAPACITIES, TOURNAMENT_ROUND_CHOICES, TOURNAMENT_RULES, TOURNAMENT_STATUS_LABEL, tournamentRewardLabel,
   normalizeRoomCode, type GameSlug, type TournamentSummaryDto, type TournamentsOverviewDto,
 } from "@ranksight/shared";
 import { api } from "@/lib/api";
@@ -18,10 +18,12 @@ export default function TournamentsScreen() {
   const { me, loading } = useSession();
   const { onTournament } = useChat();
   const [data, setData] = useState<TournamentsOverviewDto | null>(null);
-  const [game, setGame] = useState<GameSlug>(GAME_SLUGS[0]);
+  // « Tous les jeux » : chaque manche tire un clip de n'importe quel jeu
+  const [game, setGame] = useState<GameSlug | typeof ALL_GAMES.slug>(GAME_SLUGS[0]);
   const [capacity, setCapacity] = useState<number>(8);
   const [rounds, setRounds] = useState<number>(3);
   const [roundSec, setRoundSec] = useState<number>(30);
+  const [visibility, setVisibility] = useState<"PUBLIC" | "PRIVATE">("PRIVATE");
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -29,7 +31,7 @@ export default function TournamentsScreen() {
 
   const load = useCallback(() => {
     if (!me) return;
-    api.tournaments().then(setData, () => setData((d) => d ?? { canHost: false, current: [], recent: [] }));
+    api.tournaments().then(setData, () => setData((d) => d ?? { canHost: false, current: [], recent: [], events: [], public: [] }));
   }, [me]);
   useFocusEffect(load);
   useEffect(() => onTournament(load), [onTournament, load]);
@@ -57,7 +59,7 @@ export default function TournamentsScreen() {
     setBusy(true);
     setError(null);
     try {
-      open((await api.createTournament({ game, capacity, rounds, roundSec })).id);
+      open((await api.createTournament({ game, capacity, rounds, roundSec, visibility })).id);
     } catch (e) {
       setError(errorMessage(e, "Le tournoi n'a pas pu être créé."));
     } finally {
@@ -75,6 +77,12 @@ export default function TournamentsScreen() {
         Tableau à élimination directe jusqu&apos;à 16 joueurs, chaque match en duel direct. Seul le créateur du tournoi doit être VIP : s&apos;inscrire,
         jouer et gagner est gratuit.
       </Muted>
+
+      {data.public.length > 0 && <Hud>Tournois publics ouverts</Hud>}
+      {data.public.map((t) => <Row key={t.id} t={t} onPress={() => open(t.id)} />)}
+
+      {data.events.length > 0 && <Hud>Événements RankGuess</Hud>}
+      {data.events.map((t) => <Row key={t.id} t={t} onPress={() => open(t.id)} />)}
 
       {data.current.map((t) => <Row key={t.id} t={t} onPress={() => open(t.id)} />)}
 
@@ -105,13 +113,16 @@ export default function TournamentsScreen() {
           <Text style={{ color: "black", backgroundColor: colors.warn, borderRadius: 4, paddingHorizontal: 5, fontSize: 10, fontWeight: "800", overflow: "hidden" }}>VIP</Text>
         </View>
         <Hud>Jeu</Hud>
-        <Chips value={game} options={GAME_SLUGS} onChange={setGame} label={(s) => GAME_NAMES[s]} />
+        <Chips value={game} options={[...GAME_SLUGS, ALL_GAMES.slug]} onChange={setGame} label={(s) => (s === ALL_GAMES.slug ? ALL_GAMES.name : GAME_NAMES[s])} />
         <Hud>Places</Hud>
         <Chips value={capacity} options={TOURNAMENT_CAPACITIES} onChange={setCapacity} label={(n) => `${n} joueurs`} />
         <Hud>Manches par match</Hud>
         <Chips value={rounds} options={TOURNAMENT_ROUND_CHOICES} onChange={setRounds} label={(n) => String(n)} />
         <Hud>Temps de réponse</Hud>
         <Chips value={roundSec} options={ROOM_TIME_CHOICES} onChange={setRoundSec} label={(n) => `${n} s`} />
+        <Hud>Visibilité</Hud>
+        <Chips value={visibility} options={["PRIVATE", "PUBLIC"] as const} onChange={setVisibility} label={(v) => (v === "PUBLIC" ? "Public" : "Privé (code)")} />
+        <Muted>{visibility === "PUBLIC" ? "Listé dans les tournois publics : tout le monde peut s'inscrire." : "Seuls ceux qui ont le code peuvent s'inscrire."}</Muted>
         {data.canHost ? (
           <PrimaryButton label="Créer le tournoi" disabled={busy} onPress={create} />
         ) : (
@@ -140,7 +151,10 @@ function Row({ t, onPress }: { t: TournamentSummaryDto; onPress: () => void }) {
   return (
     <Pressable onPress={onPress} accessibilityRole="button">
       <Card style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 14 }}>
-        <Text style={{ flex: 1, color: colors.ink }} numberOfLines={1}>Tournoi de {t.host} · {t.game.name} · {t.players}/{t.capacity}</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: colors.ink, fontWeight: t.isEvent ? "700" : "400" }} numberOfLines={1}>{t.isEvent ? `🏆 ${t.title}` : `Tournoi de ${t.host}`} · {t.game.name} · {t.players}/{t.capacity}</Text>
+          {t.reward && <Text style={{ color: colors.warn, fontSize: 12 }} numberOfLines={1}>Récompense : {tournamentRewardLabel(t.reward)}</Text>}
+        </View>
         <Text style={{ color: t.placement === 1 ? colors.neon : colors.muted, fontWeight: "700" }}>
           {t.status === "FINISHED" ? (t.placement === 1 ? "Vainqueur" : t.placement ? `${t.placement}e` : "Terminé") : TOURNAMENT_STATUS_LABEL[t.status]}
         </Text>

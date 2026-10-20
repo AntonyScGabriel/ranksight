@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   GAME_NAMES, GAME_SLUGS, ROOM_CREATE_VIP_HINT, ROOM_DEFAULT_ROUNDS, ROOM_DEFAULT_TIME, ROOM_MAX_PLAYERS, ROOM_MODES, ROOM_MODE_LABEL,
-  ROOM_ROUND_CHOICES, ROOM_RULES, ROOM_STATUS_LABEL, ROOM_SYSTEM_LABEL, ROOM_TIME_CHOICES, ROOM_VISIBILITY_HINT, ROOM_VISIBILITY_LABEL, modeSettings,
+  ROOM_IDLE_KICKED_MESSAGE, ROOM_ROUND_CHOICES, ROOM_RULES, ROOM_STATUS_LABEL, ROOM_SYSTEM_LABEL, ROOM_TIME_CHOICES, ROOM_VISIBILITY_HINT, ROOM_VISIBILITY_LABEL, modeSettings,
   normalizeRoomCode,
   type GameSlug, type PublicRoomDto, type RoomMode, type RoomVisibility, type RoomsOverviewDto,
 } from "@ranksight/shared";
@@ -31,6 +31,14 @@ export default function RoomsPage() {
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
+  // Retour après un départ automatique pour inactivité (salle d'attente)
+  const [idleNotice, setIdleNotice] = useState(false);
+  useEffect(() => {
+    if (!new URLSearchParams(window.location.search).has("inactif")) return;
+    window.history.replaceState(null, "", "/rooms");
+    const id = window.setTimeout(() => setIdleNotice(true), 0);
+    return () => window.clearTimeout(id);
+  }, []);
 
   const load = useCallback(() => {
     api.rooms().then(setData, () => setData({ canCreate: false, vip: false, current: null, invites: [], recent: [] }));
@@ -65,6 +73,12 @@ export default function RoomsPage() {
 
   return (
     <section className="space-y-8">
+      {idleNotice && (
+        <div role="status" data-testid="idle-left" className="glass flex flex-wrap items-center justify-between gap-3 border-warn/60 p-4 text-sm">
+          <p className="text-warn">{ROOM_IDLE_KICKED_MESSAGE}</p>
+          <button onClick={() => setIdleNotice(false)} className="btn-ghost !py-1.5 text-sm">J&apos;ai compris</button>
+        </div>
+      )}
       <header className="space-y-2">
         <h1 className="font-display text-3xl font-bold">Salons</h1>
         <p className="max-w-2xl text-sm text-muted">

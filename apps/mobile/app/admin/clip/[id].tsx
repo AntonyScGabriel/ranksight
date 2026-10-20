@@ -77,7 +77,7 @@ export default function AdminClipScreen() {
           {clip.source === "ADMIN" ? "Ajouté par l'équipe" : `Proposé par ${clip.uploader?.displayName ?? "un joueur"}`} le {formatDateTime(clip.createdAt)}
         </Text>
       </View>
-      <AdminVideo url={clip.previewUrl} />
+      <AdminVideo url={clip.previewUrl} kind={clip.videoKind} linkUrl={clip.linkUrl} />
       <NoticeText notice={notice} onPress={() => setNotice(null)} />
 
       <Card style={{ gap: 12 }}>

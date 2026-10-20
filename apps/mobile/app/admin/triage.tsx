@@ -63,7 +63,7 @@ export default function TriageScreen() {
         <Empty text={"Aucun clip à trier pour le moment.\nReviens plus tard !"} />
       ) : (
         <>
-          <AdminVideo key={clip.id} url={clip.previewUrl} />
+          <AdminVideo key={clip.id} url={clip.previewUrl} kind={clip.videoKind} linkUrl={clip.linkUrl} />
           <Card style={{ gap: 12 }}>
             <ClipFacts
               game={clip.game}

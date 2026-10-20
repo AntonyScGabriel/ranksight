@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  GAME_NAMES, GAME_SLUGS, ROOM_TIME_CHOICES, TOURNAMENT_CAPACITIES, TOURNAMENT_ROUND_CHOICES, TOURNAMENT_RULES, TOURNAMENT_STATUS_LABEL,
+  ALL_GAMES, GAME_NAMES, GAME_SLUGS, ROOM_TIME_CHOICES, TOURNAMENT_CAPACITIES, TOURNAMENT_ROUND_CHOICES, TOURNAMENT_RULES, TOURNAMENT_STATUS_LABEL, tournamentRewardLabel,
   normalizeRoomCode, type GameSlug, type TournamentSummaryDto, type TournamentsOverviewDto,
 } from "@ranksight/shared";
 import { api } from "@/lib/api";
@@ -20,17 +20,19 @@ export default function TournamentsPage() {
   const { onTournament } = useChat();
   const router = useRouter();
   const [data, setData] = useState<TournamentsOverviewDto | null>(null);
-  const [game, setGame] = useState<GameSlug>(GAME_SLUGS[0]);
+  // « Tous les jeux » : chaque manche tire un clip de n'importe quel jeu
+  const [game, setGame] = useState<GameSlug | typeof ALL_GAMES.slug>(GAME_SLUGS[0]);
   const [capacity, setCapacity] = useState<number>(8);
   const [rounds, setRounds] = useState<number>(3);
   const [roundSec, setRoundSec] = useState<number>(30);
+  const [visibility, setVisibility] = useState<"PUBLIC" | "PRIVATE">("PRIVATE");
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [joinError, setJoinError] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    api.tournaments().then(setData, () => setData({ canHost: false, current: [], recent: [] }));
+    api.tournaments().then(setData, () => setData({ canHost: false, current: [], recent: [], events: [], public: [] }));
   }, []);
   useEffect(() => {
     if (!me) return;
@@ -42,7 +44,7 @@ export default function TournamentsPage() {
     setBusy(true);
     setError(null);
     try {
-      const t = await api.createTournament({ game, capacity, rounds, roundSec });
+      const t = await api.createTournament({ game, capacity, rounds, roundSec, visibility });
       router.push(`/tournaments/${t.id}`);
     } catch (e) {
       setError(errorMessage(e, "Le tournoi n'a pas pu être créé."));
@@ -82,6 +84,20 @@ export default function TournamentsPage() {
         </p>
       </header>
 
+      {data.public.length > 0 && (
+        <div className="space-y-3">
+          <h2 className="hud-label">Tournois publics ouverts</h2>
+          <ul className="space-y-2">{data.public.map((t) => <TournamentRow key={t.id} t={t} />)}</ul>
+        </div>
+      )}
+
+      {data.events.length > 0 && (
+        <div className="space-y-3" data-testid="events">
+          <h2 className="hud-label">Événements RankGuess</h2>
+          <ul className="space-y-2">{data.events.map((t) => <EventRow key={t.id} t={t} />)}</ul>
+        </div>
+      )}
+
       {data.current.length > 0 && (
         <div className="space-y-3">
           <h2 className="hud-label">Mes tournois en cours</h2>
@@ -118,8 +134,9 @@ export default function TournamentsPage() {
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="space-y-1 text-sm">
               <span className="hud-label">Jeu</span>
-              <select value={game} onChange={(e) => setGame(e.target.value as GameSlug)} className="input">
+              <select value={game} onChange={(e) => setGame(e.target.value as GameSlug | typeof ALL_GAMES.slug)} className="input">
                 {GAME_SLUGS.map((s) => <option key={s} value={s}>{GAME_NAMES[s]}</option>)}
+                <option value={ALL_GAMES.slug}>{ALL_GAMES.name}</option>
               </select>
             </label>
             <label className="space-y-1 text-sm">
@@ -138,6 +155,13 @@ export default function TournamentsPage() {
               <span className="hud-label">Temps de réponse</span>
               <select value={roundSec} onChange={(e) => setRoundSec(Number(e.target.value))} className="input">
                 {ROOM_TIME_CHOICES.map((n) => <option key={n} value={n}>{n} secondes</option>)}
+              </select>
+            </label>
+            <label className="space-y-1 text-sm sm:col-span-2">
+              <span className="hud-label">Visibilité</span>
+              <select value={visibility} onChange={(e) => setVisibility(e.target.value as "PUBLIC" | "PRIVATE")} className="input">
+                <option value="PRIVATE">Privé : inscription avec le code</option>
+                <option value="PUBLIC">Public : listé, tout le monde peut s&apos;inscrire</option>
               </select>
             </label>
           </div>
@@ -168,11 +192,28 @@ export default function TournamentsPage() {
   );
 }
 
+/** Événement de l'équipe : nom, places, récompense du vainqueur ; ouvert à tous */
+function EventRow({ t }: { t: TournamentSummaryDto }) {
+  const reward = tournamentRewardLabel(t.reward);
+  return (
+    <li>
+      <Link href={`/tournaments/${t.id}`} className="glass flex flex-wrap items-center justify-between gap-3 border-warn/40 p-4 transition hover:border-warn">
+        <span className="space-y-0.5">
+          <span className="block font-display font-semibold">🏆 {t.title}</span>
+          <span className="block text-sm text-muted">{t.game.name} · {t.players}/{t.capacity} joueurs{reward ? ` · récompense : ${reward}` : ""}</span>
+          {t.startsAt && t.status === "LOBBY" && <span className="block text-xs text-neon">Début : {new Date(t.startsAt).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" })}</span>}
+        </span>
+        <span className="text-sm font-semibold text-warn">{t.status === "LOBBY" ? "Inscriptions ouvertes" : TOURNAMENT_STATUS_LABEL[t.status]}</span>
+      </Link>
+    </li>
+  );
+}
+
 function TournamentRow({ t }: { t: TournamentSummaryDto }) {
   return (
     <li>
       <Link href={`/tournaments/${t.id}`} className="glass flex flex-wrap items-center justify-between gap-3 p-4 transition hover:border-violet">
-        <span className="text-sm">Tournoi de {t.host} · {t.game.name} · {t.players}/{t.capacity} joueurs</span>
+        <span className="text-sm">{t.isEvent ? t.title : `Tournoi de ${t.host}`} · {t.game.name} · {t.players}/{t.capacity} joueurs</span>
         <span className="text-sm font-semibold">
           {t.status === "FINISHED" ? (t.placement === 1 ? <span className="text-neon">Vainqueur</span> : t.placement ? `${t.placement}e place` : "Terminé") : TOURNAMENT_STATUS_LABEL[t.status]}
         </span>

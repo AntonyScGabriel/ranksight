@@ -1,5 +1,5 @@
 import type {
-  AdminGiftCodeDto, AdminSuggestionsDto, AnnouncementDto, AnnouncementInput, ChatReportReason, CreateGiftCodesInput, ReportReason, ShopSettingsDto,
+  AdminGiftCodeDto, AdminSuggestionsDto, AnnouncementDto, AnnouncementInput, ChatReportReason, ClipVideoKind, CreateGiftCodesInput, ReportReason, ShopSettingsDto,
   ShopSettingsInput, SuggestionReviewInput, SuggestionStatus, TriageClipDto, TriageInput, TriageStatsDto, UserRole,
 } from "@ranksight/shared";
 import { request } from "./api";
@@ -53,6 +53,9 @@ export interface AdminClipDetail {
   game: { id: string; slug: string; name: string; ranks: { id: string; name: string; color: string; iconUrl: string | null; order: number }[] };
   reports: { id: string; reason: ReportReason; details: string | null; status: string }[];
   previewUrl: string | null;
+  /** Clip proposé par un lien : YOUTUBE / MEDAL, et page d'origine */
+  videoKind?: ClipVideoKind;
+  linkUrl?: string | null;
 }
 
 export interface ClipReport {
@@ -72,6 +75,7 @@ export interface PlayerReport {
   createdAt: string;
   globalMessageId: string | null;
   directMessageId: string | null;
+  gameMessageId?: string | null;
   reporter: { id: string; displayName: string };
   target: {
     id: string; displayName: string; username: string; status: string; chatMutedUntil: string | null; avatarUrl: string | null;

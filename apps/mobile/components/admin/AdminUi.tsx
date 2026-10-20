@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
-import { Pressable, Text, TextInput, View, type TextInputProps } from "react-native";
+import { Linking, Pressable, Text, TextInput, View, type TextInputProps } from "react-native";
+import { CLIP_LINK_PROVIDER_LABEL, type ClipVideoKind } from "@ranksight/shared";
 import { useVideoPlayer, VideoView } from "expo-video";
 import { ApiError, media } from "@/lib/api";
 import { useStaffGuard } from "@/lib/staff";
@@ -143,12 +144,29 @@ export function StatCard({ label, value, tone }: { label: string; value: string 
 }
 
 /** Vidéo d'un clip à vérifier (lecture avec les commandes natives, son coupé au départ) */
-export function AdminVideo({ url }: { url: string | null }) {
-  const player = useVideoPlayer(url ? media(url) : null, (p) => {
+/**
+ * Vidéo à modérer. Clip proposé par un lien YouTube / Medal : pas de lecteur intégré dans cette version de
+ * l'application, un bouton ouvre la vidéo d'origine (vérifier aussi son titre, sa chaîne et sa description).
+ */
+export function AdminVideo({ url, kind = "FILE", linkUrl = null }: { url: string | null; kind?: ClipVideoKind; linkUrl?: string | null }) {
+  const player = useVideoPlayer(url && kind === "FILE" ? media(url) : null, (p) => {
     p.loop = true;
     p.muted = true;
     p.play();
   });
+  if (kind !== "FILE") {
+    const provider = CLIP_LINK_PROVIDER_LABEL[kind];
+    return (
+      <View style={{ aspectRatio: 16 / 9, borderRadius: radius.chip, backgroundColor: colors.abyss, alignItems: "center", justifyContent: "center", gap: 10, padding: 16 }}>
+        <Text style={{ color: colors.ink, textAlign: "center" }}>Clip proposé par un lien {provider} : vérifie aussi le titre, la chaîne et la description.</Text>
+        {linkUrl && (
+          <Pressable onPress={() => Linking.openURL(linkUrl)} style={{ borderRadius: radius.chip, backgroundColor: colors.violet, paddingHorizontal: 16, paddingVertical: 10 }}>
+            <Text style={{ color: "white", fontWeight: "700" }}>Ouvrir sur {provider}</Text>
+          </Pressable>
+        )}
+      </View>
+    );
+  }
   if (!url) {
     return (
       <View style={{ aspectRatio: 16 / 9, borderRadius: radius.chip, backgroundColor: colors.abyss, alignItems: "center", justifyContent: "center" }}>

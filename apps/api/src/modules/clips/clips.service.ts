@@ -1,8 +1,10 @@
 import { ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { DAILY_PER_GAME, NO_CLIP_MESSAGES, type DailyOverviewDto, type PlayableClipDto, type RankDto } from "@ranksight/shared";
+import type { ClipLinkProvider } from "../../generated/prisma/client.js";
 import { PrismaService } from "../../prisma/prisma.service.js";
 import { StorageService } from "../storage/storage.service.js";
 import { PlayTokenService } from "./play-token.service.js";
+import { clipVideo, playableLinkWhere } from "./clip-video.js";
 
 /** Jour de jeu courant : reset à 00:00 UTC pour que tout le monde ait les mêmes clips. */
 export function todayUtc(): Date {
@@ -20,7 +22,7 @@ export const clipInclude = {
 } as const;
 
 /** Un clip jouable : accepté par la modération, non supprimé, d'un jeu proposé sur le site. */
-const PLAYABLE = { status: "APPROVED" as const, deletedAt: null, game: { isActive: true } };
+const playable = () => ({ status: "APPROVED" as const, deletedAt: null, game: { isActive: true }, ...playableLinkWhere() });
 
 @Injectable()
 export class ClipsService {
@@ -142,8 +144,8 @@ export class ClipsService {
     if (existing && existing.clip.status === "APPROVED" && !existing.clip.deletedAt) return existing;
 
     const usedToday = (await this.prisma.dailyChallenge.findMany({ where: { date, gameId, slot: { not: slot } }, select: { clipId: true } })).map((d) => d.clipId);
-    const playable = { ...PLAYABLE, gameId, id: { notIn: usedToday } };
-    const pick = (await this.randomClip({ ...playable, dailies: { none: {} } })) ?? (await this.randomClip(playable));
+    const candidates = { ...playable(), gameId, id: { notIn: usedToday } };
+    const pick = (await this.randomClip({ ...candidates, dailies: { none: {} } })) ?? (await this.randomClip(candidates));
     if (!pick) return null;
 
     if (existing) {
@@ -183,7 +185,7 @@ export class ClipsService {
     // Exclus : clips déjà vus par le joueur et clips qu'il a lui-même proposés (il connaît le rang)
     const seen = await this.prisma.guess.findMany({ where: { userId }, select: { clipId: true }, take: 2000, orderBy: { createdAt: "desc" } });
     const base = {
-      ...PLAYABLE,
+      ...playable(),
       id: { notIn: seen.map((s) => s.clipId) },
       uploaderId: { not: userId },
       game: { isActive: true, ...(gameSlug ? { slug: gameSlug } : {}) },
@@ -212,6 +214,7 @@ export class ClipsService {
   async toPlayable(
     clip: {
       id: string; storageKey: string; hlsKey: string | null; posterKey: string | null; durationSec: number; difficulty: number;
+      linkProvider: ClipLinkProvider | null; linkVideoId: string | null; linkStartSec: number | null;
       game: { id: string; slug: string; name: string; iconUrl: string | null; ranks: (RankDto & { gameId: string })[] };
     },
     playToken: string,
@@ -224,8 +227,7 @@ export class ClipsService {
       playToken,
       game: { id: game.id, slug: game.slug as PlayableClipDto["game"]["slug"], name: game.name, iconUrl: game.iconUrl },
       ranks: ranks.map(({ gameId: _gameId, ...r }) => r),
-      videoUrl: await this.storage.signedReadUrl(clip.hlsKey ?? clip.storageKey),
-      posterUrl: clip.posterKey ? await this.storage.signedReadUrl(clip.posterKey) : null,
+      ...(await clipVideo(this.storage, clip)),
       durationSec: clip.durationSec,
       mode,
       dailyDate: dailyDate?.toISOString().slice(0, 10) ?? null,

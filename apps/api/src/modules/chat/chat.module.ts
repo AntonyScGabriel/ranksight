@@ -2,7 +2,7 @@ import {
   Body, Controller, DefaultValuePipe, Delete, Get, HttpCode, Module, Param, ParseIntPipe, ParseUUIDPipe, Post, Query,
 } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
-import { SendGlobalMessageInput, SendMessageInput } from "@ranksight/shared";
+import { GameChatScope, MuteGameChatInput, SendGameChatInput, SendGlobalMessageInput, SendMessageInput } from "@ranksight/shared";
 import { z } from "zod";
 import { Roles } from "../../common/decorators/roles.decorator.js";
 import { CurrentUser, type AuthUser } from "../../common/decorators/current-user.decorator.js";
@@ -10,6 +10,7 @@ import { ZodPipe } from "../../common/pipes/zod.pipe.js";
 import { FriendsModule } from "../friends/friends.module.js";
 import { ChatGateway } from "./chat.gateway.js";
 import { ChatService } from "./chat.service.js";
+import { GameChatService } from "./game-chat.service.js";
 import { GlobalChatService } from "./global-chat.service.js";
 
 const PurgeBody = z.object({ hours: z.number().int().min(1).max(24 * 7).default(24) });
@@ -70,6 +71,54 @@ export class GlobalChatAdminController {
   }
 }
 
+/** Tchat d'un salon (scope « room ») ou d'un tournoi (scope « tournament ») : réservé à ses joueurs */
+@Controller("chat/game")
+export class GameChatController {
+  constructor(private readonly chat: GameChatService) {}
+
+  /** GET /v1/chat/game/:scope/:id — derniers messages (canal de son équipe compris), tchat ouvert ou non */
+  @Get(":scope/:id")
+  history(@CurrentUser() u: AuthUser, @Param("scope", new ZodPipe(GameChatScope)) scope: GameChatScope, @Param("id", ParseUUIDPipe) id: string) {
+    return this.chat.history(u.sub, scope, id);
+  }
+
+  /** POST /v1/chat/game/:scope/:id — { body, team } */
+  @Post(":scope/:id")
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
+  send(
+    @CurrentUser() u: AuthUser,
+    @Param("scope", new ZodPipe(GameChatScope)) scope: GameChatScope,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body(new ZodPipe(SendGameChatInput)) body: { body: string; team: boolean },
+  ) {
+    return this.chat.send(u.sub, scope, id, body.body, body.team);
+  }
+
+  /** DELETE /v1/chat/game/:scope/:id/messages/:messageId — son message, ou tout message pour l'organisateur et la modération */
+  @Delete(":scope/:id/messages/:messageId")
+  @HttpCode(204)
+  remove(
+    @CurrentUser() u: AuthUser,
+    @Param("scope", new ZodPipe(GameChatScope)) scope: GameChatScope,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Param("messageId", ParseUUIDPipe) messageId: string,
+  ) {
+    return this.chat.remove(u.sub, scope, id, messageId);
+  }
+
+  /** POST /v1/chat/game/tournament/:id/mute/:userId — { muted } : organisateur du tournoi ou modération */
+  @Post("tournament/:id/mute/:userId")
+  @HttpCode(200)
+  mute(
+    @CurrentUser() u: AuthUser,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Param("userId", ParseUUIDPipe) userId: string,
+    @Body(new ZodPipe(MuteGameChatInput)) body: { muted: boolean },
+  ) {
+    return this.chat.mute(u.sub, id, userId, body.muted);
+  }
+}
+
 @Controller("chat")
 export class ChatController {
   constructor(private readonly chat: ChatService) {}
@@ -114,8 +163,8 @@ export class ChatController {
 @Module({
   imports: [FriendsModule],
   // GlobalChatController avant ChatController : /chat/global ne doit pas être lu comme /chat/:friendId
-  controllers: [GlobalChatController, GlobalChatAdminController, ChatController],
-  providers: [ChatService, GlobalChatService, ChatGateway],
+  controllers: [GlobalChatController, GlobalChatAdminController, GameChatController, ChatController],
+  providers: [ChatService, GlobalChatService, GameChatService, ChatGateway],
   exports: [ChatGateway],
 })
 export class ChatModule {}

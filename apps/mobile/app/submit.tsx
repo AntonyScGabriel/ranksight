@@ -3,7 +3,7 @@ import { Pressable, Switch, Text, TextInput, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import {
-  CLIP_DURATION_LABEL, CLIP_MAX_BYTES, CLIP_MAX_MB, clipDurationOk,
+  CLIP_DURATION_LABEL, CLIP_LINK_PROVIDER_LABEL, CLIP_MAX_BYTES, CLIP_MAX_MB, clipDurationOk, formatClipClock, parseClipClock, parseClipLink,
   GAME_PLATFORMS, InGamePseudo, PLATFORM_LABEL, REGION_LABEL, REGIONS, firstIssue,
   type GameDto, type GameSlug, type Platform, type Region,
 } from "@ranksight/shared";
@@ -31,6 +31,11 @@ export default function SubmitScreen() {
   const [gameId, setGameId] = useState<string | null>(null);
   const [rankId, setRankId] = useState<string | null>(null);
   const [video, setVideo] = useState<PickedVideo | null>(null);
+  // Fichier choisi sur le téléphone, ou lien YouTube / Medal (la vidéo n'est pas copiée)
+  const [source, setSource] = useState<"FILE" | "LINK">("FILE");
+  const [link, setLink] = useState("");
+  const [start, setStart] = useState("");
+  const [length, setLength] = useState("20");
   const [proofUrl, setProofUrl] = useState("");
   const [note, setNote] = useState("");
   const [rights, setRights] = useState(false);
@@ -44,6 +49,11 @@ export default function SubmitScreen() {
 
   const game = games.find((g) => g.id === gameId);
   const platforms = game ? GAME_PLATFORMS[game.slug as GameSlug] ?? [] : [];
+  const parsedLink = link.trim() ? parseClipLink(link) : null;
+  const lengthSec = Number(length);
+  const lengthOk = Number.isFinite(lengthSec) && clipDurationOk(lengthSec);
+  const startOk = !start.trim() || parseClipClock(start) !== null;
+  const hasVideo = source === "FILE" ? !!video : !!parsedLink && lengthOk && startOk;
 
   const chooseGame = (id: string) => {
     setGameId(id);
@@ -70,10 +80,27 @@ export default function SubmitScreen() {
   const submit = async () => {
     const pseudo = InGamePseudo.safeParse(inGamePseudo);
     if (!pseudo.success) return setPseudoError(firstIssue(pseudo.error));
-    if (!game || !rankId || !video || !rights) return;
+    if (!game || !rankId || !hasVideo || !rights) return;
     setSending(true);
     setError(null);
     try {
+      const common = {
+        gameId: game.id,
+        rankId,
+        inGamePseudo: pseudo.data,
+        platform: platform ?? (platforms.length === 1 ? platforms[0] : undefined),
+        region: region ?? undefined,
+        proofUrl: proofUrl.trim() || undefined,
+        note: note.trim() || undefined,
+        ownsRights: true as const,
+      };
+      if (source === "LINK" && parsedLink) {
+        const startSec = parseClipClock(start) ?? parsedLink.startSec ?? 0;
+        await api.submitClip({ ...common, link: link.trim(), startSec: parsedLink.provider === "YOUTUBE" ? startSec : undefined, durationSec: lengthSec });
+        setDone(true);
+        return;
+      }
+      if (!video) return;
       const size = await fileSize(video.uri);
       if (size > CLIP_MAX_BYTES) {
         setError(`La vidéo dépasse ${CLIP_MAX_MB} Mo.`);
@@ -81,18 +108,7 @@ export default function SubmitScreen() {
       }
       const { key, url } = await api.uploadUrl(video.mimeType, size);
       await uploadVideo(url, video.uri, video.mimeType);
-      await api.submitClip({
-        gameId: game.id,
-        rankId,
-        inGamePseudo: pseudo.data,
-        platform: platform ?? (platforms.length === 1 ? platforms[0] : undefined),
-        region: region ?? undefined,
-        storageKey: key,
-        durationSec: video.durationSec,
-        proofUrl: proofUrl.trim() || undefined,
-        note: note.trim() || undefined,
-        ownsRights: true,
-      });
+      await api.submitClip({ ...common, storageKey: key, durationSec: video.durationSec });
       setDone(true);
     } catch (e) {
       setError(errorMessage(e, "L'envoi a échoué, réessaie."));
@@ -119,7 +135,24 @@ export default function SubmitScreen() {
         <Hud>Jeu</Hud>
         <Chips items={games.map((g) => [g.id, g.name])} value={gameId} onChange={chooseGame} />
         <Hud>Clip vidéo</Hud>
-        <GhostButton label={video ? `Vidéo choisie · ${Math.round(video.durationSec)} s` : "Choisir une vidéo (5 s à 1 min)"} onPress={pick} />
+        <Chips items={[["FILE", "Fichier vidéo"], ["LINK", "Lien YouTube ou Medal"]]} value={source} onChange={(v) => { setSource(v as "FILE" | "LINK"); setError(null); }} />
+        {source === "FILE" ? (
+          <GhostButton label={video ? `Vidéo choisie · ${Math.round(video.durationSec)} s` : "Choisir une vidéo (5 s à 1 min)"} onPress={pick} />
+        ) : (
+          <>
+            <TextInput value={link} onChangeText={(v) => { setLink(v); setError(null); }} placeholder="https://www.youtube.com/watch?v=… ou https://medal.tv/clip/…" placeholderTextColor={colors.muted} autoCapitalize="none" autoCorrect={false} keyboardType="url" style={[inputStyle, link.trim() && !parsedLink ? { borderWidth: 1, borderColor: colors.danger } : null]} />
+            <Text style={{ color: link.trim() && !parsedLink ? colors.danger : colors.muted, fontSize: 12 }}>
+              {link.trim() && !parsedLink ? "Seuls les liens YouTube et Medal sont acceptés." : `La vidéo n'est pas copiée : elle est lue depuis ${parsedLink ? CLIP_LINK_PROVIDER_LABEL[parsedLink.provider] : "YouTube ou Medal"}.`}
+            </Text>
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              {parsedLink?.provider !== "MEDAL" && (
+                <TextInput value={start} onChangeText={setStart} placeholder={`Début (${formatClipClock(parsedLink?.startSec ?? 0)})`} placeholderTextColor={colors.muted} keyboardType="numbers-and-punctuation" style={[inputStyle, { flex: 1 }, startOk ? null : { borderWidth: 1, borderColor: colors.danger }]} />
+              )}
+              <TextInput value={length} onChangeText={setLength} placeholder="Durée (s)" placeholderTextColor={colors.muted} keyboardType="number-pad" style={[inputStyle, { flex: 1 }, lengthOk ? null : { borderWidth: 1, borderColor: colors.danger }]} />
+            </View>
+            <Muted>{parsedLink?.provider === "MEDAL" ? `Durée du clip en secondes (${CLIP_DURATION_LABEL}).` : `Début du passage (min:s) et durée en secondes (${CLIP_DURATION_LABEL}).`}</Muted>
+          </>
+        )}
       </Card>
 
       <Card style={{ gap: 10 }}>
@@ -163,13 +196,13 @@ export default function SubmitScreen() {
         <TextInput value={note} onChangeText={setNote} placeholder="Contexte (facultatif)" placeholderTextColor={colors.muted} maxLength={300} multiline style={[inputStyle, { minHeight: 70 }]} />
       </Card>
 
-      <Muted>Le pseudo, le rang et les indices de classement ne doivent pas être visibles.</Muted>
+      <Muted>Le pseudo, le rang et les indices de classement ne doivent pas être visibles.{source === "LINK" ? " Pour un lien : ni le titre, ni la description, ni la chaîne de la vidéo ne doivent révéler le rang." : ""}</Muted>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
         <Switch value={rights} onValueChange={setRights} trackColor={{ true: colors.violet }} />
         <Text style={{ color: colors.ink, flex: 1 }}>Je suis l&apos;auteur de ce clip ou j&apos;ai l&apos;accord de son auteur.</Text>
       </View>
       {error && <Text style={{ color: colors.danger }}>{error}</Text>}
-      <PrimaryButton label={sending ? "Envoi en cours…" : "Envoyer le clip"} onPress={submit} disabled={!game || !rankId || !video || !inGamePseudo.trim() || !rights || sending} />
+      <PrimaryButton label={sending ? "Envoi en cours…" : "Envoyer le clip"} onPress={submit} disabled={!game || !rankId || !hasVideo || !inGamePseudo.trim() || !rights || sending} />
     </KeyboardScroll>
   );
 }

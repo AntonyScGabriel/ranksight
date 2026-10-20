@@ -48,7 +48,7 @@ const toDto = ({ user: { subscription, title, badge, frame, ...author }, ...m }:
   author: { ...author, vip: isVip(subscription), flair: toFlair({ title, badge, frame }) },
 });
 
-class TooFastException extends HttpException {
+export class TooFastException extends HttpException {
   constructor(message: string, retryAfter: number) {
     super({ code: "SLOW_DOWN", message, retryAfter }, HttpStatus.TOO_MANY_REQUESTS);
   }
@@ -161,36 +161,45 @@ export class GlobalChatService {
     return { items, total, page, pageSize: take };
   }
 
-  /** Spam évident : caractères répétés, liens multiples, message tout en majuscules. */
   private assertNotSpam(body: string) {
-    if (!body) throw new BadRequestException("Message vide.");
-    if (/(.)\1{9,}/u.test(body)) throw new BadRequestException("Message refusé : trop de caractères répétés.");
-    if ((body.match(/(https?:\/\/|www\.)\S+/gi) ?? []).length > MAX_LINKS) {
-      throw new BadRequestException("Message refusé : un seul lien par message.");
-    }
-    const letters = body.replace(/[^\p{L}]/gu, "");
-    if (letters.length >= 12 && letters === letters.toUpperCase() && letters !== letters.toLowerCase()) {
-      throw new BadRequestException("Évite d'écrire tout en majuscules.");
-    }
+    assertNotSpam(body);
   }
 
   /** Limite de fréquence par joueur (Redis : partagée entre toutes les instances de l'API). */
   private async assertRate(userId: string, body: string, slowSec: number) {
-    // Heure du dernier message comparée au délai en vigueur : si la modération raccourcit ou coupe le mode lent,
-    // le changement s'applique tout de suite (vérification et enregistrement atomiques)
-    const waitMs = Number(await this.redis.eval(SLOW_MODE_SCRIPT, 1, `gchat:slow:${userId}`, Date.now(), slowSec * 1000, MAX_SLOW_MODE_SEC));
-    if (waitMs > 0) {
-      const sec = Math.max(Math.ceil(waitMs / 1000), 1);
-      throw new TooFastException(`Patiente ${sec} s avant d'envoyer un nouveau message.`, sec);
-    }
-    const burstKey = `gchat:burst:${userId}`;
-    const [[, count]] = (await this.redis.multi().incr(burstKey).expire(burstKey, BURST_WINDOW_SEC, "NX").exec()) as [[null, number]];
-    if (count > BURST_LIMIT) {
-      const ttl = await this.redis.ttl(burstKey);
-      throw new TooFastException(`Trop de messages en peu de temps. Réessaie dans ${Math.max(ttl, 1)} s.`, Math.max(ttl, 1));
-    }
-    const normalized = body.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
-    const last = await this.redis.set(`gchat:last:${userId}`, normalized, "EX", DUPLICATE_WINDOW_SEC, "GET");
-    if (last !== null && last === normalized) throw new BadRequestException("Tu viens déjà d'envoyer ce message.");
+    await assertChatRate(this.redis, "gchat", userId, body, slowSec);
   }
+}
+
+/** Spam évident : caractères répétés, liens multiples, message tout en majuscules (chat global, tchats des salons et tournois). */
+export function assertNotSpam(body: string) {
+  if (!body) throw new BadRequestException("Message vide.");
+  if (/(.)\1{9,}/u.test(body)) throw new BadRequestException("Message refusé : trop de caractères répétés.");
+  if ((body.match(/(https?:\/\/|www\.)\S+/gi) ?? []).length > MAX_LINKS) {
+    throw new BadRequestException("Message refusé : un seul lien par message.");
+  }
+  const letters = body.replace(/[^\p{L}]/gu, "");
+  if (letters.length >= 12 && letters === letters.toUpperCase() && letters !== letters.toLowerCase()) {
+    throw new BadRequestException("Évite d'écrire tout en majuscules.");
+  }
+}
+
+/** Limite de fréquence par joueur et par tchat (`prefix`) : mode lent, rafales, message répété. Redis : partagée entre les instances. */
+export async function assertChatRate(redis: Redis, prefix: string, userId: string, body: string, slowSec: number) {
+  // Heure du dernier message comparée au délai en vigueur : si la modération raccourcit ou coupe le mode lent,
+  // le changement s'applique tout de suite (vérification et enregistrement atomiques)
+  const waitMs = Number(await redis.eval(SLOW_MODE_SCRIPT, 1, `${prefix}:slow:${userId}`, Date.now(), slowSec * 1000, MAX_SLOW_MODE_SEC));
+  if (waitMs > 0) {
+    const sec = Math.max(Math.ceil(waitMs / 1000), 1);
+    throw new TooFastException(`Patiente ${sec} s avant d'envoyer un nouveau message.`, sec);
+  }
+  const burstKey = `${prefix}:burst:${userId}`;
+  const [[, count]] = (await redis.multi().incr(burstKey).expire(burstKey, BURST_WINDOW_SEC, "NX").exec()) as [[null, number]];
+  if (count > BURST_LIMIT) {
+    const ttl = await redis.ttl(burstKey);
+    throw new TooFastException(`Trop de messages en peu de temps. Réessaie dans ${Math.max(ttl, 1)} s.`, Math.max(ttl, 1));
+  }
+  const normalized = body.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+  const last = await redis.set(`${prefix}:last:${userId}`, normalized, "EX", DUPLICATE_WINDOW_SEC, "GET");
+  if (last !== null && last === normalized) throw new BadRequestException("Tu viens déjà d'envoyer ce message.");
 }

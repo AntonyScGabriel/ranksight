@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type Me } from "@/lib/api";
 import { useConfirm } from "@/lib/confirm";
+import { AccountCredentials } from "./AccountCredentials";
+import { AccountDevices } from "./AccountDevices";
 import { errorMessage } from "./AuthForm";
 import { Avatar } from "./Header";
 import { PlayerLink } from "./PlayerLink";
@@ -60,6 +62,7 @@ export function AccountSecurity({ me }: { me: Me }) {
           </p>
         </div>
       )}
+      <AccountCredentials />
       {me.chatMutedUntil && (
         <p className="rounded-lg bg-danger/10 p-3 text-xs text-danger">
           L&apos;équipe a suspendu ton accès au chat jusqu&apos;au {new Date(me.chatMutedUntil).toLocaleString("fr-FR")}.
@@ -86,6 +89,7 @@ export function AccountSecurity({ me }: { me: Me }) {
           <p className="text-xs text-muted">Aucun. Tu peux bloquer un joueur depuis son profil.</p>
         )}
       </div>
+      <AccountDevices />
       <button onClick={logoutAll} className="btn-ghost w-full justify-center text-sm">Se déconnecter de tous les appareils</button>
       {notice && <p role="status" className={`text-xs ${notice.ok ? "text-success" : "text-danger"}`}>{notice.text}</p>}
     </div>

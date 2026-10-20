@@ -5,24 +5,26 @@ import { useVideoPlayer, VideoView } from "expo-video";
 import * as Haptics from "expo-haptics";
 import {
   GAME_NAMES, GAME_SLUGS, HIGHER_LOWER_RULES, type GameSlug, type HigherLowerAnswerDto, type HigherLowerChoice,
-  type HigherLowerOverviewDto, type HigherLowerRunDto,
+  type ClipVideoKind, type HigherLowerOverviewDto, type HigherLowerRunDto,
 } from "@ranksight/shared";
 import { api, media } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { colors, radius } from "@/lib/theme";
 import { errorMessage } from "@/components/AuthUi";
 import { RankEmblem } from "@/components/RankEmblem";
+import { LinkClipView } from "@/components/LinkClipView";
 import { Card, GhostButton, Hud, Loading, LoginRequired, Muted, PrimaryButton } from "@/components/ui";
 
-function Clip({ url }: { url: string }) {
-  const player = useVideoPlayer(media(url), (p) => {
+function Clip({ url, kind }: { url: string; kind: ClipVideoKind }) {
+  // Clip proposé par un lien : lecteur intégré YouTube / Medal
+  const player = useVideoPlayer(kind === "FILE" ? media(url) : null, (p) => {
     p.loop = true;
     p.muted = true;
     p.play();
   });
   return (
     <View style={{ aspectRatio: 16 / 9, borderRadius: radius.card, overflow: "hidden", backgroundColor: "black", borderWidth: 1, borderColor: colors.line }}>
-      <VideoView player={player} style={{ flex: 1 }} contentFit="contain" nativeControls allowsPictureInPicture={false} />
+      {kind === "FILE" ? <VideoView player={player} style={{ flex: 1 }} contentFit="contain" nativeControls allowsPictureInPicture={false} /> : <LinkClipView url={url} />}
     </View>
   );
 }
@@ -107,11 +109,11 @@ export default function HigherLowerScreen() {
                 <Text style={{ color: shown.current.rank.color, fontWeight: "800" }}>{shown.current.rank.name}</Text>
               </View>
             </View>
-            <Clip key={shown.current.id} url={shown.current.videoUrl} />
+            <Clip key={shown.current.id} url={shown.current.videoUrl} kind={shown.current.videoKind} />
           </Card>
           <Card style={{ gap: 8 }}>
             <Hud>Clip à comparer</Hud>
-            <Clip key={shown.next.id} url={shown.next.videoUrl} />
+            <Clip key={shown.next.id} url={shown.next.videoUrl} kind={shown.next.videoKind} />
             <View style={{ flexDirection: "row", gap: 10 }}>
               <View style={{ flex: 1 }}><PrimaryButton label="▲ Plus haut" disabled={busy} onPress={() => void answer("higher")} /></View>
               <View style={{ flex: 1 }}><PrimaryButton label="▼ Plus bas" disabled={busy} onPress={() => void answer("lower")} /></View>

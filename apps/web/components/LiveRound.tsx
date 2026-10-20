@@ -55,7 +55,7 @@ export function LiveRound({
       </div>
       <TimerBar progress={progress} />
       <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
-        <ClipPlayer src={media(clip.videoUrl)} poster={clip.posterUrl ? media(clip.posterUrl) : null} onWatched={onWatched} />
+        <ClipPlayer src={media(clip.videoUrl)} poster={clip.posterUrl ? media(clip.posterUrl) : null} onWatched={onWatched} kind={clip.videoKind} durationSec={clip.durationSec} />
         <div className="glass space-y-5 p-6">
           <h2 className="font-display text-2xl font-bold">Quel est son rang&nbsp;?</h2>
           <RankPicker ranks={clip.ranks} value={rankId} onChange={setRankId} disabled={pending} />

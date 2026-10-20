@@ -11,6 +11,7 @@ import { ZodPipe } from "../../common/pipes/zod.pipe.js";
 import { Prisma } from "../../generated/prisma/client.js";
 import { PrismaService } from "../../prisma/prisma.service.js";
 import { StorageService } from "../storage/storage.service.js";
+import { clipLinkUrl, clipVideo } from "../clips/clip-video.js";
 
 const QUEUE_SIZE = 10;
 const startOfDayUtc = () => {
@@ -41,6 +42,12 @@ export class TriageService {
     };
   }
 
+  /** Vidéo à trier : fichier d'origine (lien valable 1 h) ou lecteur intégré YouTube / Medal */
+  private async preview(c: Parameters<typeof clipVideo>[1]) {
+    const { videoUrl, videoKind } = await clipVideo(this.storage, { ...c, hlsKey: null, posterKey: null }, 3600);
+    return { previewUrl: videoUrl, videoKind };
+  }
+
   /** Prochains clips à trier, du plus ancien au plus récent */
   async queue(userId: string, game?: string): Promise<TriageClipDto[]> {
     const rows = await this.prisma.clip.findMany({
@@ -54,7 +61,8 @@ export class TriageService {
         id: c.id,
         game: c.game,
         claimedRank: c.rank,
-        previewUrl: await this.storage.signedReadUrl(c.storageKey, 3600),
+        ...(await this.preview(c)),
+        linkUrl: clipLinkUrl(c),
         durationSec: c.durationSec,
         proofUrl: c.proofUrl,
         inGamePseudo: c.inGamePseudo,

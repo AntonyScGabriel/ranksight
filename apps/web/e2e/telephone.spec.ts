@@ -1,4 +1,4 @@
-// Téléphone : navigation du bas avec Duels et Salons, liste des salons gratuits, pas de défilement horizontal.
+// Téléphone : navigation du bas (Défis, Duels, Salons, Tournois, menu « Plus »), liste des salons gratuits, pas de défilement horizontal.
 import { expect, test } from "@playwright/test";
 import { addClips, cleanup, newPlayer, signedIn, sql } from "./support";
 
@@ -22,4 +22,11 @@ test("navigation du bas : Duels et Salons séparés, salons gratuits listés, sa
   await expect(page.getByRole("heading", { name: "Salons", level: 1 })).toBeVisible();
   await expect(page.getByRole("listitem").filter({ hasText: "Salon gratuit" }).first()).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+  // 5 entrées en bas ; le reste (Classements, Amis, Profil…) dans le menu « Plus »
+  await expect(bottom.getByRole("link")).toHaveCount(4);
+  await expect(bottom.getByRole("link", { name: "Tournois" })).toBeVisible();
+  await bottom.getByRole("button", { name: /Plus/ }).click();
+  await page.getByRole("menuitem", { name: "Classements" }).click();
+  await expect(page).toHaveURL(/\/leaderboard/);
+  await expect(page.getByRole("menu")).toHaveCount(0);
 });

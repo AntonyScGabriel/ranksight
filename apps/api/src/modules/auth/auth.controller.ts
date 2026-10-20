@@ -1,11 +1,11 @@
 import { AllowUnverified } from "../../common/decorators/allow-unverified.decorator.js";
 import {
-  Body, Controller, Get, HttpCode, Param, ParseEnumPipe, Post, Query, Req, Res, UnauthorizedException,
+  BadRequestException, Body, Controller, Delete, Get, HttpCode, NotFoundException, Param, ParseEnumPipe, ParseUUIDPipe, Post, Query, Req, Res, UnauthorizedException,
 } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import type { CookieOptions, Request, Response } from "express";
 import { z } from "zod";
-import { Email, ForgotPasswordInput, LoginInput, ResetPasswordInput, SignupInput, TotpCodeInput } from "@ranksight/shared";
+import { ChangePasswordInput, Email, ForgotPasswordInput, LoginInput, ResetPasswordInput, SignupInput, TotpCodeInput } from "@ranksight/shared";
 import { Public } from "../../common/decorators/public.decorator.js";
 import { CurrentUser, type AuthUser } from "../../common/decorators/current-user.decorator.js";
 import { ZodPipe } from "../../common/pipes/zod.pipe.js";
@@ -163,6 +163,15 @@ export class AuthController {
     this.clearCookies(res);
   }
 
+  /** POST /v1/auth/password/change — { currentPassword, password, passwordConfirm } : depuis le profil ; toutes les sessions sont fermées */
+  @Post("password/change")
+  @HttpCode(204)
+  @Throttle({ default: { ttl: 3_600_000, limit: 10 } })
+  async changePassword(@CurrentUser() user: AuthUser, @Body(new ZodPipe(ChangePasswordInput)) body: ChangePasswordInput, @Res({ passthrough: true }) res: Response) {
+    await this.auth.changePassword(user.sub, body.currentPassword, body.password);
+    this.clearCookies(res);
+  }
+
   @Public()
   @Post("refresh")
   @HttpCode(200)
@@ -207,6 +216,21 @@ export class AuthController {
     this.clearCookies(res);
   }
 
+  /** GET /v1/auth/sessions — appareils connectés au compte (celui-ci en premier) */
+  @Get("sessions")
+  sessions(@CurrentUser() user: AuthUser) {
+    return this.tokens.sessions(user.sub, user.sid);
+  }
+
+  /** DELETE /v1/auth/sessions/:id — déconnecte un autre appareil (celui-ci : « Se déconnecter ») */
+  @Delete("sessions/:id")
+  @HttpCode(204)
+  @Throttle({ default: { ttl: 60_000, limit: 20 } })
+  async revokeSession(@CurrentUser() user: AuthUser, @Param("id", ParseUUIDPipe) id: string) {
+    if (id === user.sid) throw new BadRequestException({ code: "CURRENT_SESSION", message: "C'est l'appareil que tu utilises : utilise « Se déconnecter »." });
+    if (!(await this.tokens.revokeSession(user.sub, id))) throw new NotFoundException("Appareil introuvable ou déjà déconnecté.");
+  }
+
   // ---------- Confirmation de l'adresse email ----------
 
   /** POST /v1/auth/email/verify — { token } reçu par email */
@@ -226,7 +250,10 @@ export class AuthController {
     return this.auth.sendVerification(user.sub);
   }
 
-  /** POST /v1/auth/email/change — { email, password } : corrige une adresse pas encore confirmée et renvoie le lien */
+  /**
+   * POST /v1/auth/email/change — { email, password } : adresse pas encore confirmée, corrigée tout de suite et nouveau
+   * lien ; adresse confirmée, remplacée une fois la nouvelle confirmée par le lien qui lui est envoyé ({ pending: true })
+   */
   @Post("email/change")
   @HttpCode(200)
   @Throttle({ default: { ttl: 3_600_000, limit: 5 } })

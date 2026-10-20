@@ -2,8 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import { AppState } from "react-native";
 import { io, type Socket } from "socket.io-client";
 import {
-  CHAT_EVENTS, GLOBAL_CHAT_EVENTS, ROOM_EVENT, ROOM_INVITE_EVENT, TOURNAMENT_EVENT, VERSUS_EVENT,
-  type ChatMessageDto, type GlobalMessageDto, type RoomInviteDto, type VersusMatchDto,
+  CHAT_EVENTS, GAME_CHAT_EVENT, GLOBAL_CHAT_EVENTS, ROOM_EVENT, ROOM_INVITE_EVENT, TOURNAMENT_EVENT, VERSUS_EVENT,
+  type ChatMessageDto, type GameChatEvent, type GlobalMessageDto, type RoomInviteDto, type VersusMatchDto,
 } from "@ranksight/shared";
 import { api, API_ORIGIN, tokens } from "./api";
 import { useSession } from "./session";
@@ -41,11 +41,13 @@ interface ChatValue {
   onTournament: (fn: (e: { id: string }) => void) => () => void;
   /** Connexion temps réel (re)établie, après une coupure réseau par exemple : l'écran relit son état sur le serveur */
   onConnect: (fn: () => void) => () => void;
+  /** Nouveau message du tchat d'un salon ou d'un tournoi du joueur */
+  onGameChat: (fn: (e: GameChatEvent) => void) => () => void;
 }
 
 const ChatContext = createContext<ChatValue>({
   unread: 0, refreshUnread: () => {}, onMessage: () => () => {}, joinGlobal: () => () => {}, socket: null, onVersus: () => () => {}, versusPending: 0, invite: null, dismissInvite: () => {},
-  onRoom: () => () => {}, roomInvites: 0, roomInvite: null, dismissRoomInvite: () => {}, onTournament: () => () => {}, onConnect: () => () => {},
+  onRoom: () => () => {}, roomInvites: 0, roomInvite: null, dismissRoomInvite: () => {}, onTournament: () => () => {}, onConnect: () => () => {}, onGameChat: () => () => {},
 });
 
 /**
@@ -67,6 +69,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const roomListeners = useRef(new Set<(e: { id: string }) => void>());
   const connectListeners = useRef(new Set<() => void>());
   const tournamentListeners = useRef(new Set<(e: { id: string }) => void>());
+  const gameChatListeners = useRef(new Set<(e: GameChatEvent) => void>());
   const [roomInvites, setRoomInvites] = useState(0);
   const [roomInvite, setRoomInvite] = useState<RoomInviteDto | null>(null);
   const seenRoomInvites = useRef(new Set<string>());
@@ -116,6 +119,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     });
     s.on(ROOM_EVENT, (e: { id: string }) => roomListeners.current.forEach((fn) => fn(e)));
     s.on(TOURNAMENT_EVENT, (e: { id: string }) => tournamentListeners.current.forEach((fn) => fn(e)));
+    s.on(GAME_CHAT_EVENT, (e: GameChatEvent) => gameChatListeners.current.forEach((fn) => fn(e)));
     s.on(ROOM_INVITE_EVENT, (e: { id: string }) => {
       roomListeners.current.forEach((fn) => fn(e));
       refreshRooms();
@@ -187,12 +191,19 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  const onGameChat = useCallback((fn: (e: GameChatEvent) => void) => {
+    gameChatListeners.current.add(fn);
+    return () => {
+      gameChatListeners.current.delete(fn);
+    };
+  }, []);
+
   return (
     <ChatContext.Provider
       value={{ unread: me ? unread : 0, refreshUnread, onMessage, joinGlobal, socket, onVersus, versusPending: me ? versusPending : 0,
         invite: me ? invite : null, dismissInvite: () => setInvite(null),
         onRoom, roomInvites: me ? roomInvites : 0, roomInvite: me ? roomInvite : null, dismissRoomInvite: () => setRoomInvite(null),
-        onTournament, onConnect,
+        onTournament, onConnect, onGameChat,
       }}
     >{children}</ChatContext.Provider>
   );

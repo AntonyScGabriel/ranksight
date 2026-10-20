@@ -11,6 +11,7 @@ export type LiveClip = PlayableClipDto & { position: number; rounds: number; end
 import { errorMessage } from "./AuthUi";
 import { RankEmblem } from "./RankEmblem";
 import { Card, PrimaryButton } from "./ui";
+import { LinkClipView } from "./LinkClipView";
 
 function applySound(player: VideoPlayer, muted: boolean) {
   player.muted = muted;
@@ -37,7 +38,9 @@ export function LiveRound({
   const [muted, setMuted] = useState(false);
   const shownAt = useRef(0);
 
-  const player = useVideoPlayer(media(clip.videoUrl), (p) => {
+  // Clip proposé par un lien : lecteur intégré YouTube / Medal (WebView) au lieu du lecteur natif
+  const linked = clip.videoKind !== "FILE";
+  const player = useVideoPlayer(linked ? null : media(clip.videoUrl), (p) => {
     p.loop = true;
     p.muted = false;
     p.volume = 1;
@@ -72,8 +75,8 @@ export function LiveRound({
       </View>
       <TimerBar progress={progress} />
       <View style={styles.video}>
-        <VideoView player={player} style={{ flex: 1 }} contentFit="contain" nativeControls allowsPictureInPicture={false} />
-        <Pressable
+        {linked ? <LinkClipView url={clip.videoUrl} /> : <VideoView player={player} style={{ flex: 1 }} contentFit="contain" nativeControls allowsPictureInPicture={false} />}
+        {!linked && <Pressable
           onPress={() => setMuted((m) => !m)}
           style={styles.sound}
           accessibilityRole="button"
@@ -81,7 +84,7 @@ export function LiveRound({
           hitSlop={8}
         >
           <Text style={{ color: "white", fontSize: 12, fontWeight: "700" }}>{muted ? "🔇 Son coupé" : "🔊 Son"}</Text>
-        </Pressable>
+        </Pressable>}
       </View>
       <Card style={{ gap: 12 }}>
         <Text style={{ color: colors.ink, fontSize: 20, ...font.display }}>Quel est son rang ?</Text>

@@ -12,6 +12,8 @@ export interface ReportTarget {
   name: string;
   globalMessageId?: string;
   directMessageId?: string;
+  /** Message du tchat d'un salon ou d'un tournoi */
+  gameMessageId?: string;
 }
 
 /** Signaler un joueur (et le message concerné) à l'équipe de modération. */
@@ -33,7 +35,7 @@ export function ReportSheet({ target, onClose }: { target: ReportTarget | null; 
     try {
       await api.reportPlayer({
         targetUserId: target.id, reason, details: details.trim() || undefined,
-        globalMessageId: target.globalMessageId, directMessageId: target.directMessageId,
+        globalMessageId: target.globalMessageId, directMessageId: target.directMessageId, gameMessageId: target.gameMessageId,
       });
       setState({ done: true });
     } catch (e) {

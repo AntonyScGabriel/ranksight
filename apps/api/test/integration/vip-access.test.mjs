@@ -49,9 +49,9 @@ test("6-8. Plus haut / Plus bas : VIP pour lancer ; une série lancée se termin
 
 test("9-10. tournois : organisation VIP, inscription gratuite sur invitation", async () => {
   const [free, vip, p2, p3] = await Promise.all([newUser("t1"), vipUser("t2"), newUser("t3"), newUser("t4")]);
-  let r = await free.s.post("/tournaments", { game: GAME, capacity: 4, rounds: 3 });
+  let r = await free.s.post("/tournaments", { game: GAME, capacity: 8, rounds: 3 });
   assert.equal(r.status, 402, "gratuit : création refusée");
-  r = await vip.s.post("/tournaments", { game: GAME, capacity: 4, rounds: 3 });
+  r = await vip.s.post("/tournaments", { game: GAME, capacity: 8, rounds: 3 });
   assert.equal(r.status, 201, JSON.stringify(r.body));
   const t = r.body;
   for (const u of [free, p2, p3]) assert.equal((await u.s.post("/tournaments/join", { code: t.code })).status, 200, "inscription gratuite avec le code");
@@ -154,4 +154,49 @@ test("tournoi : lancement et départ simultanés restent cohérents", async () =
     if (row.status === "ACTIVE") assert.equal(row.seeded, row.seats, "tous les inscrits ont une tête de série");
     else assert.equal(row.status, "LOBBY");
   }
+});
+
+test("tournoi « Tous les jeux » : sans jeu fixé, matchs lancés sur les clips de tous les jeux", async () => {
+  const [host, a, b, c] = await Promise.all([vipUser("ta1"), newUser("ta2"), newUser("ta3"), newUser("ta4")]);
+  let r = await host.s.post("/tournaments", { game: "all", capacity: 4, rounds: 3 });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const t = r.body;
+  assert.deepEqual(t.game, { slug: "all", name: "Tous les jeux" });
+  assert.equal((await sql("SELECT game_id FROM tournaments WHERE id = $1::uuid", [t.id]))[0].game_id, null);
+  assert.equal((await a.s.get(`/tournaments/code/${t.code}`)).body.game.slug, "all", "aperçu par le code");
+  for (const u of [a, b, c]) assert.equal((await u.s.post("/tournaments/join", { code: t.code })).status, 200);
+  // 4 places sur 4 : lancé automatiquement à la dernière inscription
+  r = await host.s.get(`/tournaments/${t.id}`);
+  assert.equal(r.body.status, "ACTIVE", "complet : lancé automatiquement");
+  // Les matchs sont créés quand les deux joueurs sont prêts : chaque salon de match n'a pas de jeu fixé
+  const [m] = await sql("SELECT id, player1_id, player2_id FROM tournament_matches WHERE tournament_id = $1::uuid AND player1_id IS NOT NULL AND player2_id IS NOT NULL LIMIT 1", [t.id]);
+  const players = { [host.id]: host, [a.id]: a, [b.id]: b, [c.id]: c };
+  for (const id of [m.player1_id, m.player2_id]) {
+    r = await players[id].s.post(`/tournaments/${t.id}/ready`);
+    assert.ok([200, 201, 204].includes(r.status), `prêt : ${r.status} ${JSON.stringify(r.body)}`);
+  }
+  const [room] = await sql("SELECT r.id, r.game_id FROM tournament_matches tm JOIN rooms r ON r.id = tm.room_id WHERE tm.id = $1::uuid", [m.id]);
+  assert.ok(room, "salon du match créé");
+  assert.equal(room.game_id, null, "match « Tous les jeux »");
+  r = await players[m.player1_id].s.get(`/rooms/${room.id}`);
+  assert.equal(r.status, 200);
+  assert.equal(r.body.game.name, "Tous les jeux");
+});
+test("tournoi de joueurs complet : lancé automatiquement, même sans organisateur VIP présent", async () => {
+  const [host, a, b, c] = await Promise.all([vipUser("tq1"), newUser("tq2"), newUser("tq3"), newUser("tq4")]);
+  const t = (await host.s.post("/tournaments", { game: GAME, capacity: 4, rounds: 3 })).body;
+  for (const u of [a, b]) assert.equal((await u.s.post("/tournaments/join", { code: t.code })).status, 200);
+  // L'organisateur part sans VIP pour le remplacer : le tournoi reste en attente…
+  assert.equal((await host.s.post(`/tournaments/${t.id}/leave`)).status, 204);
+  assert.equal((await a.s.get(`/tournaments/${t.id}`)).body.status, "LOBBY");
+  const d = await sql("SELECT 1 FROM tournament_players WHERE tournament_id = $1::uuid", [t.id]);
+  assert.equal(d.length, 2);
+  // …et se lance tout seul dès qu'il est complet
+  const [extra] = await Promise.all([newUser("tq5")]);
+  assert.equal((await c.s.post("/tournaments/join", { code: t.code })).status, 200);
+  assert.equal((await a.s.get(`/tournaments/${t.id}`)).body.status, "LOBBY", "3 sur 4 : toujours en attente");
+  const r = await extra.s.post("/tournaments/join", { code: t.code });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.status, "ACTIVE", "4 sur 4 : lancé automatiquement");
+  assert.equal(r.body.bracketSize, 4);
 });

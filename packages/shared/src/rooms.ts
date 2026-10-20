@@ -105,6 +105,25 @@ export const roomSystemSlot = (mode: RoomMode, index: number) => `${mode}:${inde
 export const ROOM_HOST_AWAY_SEC = 30;
 
 /**
+ * Salle d'attente : un joueur connecté mais inactif (aucun geste sur la page ou l'application depuis ROOM_IDLE_WARN_SEC)
+ * reçoit l'alerte « Tu es toujours là ? ». Sans réponse dans les ROOM_IDLE_KICK_SEC suivantes, il quitte le salon
+ * (un hôte absent laisse ainsi sa place au joueur suivant au lieu de bloquer le lancement).
+ */
+export const ROOM_IDLE_WARN_SEC = 180;
+export const ROOM_IDLE_KICK_SEC = 30;
+export const ROOM_IDLE_KICKED_MESSAGE = `Tu as quitté le salon après ${ROOM_IDLE_WARN_SEC / 60} minutes d'inactivité.`;
+
+export type RoomIdleState = { phase: "active" } | { phase: "warning"; secondsLeft: number } | { phase: "kick" };
+
+/** État de l'alerte d'inactivité d'après l'heure du dernier geste du joueur (millisecondes) */
+export function roomIdleState(lastActivityMs: number, nowMs: number): RoomIdleState {
+  const idleSec = (nowMs - lastActivityMs) / 1000;
+  if (idleSec < ROOM_IDLE_WARN_SEC) return { phase: "active" };
+  const secondsLeft = Math.ceil(ROOM_IDLE_WARN_SEC + ROOM_IDLE_KICK_SEC - idleSec);
+  return secondsLeft > 0 ? { phase: "warning", secondsLeft } : { phase: "kick" };
+}
+
+/**
  * Message pour le joueur qui revient (application rouverte, onglet de nouveau visible, reconnexion) et n'est plus
  * l'hôte : il l'était au dernier état connu (`before`), la salle d'attente est toujours ouverte, il y est encore et un
  * autre joueur a pris le relais. Le serveur ne transfère le rôle qu'après ROOM_HOST_AWAY_SEC secondes de déconnexion :
@@ -426,4 +445,5 @@ export const ROOM_RULES = [
   "Les réponses et le rang réel sont dévoilés à la fin de chaque manche.",
   "Le total le plus élevé gagne ; en cas d'égalité, la place est partagée.",
   "Partie personnalisée : elle rapporte de l'XP mais ne change jamais ta cote compétitive.",
+  "En salle d'attente, après 3 minutes sans activité, on te demande si tu es toujours là : sans réponse en 30 secondes, tu quittes le salon.",
 ] as const;

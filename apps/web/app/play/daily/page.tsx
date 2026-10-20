@@ -5,6 +5,7 @@ import Link from "next/link";
 import { DAILY_PER_GAME, DAILY_STATUS_LABEL, type DailyGameDto, type DailyOverviewDto, type SeasonDto } from "@ranksight/shared";
 import { api, type ApiError } from "@/lib/api";
 import { ErrorPanel, LoginRequired, Skeleton } from "@/components/States";
+import { DailyCountdown } from "@/components/DailyCountdown";
 
 type State = "loading" | "ready" | "auth" | "error";
 
@@ -65,6 +66,7 @@ export default function DailyPage() {
           <p className="text-sm text-muted">
             {DAILY_PER_GAME} clips par jeu, une seule tentative par défi. Nouveaux clips chaque jour à minuit (UTC).
           </p>
+          <DailyCountdown onReset={load} />
         </div>
         <div className="glass flex gap-6 px-5 py-3">
           <Stat label="Joués" value={`${data.played}/${data.total}`} />

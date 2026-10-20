@@ -7,6 +7,7 @@ import { useSession } from "@/lib/session";
 import { colors, radius } from "@/lib/theme";
 import { Card, GhostButton, Hud, Loading, LoginRequired, Message, PrimaryButton } from "@/components/ui";
 import { AnnouncementBanner } from "@/components/AnnouncementBanner";
+import { DailyCountdown } from "@/components/DailyCountdown";
 
 /** « Défis du jour » : 3 clips par jeu, le joueur choisit celui qu'il veut jouer. */
 export default function DailyScreen() {
@@ -41,6 +42,7 @@ export default function DailyScreen() {
       <AnnouncementBanner />
       <Hud>{date}</Hud>
       <Text style={{ color: colors.muted }}>{DAILY_PER_GAME} clips par jeu, une seule tentative par défi.</Text>
+      <DailyCountdown onReset={load} />
       <Card style={{ flexDirection: "row", justifyContent: "space-between" }}>
         <Stat label="Joués" value={`${data.played}/${data.total}`} />
         <Stat label="Score du jour" value={String(data.totalScore)} />

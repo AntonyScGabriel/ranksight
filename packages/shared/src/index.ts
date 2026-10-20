@@ -8,4 +8,5 @@ export * from "./higher-lower.js";
 export * from "./tournaments.js";
 export * from "./ratings.js";
 export * from "./clip-links.js";
+export * from "./daily-reset.js";
 export * from "./game-chat.js";

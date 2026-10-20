@@ -12,7 +12,7 @@ const apiHost = new URL(api).origin;
 const storageOrigin = process.env.S3_ENDPOINT ? new URL(process.env.S3_ENDPOINT).origin : "";
 const dev = process.env.NODE_ENV !== "production";
 
-/** Administration : politique de sécurité stricte (aucune ressource externe, pas d'intégration dans un cadre) */
+/** Administration : politique de sécurité stricte (pas d'intégration dans un cadre ; seuls cadres externes : lecteurs des clips à lien) */
 const csp = [
   "default-src 'self'",
   `script-src 'self' 'unsafe-inline'${dev ? " 'unsafe-eval'" : ""}`,
@@ -22,6 +22,8 @@ const csp = [
   `media-src 'self' blob: https: ${apiHost}${dev ? " http:" : ""}`,
   `connect-src 'self' ${apiHost} ${apiHost.replace(/^http/, "ws")}${storageOrigin ? ` ${storageOrigin}` : ""}`,
   `form-action 'self' ${apiHost}`,
+  // Seule exception : lecteurs intégrés YouTube / Medal des clips proposés par un lien (à modérer)
+  "frame-src https://www.youtube-nocookie.com https://medal.tv",
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "object-src 'none'",

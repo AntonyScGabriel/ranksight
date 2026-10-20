@@ -3,11 +3,17 @@
  * Seul le créateur doit être VIP ; les participants s'inscrivent, jouent et gagnent gratuitement.
  */
 import { z } from "zod";
-import { FlairDto } from "./rewards.js";
+import { CosmeticType, FlairDto } from "./rewards.js";
 import { GameSlug } from "./schemas.js";
-import { ROOM_ROUND_CHOICES, ROOM_TIME_CHOICES, normalizeRoomCode } from "./rooms.js";
+import { ROOM_ROUND_CHOICES, ROOM_TIME_CHOICES, RoomVisibility, normalizeRoomCode } from "./rooms.js";
 
 export const TOURNAMENT_CAPACITIES = [4, 8, 16] as const;
+/** Événements créés par l'administration : jusqu'à 64 places */
+export const EVENT_TOURNAMENT_CAPACITIES = [4, 8, 16, 32, 64] as const;
+/** Inscriptions d'un événement ouvertes jusqu'à son lancement par l'administration, une semaine au plus */
+export const EVENT_LOBBY_TTL_DAYS = 7;
+/** Événement programmé : rappel aux inscrits ce nombre de minutes avant le début */
+export const EVENT_REMINDER_MIN = 10;
 export const TOURNAMENT_MIN_PLAYERS = 3;
 /** Manches par match proposées (les matchs restent courts) */
 export const TOURNAMENT_ROUND_CHOICES = [3, 5] as const;
@@ -29,8 +35,9 @@ export const TOURNAMENT_DECIDED_BY_LABEL: Record<TournamentDecidedBy, string> = 
 
 export const TOURNAMENT_RULES = [
   "Tableau à élimination directe : le gagnant de chaque match passe au tour suivant.",
+  "Un tournoi de joueurs se lance automatiquement dès qu'il est complet (l'organisateur peut aussi le lancer avant, à partir de 3 inscrits).",
   "Les têtes de série sont tirées au sort au lancement ; s'il manque des joueurs, les meilleures têtes de série sont qualifiées d'office pour le 2e tour.",
-  "Chaque match est un duel en direct sur le jeu du tournoi, avec mort subite en cas d'égalité (3 manches décisives au maximum, puis la réponse la plus rapide).",
+  "Chaque match est un duel en direct sur le jeu du tournoi (un clip de n'importe quel jeu à chaque manche pour un tournoi « Tous les jeux »), avec mort subite en cas d'égalité (3 manches décisives au maximum, puis la réponse la plus rapide).",
   "Égalité parfaite (personne n'a répondu) : la meilleure tête de série passe.",
   `Dès que tes deux adversaires sont connus, vous avez ${TOURNAMENT_READY_MIN} minutes pour cliquer sur « Je suis prêt ». Le joueur absent perd par forfait ; si personne n'est prêt, la meilleure tête de série passe.`,
   "Quitter le tournoi fait perdre ton match en cours ou à venir par forfait.",
@@ -80,20 +87,62 @@ export const nextSlot = (stage: number, slot: number) => ({ stage: stage + 1, sl
 
 export const STAGE_NAME = (size: number, stage: number) => {
   const left = stageCount(size) - stage;
-  return left === 0 ? "Finale" : left === 1 ? "Demi-finales" : left === 2 ? "Quarts de finale" : "Huitièmes de finale";
+  return ["Finale", "Demi-finales", "Quarts de finale", "Huitièmes de finale", "Seizièmes de finale"][left] ?? "Trente-deuxièmes de finale";
 };
 
 // ---------- Entrées ----------
 
+/** Choix « Tous les jeux » d'un tournoi : chaque manche tire un clip de n'importe quel jeu actif */
+export const ALL_GAMES = { slug: "all", name: "Tous les jeux" } as const;
+
 export const CreateTournamentInput = z
   .object({
-    game: GameSlug,
+    game: z.union([GameSlug, z.literal(ALL_GAMES.slug)]),
     capacity: z.coerce.number().int().refine((n) => (TOURNAMENT_CAPACITIES as readonly number[]).includes(n), "Taille de tableau non proposée.").default(8),
     rounds: z.coerce.number().int().refine((n) => (TOURNAMENT_ROUND_CHOICES as readonly number[]).includes(n) && (ROOM_ROUND_CHOICES as readonly number[]).includes(n), "Nombre de manches non proposé.").default(3),
     roundSec: z.coerce.number().int().refine((n) => (ROOM_TIME_CHOICES as readonly number[]).includes(n), "Temps de réponse non proposé.").default(30),
+    /** Public : listé dans la page Tournois, chacun peut s'inscrire ; privé : code d'invitation seulement */
+    visibility: RoomVisibility.default("PRIVATE"),
   })
   .strict();
 export type CreateTournamentInput = z.input<typeof CreateTournamentInput>;
+
+/** Événement (administration) : nom, jusqu'à 64 places, récompense facultative du vainqueur */
+export const CreateEventTournamentInput = z
+  .object({
+    title: z.string().trim().min(3, "3 caractères minimum").max(60, "60 caractères maximum"),
+    game: z.union([GameSlug, z.literal(ALL_GAMES.slug)]),
+    capacity: z.coerce.number().int().refine((n) => (EVENT_TOURNAMENT_CAPACITIES as readonly number[]).includes(n), "Taille de tableau non proposée.").default(16),
+    rounds: z.coerce.number().int().refine((n) => (TOURNAMENT_ROUND_CHOICES as readonly number[]).includes(n), "Nombre de manches non proposé.").default(3),
+    roundSec: z.coerce.number().int().refine((n) => (ROOM_TIME_CHOICES as readonly number[]).includes(n), "Temps de réponse non proposé.").default(30),
+    /** Titre, badge ou cadre donné au vainqueur */
+    rewardCosmeticId: z.string().uuid().nullable().optional(),
+    /** Jours de VIP offerts au vainqueur */
+    rewardVipDays: z.coerce.number().int().min(1, "1 jour minimum").max(365, "365 jours maximum").nullable().optional(),
+    /** Heure de lancement automatique (ISO) ; sans heure, l'administration le lance à la main */
+    startsAt: z.string().datetime({ offset: true, message: "Date de début invalide." }).nullable().optional(),
+  })
+  .strict()
+  .refine((e) => !e.startsAt || new Date(e.startsAt).getTime() > Date.now() + 5 * 60_000, { message: "Le début doit être dans 5 minutes au moins.", path: ["startsAt"] })
+  .refine((e) => !e.startsAt || new Date(e.startsAt).getTime() < Date.now() + EVENT_LOBBY_TTL_DAYS * 86_400_000, { message: `Le début doit être dans les ${EVENT_LOBBY_TTL_DAYS} prochains jours.`, path: ["startsAt"] });
+export type CreateEventTournamentInput = z.input<typeof CreateEventTournamentInput>;
+
+/** Récompense du vainqueur d'un événement */
+export const TournamentRewardDto = z.object({
+  cosmetic: z.object({ type: CosmeticType, name: z.string(), color: z.string() }).nullable(),
+  vipDays: z.number().int().nullable(),
+});
+export type TournamentRewardDto = z.infer<typeof TournamentRewardDto>;
+
+/** Texte de la récompense : « Titre « Champion » + 30 jours de VIP » */
+export function tournamentRewardLabel(r: TournamentRewardDto | null): string | null {
+  if (!r) return null;
+  const parts = [
+    r.cosmetic ? `${{ TITLE: "Titre", BADGE: "Badge", FRAME: "Cadre" }[r.cosmetic.type]} « ${r.cosmetic.name} »` : null,
+    r.vipDays ? `${r.vipDays} jour${r.vipDays > 1 ? "s" : ""} de VIP` : null,
+  ].filter(Boolean);
+  return parts.length ? parts.join(" + ") : null;
+}
 
 export const JoinTournamentInput = z
   .object({
@@ -130,6 +179,8 @@ export const TournamentPlayerDto = z.object({
   left: z.boolean(),
   eliminated: z.boolean(),
   placement: z.number().int().nullable(),
+  /** Réduit au silence dans le tchat du tournoi (visible par l'organisateur et la modération) */
+  chatMuted: z.boolean().default(false),
   /** Statistiques : matchs gagnés (hors qualifications d'office), points marqués en match */
   wins: z.number().int(),
   points: z.number().int(),
@@ -164,6 +215,15 @@ export const TournamentDto = z.object({
   code: z.string(),
   status: TournamentStatus,
   game: z.object({ slug: z.string(), name: z.string() }),
+  /** Événement de l'administration : nom, récompense du vainqueur ; le joueur peut le consulter sans être inscrit */
+  isEvent: z.boolean().default(false),
+  title: z.string().nullable().default(null),
+  reward: TournamentRewardDto.nullable().default(null),
+  /** Événement programmé : heure de lancement automatique */
+  startsAt: z.string().nullable().default(null),
+  /** Le joueur connecté est inscrit */
+  member: z.boolean().default(true),
+  visibility: RoomVisibility.default("PRIVATE"),
   capacity: z.number().int(),
   rounds: z.number().int(),
   roundSec: z.number().int(),
@@ -211,6 +271,10 @@ export const TournamentSummaryDto = z.object({
   capacity: z.number().int(),
   placement: z.number().int().nullable(),
   createdAt: z.string(),
+  isEvent: z.boolean().default(false),
+  title: z.string().nullable().default(null),
+  reward: TournamentRewardDto.nullable().default(null),
+  startsAt: z.string().nullable().default(null),
 });
 export type TournamentSummaryDto = z.infer<typeof TournamentSummaryDto>;
 
@@ -218,6 +282,10 @@ export const TournamentsOverviewDto = z.object({
   canHost: z.boolean(),
   current: z.array(TournamentSummaryDto),
   recent: z.array(TournamentSummaryDto),
+  /** Événements de l'administration ouverts aux inscriptions ou en cours */
+  events: z.array(TournamentSummaryDto).default([]),
+  /** Tournois publics de joueurs ouverts aux inscriptions */
+  public: z.array(TournamentSummaryDto).default([]),
 });
 export type TournamentsOverviewDto = z.infer<typeof TournamentsOverviewDto>;
 

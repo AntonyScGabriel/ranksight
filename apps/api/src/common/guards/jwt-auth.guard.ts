@@ -1,7 +1,7 @@
 import { CanActivate, ExecutionContext, Inject, Injectable, UnauthorizedException } from "@nestjs/common";
 import type { Redis } from "ioredis";
 import { REDIS } from "../../redis/redis.module.js";
-import { revokedKey } from "../../modules/auth/token.service.js";
+import { revokedKey, revokedSessionKey } from "../../modules/auth/token.service.js";
 import { Reflector } from "@nestjs/core";
 import { JwtService } from "@nestjs/jwt";
 import type { Request } from "express";
@@ -26,9 +26,11 @@ export class JwtAuthGuard implements CanActivate {
     }
     try {
       const user = await this.jwt.verifyAsync<AuthUser & { iat: number }>(token, { algorithms: ["HS256"] });
-      // Compte supprimé, banni ou mot de passe réinitialisé : les jetons émis avant sont refusés
-      const revokedAt = await this.redis.get(revokedKey(user.sub));
+      // Compte supprimé, banni ou mot de passe réinitialisé : les jetons émis avant sont refusés ; appareil
+      // déconnecté depuis le profil : ses jetons sont refusés
+      const [revokedAt, sessionRevoked] = await this.redis.mget(revokedKey(user.sub), revokedSessionKey(user.sid ?? "-"));
       if (revokedAt && user.iat < Math.floor(Number(revokedAt) / 1000)) throw new Error("revoked");
+      if (sessionRevoked) throw new Error("revoked");
       req.user = user;
       return true;
     } catch {

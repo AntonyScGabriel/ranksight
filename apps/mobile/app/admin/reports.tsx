@@ -46,7 +46,7 @@ function PlayerReportCard({ report, canBan, busy, onResolve }: {
       {report.details ? <Text style={{ color: colors.muted }}>Précisions : {report.details}</Text> : null}
       <Text style={{ color: colors.muted, fontSize: 12 }}>
         Par {report.reporter.displayName} · {formatDateTime(report.createdAt)}
-        {report.directMessageId ? " · message privé" : report.globalMessageId ? " · chat global" : ""}
+        {report.directMessageId ? " · message privé" : report.globalMessageId ? " · chat global" : report.gameMessageId ? " · tchat de salon ou tournoi" : ""}
       </Text>
       {open ? (
         <View style={{ gap: 10 }}>

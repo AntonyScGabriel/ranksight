@@ -104,7 +104,9 @@ export async function cleanup() {
     await sql("DELETE FROM versus_matches WHERE creator_id = ANY($1::uuid[]) OR opponent_id = ANY($1::uuid[])", [users]);
     await sql("DELETE FROM guesses WHERE clip_id = ANY($1::uuid[])", [clips]);
     await sql("DELETE FROM clips WHERE id = ANY($1::uuid[])", [clips]);
-    await sql("DELETE FROM users WHERE id = ANY($1::uuid[])", [users]);
+    // Un joueur cité dans le journal d'audit (administrateur de test, journal non modifiable) reste en base, désactivé
+    await sql("DELETE FROM users u WHERE u.id = ANY($1::uuid[]) AND NOT EXISTS (SELECT 1 FROM audit_logs a WHERE a.actor_id = u.id OR a.target_user_id = u.id)", [users]);
+    await sql("UPDATE users SET status = 'DELETED' WHERE id = ANY($1::uuid[])", [users]);
   } catch (e) {
     // Clip encore utilisé par un salon d'un autre joueur : retiré du jeu au lieu d'être supprimé
     await sql("UPDATE clips SET deleted_at = now() WHERE id = ANY($1::uuid[])", [clips]).catch(() => {});

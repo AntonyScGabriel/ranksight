@@ -16,6 +16,7 @@ import { PushService } from "../notifications/notifications.module.js";
 import { isVip, vipSelect } from "../shop/vip.js";
 import { flairSelect, toFlair } from "../cosmetics/flair.js";
 import { RatingsService } from "../ratings/ratings.service.js";
+import { playableLinkSql } from "../clips/clip-video.js";
 
 const SEC = 1000;
 /** Marge accordée à une réponse envoyée juste avant la fin du chrono (latence réseau) */
@@ -180,7 +181,7 @@ export class VersusService {
       SELECT c.id FROM clips c JOIN games g ON g.id = c.game_id
       WHERE c.status = 'APPROVED' AND c.deleted_at IS NULL AND g.is_active
         AND (${gameId}::uuid IS NULL OR c.game_id = ${gameId}::uuid)
-        AND c.uploader_id <> ALL(${players}::uuid[])
+        AND c.uploader_id <> ALL(${players}::uuid[]) ${playableLinkSql()}
       ORDER BY random() LIMIT ${VERSUS_ROUNDS}`;
     if (rows.length < VERSUS_ROUNDS) {
       throw new NotFoundException({ code: "NOT_ENOUGH_CLIPS", message: "Pas encore assez de clips pour un duel sur ce jeu. Essaie « Tous les jeux »." });

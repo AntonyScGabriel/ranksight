@@ -14,6 +14,7 @@ const NAV = [
   ["/upload", "Ajouter un clip", "⇪"],
   ["/daily", "Défis du jour", "▦"],
   ["/seasons", "Saisons", "♛"],
+  ["/events", "Événements", "🏆"],
   ["/ranks", "Rangs", "◆"],
   ["/reports", "Signalements clips", "⚑"],
   ["/moderation", "Signalements joueurs", "⚠"],

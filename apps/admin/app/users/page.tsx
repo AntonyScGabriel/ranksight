@@ -127,6 +127,20 @@ export default function UsersPage() {
     await run(() => adminFetch(`/users/${u.id}/verify-email`, { method: "POST" }), `Email de ${u.displayName} confirmé.`);
   };
 
+  /** Mot de passe oublié : le joueur n'a pas reçu le lien (filtre anti-spam, panne d'envoi) */
+  const sendPasswordReset = async (u: U) => {
+    const ok = await confirm({
+      title: `Envoyer un lien de réinitialisation à ${u.displayName} ?`,
+      message: `Un email avec un lien pour choisir un nouveau mot de passe (valable 1 heure) part vers ${u.email}. Son mot de passe actuel reste valable tant qu'il n'en a pas choisi un autre.`,
+      confirmLabel: "Envoyer le lien",
+    });
+    if (ok === false) return;
+    await run(async () => {
+      const r = await adminFetch<{ sent: boolean }>(`/users/${u.id}/password-reset`, { method: "POST" });
+      if (!r.sent) throw new Error("Un lien vient déjà d'être envoyé à ce joueur. Réessaie dans une minute.");
+    }, `Lien de réinitialisation envoyé à ${u.email}.`);
+  };
+
   const removeAvatar = async (u: U) => {
     const ok = await confirm({ title: `Retirer la photo de profil de ${u.displayName} ?`, message: "L'initiale de son pseudo sera affichée à la place.", confirmLabel: "Retirer la photo", danger: true });
     if (ok === false) return;
@@ -179,6 +193,9 @@ export default function UsersPage() {
                     </p>
                     {isAdmin && !locked && u.email && !u.emailVerified && u.status !== "DELETED" && (
                       <button onClick={() => verifyEmail(u)} className="mt-1 text-[11px] text-violet-soft hover:underline">Confirmer l&apos;email</button>
+                    )}
+                    {isAdmin && !locked && u.email && u.status === "ACTIVE" && (
+                      <button onClick={() => sendPasswordReset(u)} className="ml-2 mt-1 text-[11px] text-violet-soft hover:underline">Envoyer un lien de mot de passe</button>
                     )}
                     <p className="mt-1 flex flex-wrap gap-1 text-[11px]">
                       {u.mfaEnabled && <span className="rounded bg-success/15 px-1.5 text-success">2FA</span>}

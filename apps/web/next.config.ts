@@ -33,6 +33,8 @@ const securityHeaders = [
       `media-src 'self' https: blob: ${apiHost}${dev ? " http:" : ""}`,
       `connect-src 'self' ${apiHost} ${apiHost.replace(/^http/, "ws")} wss:${sentryOrigin ? ` ${sentryOrigin}` : ""}${storageOrigin ? ` ${storageOrigin}` : ""}`,
       `form-action 'self' ${apiHost}`,
+      // Clips proposés par un lien : lecteurs intégrés YouTube (domaine sans cookies) et Medal
+      "frame-src https://www.youtube-nocookie.com https://medal.tv",
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "object-src 'none'",

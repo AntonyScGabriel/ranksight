@@ -11,6 +11,7 @@ import { colors, font, radius } from "@/lib/theme";
 import { Card, Hud, PrimaryButton } from "./ui";
 import { RankEmblem } from "./RankEmblem";
 import { CosmeticVisual } from "./Flair";
+import { LinkClipView } from "./LinkClipView";
 import { errorMessage } from "./AuthUi";
 
 export type RoundResult = GuessResultDto & { run?: { lives: number; score: number; endedAt: string | null } };
@@ -35,7 +36,9 @@ export function Round({
   const [muted, setMuted] = useState(false);
 
   // Son activé par défaut : l'ambiance du clip (annonces, communications) aide à deviner le rang
-  const player = useVideoPlayer(media(clip.videoUrl), (p) => {
+  // Clip proposé par un lien : lecteur intégré YouTube / Medal (WebView) au lieu du lecteur natif
+  const linked = clip.videoKind !== "FILE";
+  const player = useVideoPlayer(linked ? null : media(clip.videoUrl), (p) => {
     p.loop = true;
     p.muted = false;
     p.volume = 1;
@@ -72,8 +75,8 @@ export function Round({
   return (
     <ScrollView contentContainerStyle={{ gap: 16, paddingBottom: 40 }}>
       <View style={styles.video}>
-        <VideoView player={player} style={{ flex: 1 }} contentFit="contain" nativeControls allowsPictureInPicture={false} />
-        <Pressable
+        {linked ? <LinkClipView url={clip.videoUrl} /> : <VideoView player={player} style={{ flex: 1 }} contentFit="contain" nativeControls allowsPictureInPicture={false} />}
+        {!linked && <Pressable
           onPress={() => setMuted((m) => !m)}
           style={styles.sound}
           accessibilityRole="button"
@@ -81,7 +84,7 @@ export function Round({
           hitSlop={8}
         >
           <Text style={{ color: "white", fontSize: 12, fontWeight: "700" }}>{muted ? "🔇 Son coupé" : "🔊 Son"}</Text>
-        </Pressable>
+        </Pressable>}
       </View>
       <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
         <Hud>{clip.game.name} · {Math.round(clip.durationSec)} s</Hud>

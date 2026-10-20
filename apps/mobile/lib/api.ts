@@ -8,6 +8,9 @@ import {
   type ConversationDto,
   type DailyOverviewDto,
   type GlobalMessageDto,
+  type GameChatDto,
+  type GameChatMessageDto,
+  type GameChatScope,
   type LeaderboardGame,
   type FriendRequestsDto,
   type GameDto,
@@ -58,6 +61,8 @@ import {
   type HigherLowerChoice,
   type HigherLowerOverviewDto,
   type HigherLowerRunDto,
+  type ChangePasswordInput,
+  type SessionDto,
 } from "@ranksight/shared";
 
 export const API = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:4000/v1";
@@ -200,7 +205,10 @@ export const api = {
   },
   me: () => request<Me>("/users/me"),
   resendVerification: () => post<{ sent: boolean }>("/auth/email/resend"),
-  changeEmail: (email: string, password: string) => post<{ sent: boolean }>("/auth/email/change", { email, password }),
+  changeEmail: (email: string, password: string) => post<{ sent: boolean; pending?: boolean }>("/auth/email/change", { email, password }),
+  changePassword: (body: ChangePasswordInput) => post<void>("/auth/password/change", body),
+  sessions: () => request<SessionDto[]>("/auth/sessions"),
+  revokeSession: (id: string) => del(`/auth/sessions/${id}`),
   acceptTerms: () => post<void>("/users/me/terms", { accept: true }),
   logoutAll: async () => {
     await post<void>("/auth/logout-all").catch(() => undefined);
@@ -309,6 +317,9 @@ export const api = {
     request<PlayableClipDto & { position: number; rounds: number; endsAt: string; serverNow: string }>(`/rooms/${id}/next`),
   startRoom: (id: string) => post<RoomDto>(`/rooms/${id}/start`),
   leaveRoom: (id: string) => post(`/rooms/${id}/leave`),
+  /** Geste du joueur en salle d'attente (inactivité vérifiée par le serveur) */
+  roomActive: (id: string) => post(`/rooms/${id}/active`),
+  roomInactive: (id: string) => del(`/rooms/${id}/active`),
   inviteToRoom: (id: string, userId: string) => post<{ invited: boolean }>(`/rooms/${id}/invite`, { userId }),
   declineRoomInvite: (id: string) => del(`/rooms/${id}/invite`),
   kickFromRoom: (id: string, userId: string) => post<RoomDto>(`/rooms/${id}/kick/${userId}`),
@@ -359,6 +370,11 @@ export const api = {
   globalMessages: (before?: string) =>
     request<GlobalMessageDto[]>(`/chat/global${before ? `?before=${encodeURIComponent(before)}` : ""}`),
   sendGlobal: (body: string) => post<GlobalMessageDto>("/chat/global", { body }),
+  // Tchat d'un salon ou d'un tournoi
+  gameChat: (scope: GameChatScope, id: string) => request<GameChatDto>(`/chat/game/${scope}/${id}`),
+  sendGameChat: (scope: GameChatScope, id: string, body: string, team = false) => post<GameChatMessageDto>(`/chat/game/${scope}/${id}`, { body, team }),
+  deleteGameChat: (scope: GameChatScope, id: string, messageId: string) => request<void>(`/chat/game/${scope}/${id}/messages/${messageId}`, { method: "DELETE" }),
+  muteInTournament: (tournamentId: string, userId: string, muted: boolean) => post<{ muted: boolean }>(`/chat/game/tournament/${tournamentId}/mute/${userId}`, { muted }),
   deleteGlobal: (id: string) => del(`/chat/global/${id}`),
 };
 

@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { GAME_NAMES, GAME_SLUGS, PLATFORM_LABEL, REGION_LABEL, type Platform, type Region } from "@ranksight/shared";
+import { GAME_NAMES, GAME_SLUGS, PLATFORM_LABEL, REGION_LABEL, type ClipVideoKind, type Platform, type Region } from "@ranksight/shared";
 import { adminFetch, media } from "@/lib/api";
 import { useConfirm } from "@/lib/confirm";
+import { LinkVideo } from "@/components/LinkVideo";
 
 type Status = "PENDING_REVIEW" | "TRIAGED" | "APPROVED" | "REJECTED" | "TODAY" | "SCHEDULED" | "AVAILABLE";
 type ClipRow = {
@@ -17,6 +18,8 @@ type ClipRow = {
 };
 type ClipDetail = ClipRow & {
   previewUrl: string | null; proofUrl: string | null; rankId: string; submitterNote: string | null; rejectionReason: string | null;
+  /** Clip proposé par un lien : lecteur intégré YouTube / Medal et page d'origine */
+  videoKind: ClipVideoKind; linkUrl: string | null;
   game: { ranks: { id: string; name: string }[] } & ClipRow["game"];
 };
 
@@ -229,7 +232,9 @@ export default function ClipsPage() {
 
         {current && (
           <div className="glass space-y-4 p-6">
-            {current.previewUrl
+            {current.previewUrl && current.videoKind !== "FILE"
+              ? <LinkVideo key={current.id} src={current.previewUrl} kind={current.videoKind} pageUrl={current.linkUrl} />
+              : current.previewUrl
               ? <video src={media(current.previewUrl)} controls className="aspect-video w-full rounded-xl bg-black" />
               : <p className="rounded-xl bg-surface-2 p-6 text-center text-sm text-muted">Vidéo supprimée du stockage (clip refusé depuis plus de 14 jours ou supprimé).</p>}
             <div className="grid gap-2 text-sm">

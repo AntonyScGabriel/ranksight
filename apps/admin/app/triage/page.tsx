@@ -7,6 +7,7 @@ import {
 } from "@ranksight/shared";
 import { adminFetch, media, session, type Me } from "@/lib/api";
 import { RankEmblem } from "@/components/RankEmblem";
+import { LinkVideo } from "@/components/LinkVideo";
 
 type Last = { id: string; label: string };
 
@@ -162,7 +163,9 @@ export default function TriagePage() {
       ) : (
         <div className="grid gap-6 xl:grid-cols-[1fr_22rem]">
           <div className="space-y-3">
-            {current.previewUrl ? (
+            {current.previewUrl && current.videoKind !== "FILE" ? (
+              <LinkVideo key={current.id} src={current.previewUrl} kind={current.videoKind} pageUrl={current.linkUrl} />
+            ) : current.previewUrl ? (
               <video key={current.id} src={media(current.previewUrl)} controls autoPlay muted playsInline className="aspect-video w-full rounded-xl bg-black" />
             ) : (
               <p className="rounded-xl bg-surface-2 p-10 text-center text-sm text-muted">Vidéo indisponible.</p>

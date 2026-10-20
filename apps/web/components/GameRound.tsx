@@ -51,7 +51,7 @@ export function GameRound({
           <p className="hud-label">{clip.game.name} · {Math.round(clip.durationSec)} s</p>
           <p className="hud-label">Difficulté {"◆".repeat(clip.difficulty)}{"◇".repeat(5 - clip.difficulty)}</p>
         </div>
-        <ClipPlayer src={media(clip.videoUrl)} poster={clip.posterUrl ? media(clip.posterUrl) : null} onWatched={onWatched} />
+        <ClipPlayer src={media(clip.videoUrl)} poster={clip.posterUrl ? media(clip.posterUrl) : null} onWatched={onWatched} kind={clip.videoKind} durationSec={clip.durationSec} />
         <button
           onClick={() => api.report(clip.id, "WRONG_RANK").then(() => setReported(true), () => setReported(true))}
           disabled={reported}

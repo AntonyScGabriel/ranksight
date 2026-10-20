@@ -130,10 +130,26 @@ export class ModerationService {
       if (!m || m.senderId !== input.targetUserId || m.recipientId !== userId) throw new BadRequestException("Message introuvable.");
       excerpt = m.body;
     }
+    if (input.gameMessageId) {
+      // Tchat d'un salon ou d'un tournoi : seulement par un joueur qui a pu lire ce message (même salon ou tournoi,
+      // même équipe pour un canal d'équipe)
+      const m = await this.prisma.gameChatMessage.findUnique({
+        where: { id: input.gameMessageId },
+        select: {
+          userId: true, body: true, team: true,
+          room: { select: { players: { where: { userId }, select: { team: true } } } },
+          tournament: { select: { hostId: true, players: { where: { userId }, select: { userId: true } } } },
+        },
+      });
+      const seat = m?.room?.players[0];
+      const canRead = m && (seat ? m.team === null || seat.team === m.team : !!m.tournament && (m.tournament.players.length > 0 || m.tournament.hostId === userId));
+      if (!m || !canRead || m.userId !== input.targetUserId) throw new BadRequestException("Message introuvable.");
+      excerpt = m.body;
+    }
     const duplicate = await this.prisma.chatReport.count({
       where: {
         reporterId: userId, targetUserId: input.targetUserId, status: "OPEN",
-        globalMessageId: input.globalMessageId ?? null, directMessageId: input.directMessageId ?? null,
+        globalMessageId: input.globalMessageId ?? null, directMessageId: input.directMessageId ?? null, gameMessageId: input.gameMessageId ?? null,
       },
     });
     if (duplicate) throw new ConflictException("Tu as déjà signalé cela : l'équipe va le traiter.");
@@ -145,6 +161,7 @@ export class ModerationService {
         details: input.details || null,
         globalMessageId: input.globalMessageId ?? null,
         directMessageId: input.directMessageId ?? null,
+        gameMessageId: input.gameMessageId ?? null,
         excerpt,
       },
     });
@@ -183,6 +200,7 @@ export class ModerationService {
           },
           resolver: { select: { displayName: true } },
           globalMessage: { select: { id: true, deletedAt: true } },
+          gameMessage: { select: { id: true, deletedAt: true, roomId: true, tournamentId: true } },
         },
         orderBy: { createdAt: where.status === "OPEN" ? "asc" : "desc" },
         take,
@@ -218,6 +236,10 @@ export class ModerationService {
         data: b.status === "DISMISSED" ? { autoHidden: false, deletedAt: null } : { autoHidden: false, deletedById: actorId },
       });
     }
+    // Message d'un tchat de salon ou de tournoi : retiré (il disparaît à la prochaine lecture du tchat)
+    if (b.deleteMessage && report.gameMessageId) {
+      await this.prisma.gameChatMessage.updateMany({ where: { id: report.gameMessageId, deletedAt: null }, data: { deletedAt: new Date(), deletedById: actorId } });
+    }
     if (b.muteHours) await this.mute(actorId, report.targetUserId, b.muteHours, false);
     if (b.ban) {
       await this.prisma.user.update({ where: { id: report.targetUserId }, data: { status: "BANNED" } });
@@ -231,6 +253,7 @@ export class ModerationService {
           { id },
           ...(report.globalMessageId ? [{ globalMessageId: report.globalMessageId }] : []),
           ...(report.directMessageId ? [{ directMessageId: report.directMessageId }] : []),
+          ...(report.gameMessageId ? [{ gameMessageId: report.gameMessageId }] : []),
         ],
       },
       data: { status: b.status, resolution: b.resolution || null, resolverId: actorId, resolvedAt: new Date() },

@@ -6,9 +6,9 @@ import { randomInt } from "node:crypto";
 import type { Redis } from "ioredis";
 import {
   ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, ROOM_COUNTDOWN_SEC, ROOM_CREATE_VIP_HINT, ROOM_EVENT, ROOM_INVITE_EVENT, ROOM_LOBBY_TTL_MIN, ROOM_MAX_PLAYERS,
-  ROOM_HOST_AWAY_SEC, ROOM_MIN_PLAYERS, ROOM_MODES, ROOM_REVEAL_SEC, ROOM_DEFAULT_ROUNDS, ROOM_DEFAULT_TIME, ROOM_SYSTEM_SLOTS, SUDDEN_DEATH_MAX_ROUNDS, TEAM_NAMES,
+  ROOM_HOST_AWAY_SEC, ROOM_IDLE_KICK_SEC, ROOM_IDLE_WARN_SEC, ROOM_MIN_PLAYERS, ROOM_MODES, ROOM_REVEAL_SEC, ROOM_DEFAULT_ROUNDS, ROOM_DEFAULT_TIME, ROOM_SYSTEM_SLOTS, SUDDEN_DEATH_MAX_ROUNDS, TEAM_NAMES,
   finalPlacements, formatRoomCode, modeSettings, nextSystemGame, pickFinalists, roomClipsNeeded, roomMode, roomRoundSec, roomSystemSlot, suddenDeathOutcome,
-  teamPlacements, teamSuddenDeathEntry, teamTotals, tiedLeaders, IMPOSTOR_MIN_PLAYERS, IMPOSTOR_VOTE_SEC, impostorBonuses, pickImpostor,
+  teamPlacements, teamSuddenDeathEntry, teamTotals, tiedLeaders, ALL_GAMES, IMPOSTOR_MIN_PLAYERS, IMPOSTOR_VOTE_SEC, impostorBonuses, pickImpostor,
   type DecidedBy, type PublicRoomDto, type QuickPlayResultDto, type RoomHistoryDto, type RoomMode,
   type PlayableClipDto, type RoomDto, type RoomInviteDto, type RoomPreviewDto, type RoomRoundDto,
   type RoomSummaryDto, type RoomsOverviewDto,
@@ -24,6 +24,7 @@ import { PlayTokenService } from "../clips/play-token.service.js";
 import { flairSelect, toFlair } from "../cosmetics/flair.js";
 import { PushService } from "../notifications/notifications.module.js";
 import { canHostVipGames, isVip, vipSelect } from "../shop/vip.js";
+import { playableLinkSql, playableLinkWhere } from "../clips/clip-video.js";
 
 type RoomSettings = { visibility: "PUBLIC" | "PRIVATE"; rounds: number; roundSec: number; suddenDeath: boolean; teamSize: number; impostor: boolean };
 
@@ -37,6 +38,10 @@ const LIVE = ["LOBBY", "ACTIVE"] as const;
 const HOST_AWAY_MS = ROOM_HOST_AWAY_SEC * SEC;
 /** Joueur déconnecté depuis plus de 2 min en salle d'attente : retiré du salon (sa place se libère) */
 const PLAYER_AWAY_MS = 120 * SEC;
+/** Salle d'attente : inactivité au-delà de laquelle le serveur retire le joueur (alerte + délai de réponse + 15 s de marge) */
+// Marge plus longue que l'intervalle d'envoi des gestes par l'écran (20 s) : le serveur ne retire jamais un joueur avant
+// la fin de son compte à rebours « Tu es toujours là ? »
+const IDLE_KICK_MS = (ROOM_IDLE_WARN_SEC + ROOM_IDLE_KICK_SEC + 30) * SEC;
 /** Salons par défaut et présence : vérifiés toutes les 5 s (dans la boucle d'une seconde) */
 const SWEEP_MS = 5 * SEC;
 /** Une salle d'attente par défaut n'expire pas (elle attend ses joueurs) ; date lointaine, jamais atteinte en pratique */
@@ -166,7 +171,7 @@ export class RoomsService {
     const room = await this.byCode(userId, code);
     const players = room.players.filter((p) => !p.leftAt);
     return {
-      id: room.id, code: room.code, host: room.host?.displayName ?? null, game: room.game, rounds: room.rounds, roundSec: room.roundSec,
+      id: room.id, code: room.code, host: room.host?.displayName ?? null, game: room.game ?? ALL_GAMES, rounds: room.rounds, roundSec: room.roundSec,
       suddenDeath: room.suddenDeath, teamSize: room.teamSize, impostor: room.impostor, visibility: room.visibility, mode: roomMode(room),
       system: !!room.systemSlot,
       players: players.length, maxPlayers: room.maxPlayers, status: room.status,
@@ -242,6 +247,8 @@ export class RoomsService {
     }
     await tx.roomPlayer.create({ data: { roomId, userId, team } });
     await tx.roomInvite.deleteMany({ where: { roomId, userId } });
+    // Ancien geste d'une visite précédente : ne compte pas (sinon le joueur serait retiré aussitôt revenu)
+    await this.redis.hdel(`room:active:${roomId}`, userId);
     if (!room.host_id) await tx.room.update({ where: { id: roomId }, data: { hostId: userId } });
   }
 
@@ -337,7 +344,7 @@ export class RoomsService {
     });
     return rows
       .map((r) => ({
-        id: r.id, status: r.status, mode: roomMode(r), game: r.game, host: r.host?.displayName ?? null, rounds: r.rounds, roundSec: r.roundSec,
+        id: r.id, status: r.status, mode: roomMode(r), game: r.game ?? ALL_GAMES, host: r.host?.displayName ?? null, rounds: r.rounds, roundSec: r.roundSec,
         suddenDeath: r.suddenDeath, system: !!r.systemSlot, players: r._count.players, maxPlayers: r.maxPlayers,
         joinable: r.status === "LOBBY" && r._count.players < r.maxPlayers, createdAt: r.createdAt.toISOString(),
       }))
@@ -407,11 +414,11 @@ export class RoomsService {
     placement: number | null;
     room: {
       id: string; code: string; status: RoomDto["status"]; visibility: "PUBLIC" | "PRIVATE"; teamSize: number | null; impostor: boolean;
-      game: { slug: string; name: string }; host: { displayName: string } | null; _count: { players: number }; maxPlayers: number; createdAt: Date; finishedAt: Date | null;
+      game: { slug: string; name: string } | null; host: { displayName: string } | null; _count: { players: number }; maxPlayers: number; createdAt: Date; finishedAt: Date | null;
     };
   }): RoomSummaryDto {
     return {
-      id: s.room.id, code: s.room.code, status: s.room.status, visibility: s.room.visibility, mode: roomMode(s.room), game: s.room.game,
+      id: s.room.id, code: s.room.code, status: s.room.status, visibility: s.room.visibility, mode: roomMode(s.room), game: s.room.game ?? ALL_GAMES,
       host: s.room.host?.displayName ?? null, players: s.room._count.players, maxPlayers: s.room.maxPlayers, placement: s.placement,
       createdAt: s.room.createdAt.toISOString(), finishedAt: s.room.finishedAt?.toISOString() ?? null,
     };
@@ -439,7 +446,7 @@ export class RoomsService {
     this.gateway.emitToUser(friendId, ROOM_INVITE_EVENT, { id: roomId });
     await this.push.toUsers([friendId], {
       title: room.visibility === "PRIVATE" ? "Salon privé" : "Salon",
-      body: `${me.displayName} t'invite à jouer sur ${room.game.name} (code ${formatRoomCode(room.code)}).`,
+      body: `${me.displayName} t'invite à jouer sur ${(room.game ?? ALL_GAMES).name} (code ${formatRoomCode(room.code)}).`,
       data: { url: `rooms/join/${room.code}` },
     });
     return { invited: true };
@@ -491,11 +498,28 @@ export class RoomsService {
     return this.detail(userId, roomId);
   }
 
+  /** Geste du joueur en salle d'attente (signalé par son écran) : remet à zéro son inactivité */
+  async markActive(userId: string, roomId: string) {
+    const seat = await this.prisma.roomPlayer.findUnique({ where: { roomId_userId: { roomId, userId } }, select: { leftAt: true, room: { select: { status: true } } } });
+    if (!seat || seat.leftAt || seat.room.status !== "LOBBY") return;
+    const key = `room:active:${roomId}`;
+    await this.redis.multi().hset(key, userId, String(Date.now())).expire(key, 24 * 3600).exec();
+  }
+
+  /**
+   * Le joueur a quitté l'écran du salon sans quitter le salon (autre page du site) : ses gestes ne sont plus signalés,
+   * le serveur ne le retire donc plus pour inactivité (il reste soumis aux règles d'absence habituelles).
+   */
+  async clearActive(userId: string, roomId: string) {
+    await this.redis.hdel(`room:active:${roomId}`, userId);
+  }
+
   /**
    * Quitter : en salle d'attente, le joueur sort du salon ; pendant la partie, il garde ses points mais ne répond plus.
    * Si l'hôte part, le joueur présent arrivé le plus tôt devient hôte (VIP non requis). Sans plus personne : une salle
    * d'attente est supprimée (salon par défaut : il reste ouvert, sans hôte), une partie se termine.
    */
+
   async leave(userId: string, roomId: string) {
     const room = await this.memberRoom(userId, roomId);
     const seat = room.players.find((p) => p.userId === userId);
@@ -578,7 +602,7 @@ export class RoomsService {
    * Pas de vérification VIP ici : le droit a été vérifié à la création du tournoi.
    * Les deux joueurs quittent leurs éventuelles salles d'attente ; les clips ne viennent jamais de l'un d'eux.
    */
-  async createMatch(input: { gameId: string; rounds: number; roundSec: number; createdById: string; players: [string, string] }): Promise<string> {
+  async createMatch(input: { gameId: string | null; rounds: number; roundSec: number; createdById: string; players: [string, string] }): Promise<string> {
     const clipIds = await this.pickClips(input.gameId, input.rounds, input.players);
     const first = await this.prisma.clip.findUniqueOrThrow({ where: { id: clipIds[0]! }, select: { durationSec: true } });
     const startsAt = later(ROOM_COUNTDOWN_SEC * SEC);
@@ -736,16 +760,17 @@ export class RoomsService {
     const rounds = await tx.roomRound.findMany({ where: { roomId }, select: { position: true, clipId: true, altClipId: true, impostorId: true } });
     const target = rounds.find((r) => r.position === index);
     if (!target || target.impostorId) return;
-    const room = await tx.room.findUniqueOrThrow({ where: { id: roomId }, select: { gameId: true, players: { select: { userId: true } } } });
+    const room = await tx.room.findUniqueOrThrow({ where: { id: roomId }, select: { players: { select: { userId: true } } } });
     const used = rounds.flatMap((r) => (r.altClipId ? [r.clipId, r.altClipId] : [r.clipId]));
     const uploaders = room.players.map((p) => p.userId);
-    const [main] = await tx.$queryRaw<{ difficulty: number; rank_order: number }[]>`
-      SELECT c.difficulty, r."order" AS rank_order FROM clips c JOIN ranks r ON r.id = c.rank_id WHERE c.id = ${target.clipId}::uuid`;
+    // Clip de l'intrus : même jeu que le clip de la manche (salon « Tous les jeux » compris)
+    const [main] = await tx.$queryRaw<{ difficulty: number; game_id: string; rank_order: number }[]>`
+      SELECT c.difficulty, c.game_id, r."order" AS rank_order FROM clips c JOIN ranks r ON r.id = c.rank_id WHERE c.id = ${target.clipId}::uuid`;
     if (!main) return;
     const candidates = await tx.$queryRaw<{ id: string; close: boolean }[]>`
       SELECT c.id, abs(c.difficulty - ${main.difficulty}) <= 1 AS close FROM clips c JOIN ranks r ON r.id = c.rank_id
-      WHERE c.status = 'APPROVED' AND c.deleted_at IS NULL AND c.game_id = ${room.gameId}::uuid
-        AND abs(r."order" - ${main.rank_order}) >= 2 AND c.id <> ALL(${used}::uuid[]) AND c.uploader_id <> ALL(${uploaders}::uuid[])
+      WHERE c.status = 'APPROVED' AND c.deleted_at IS NULL AND c.game_id = ${main.game_id}::uuid
+        AND abs(r."order" - ${main.rank_order}) >= 2 AND c.id <> ALL(${used}::uuid[]) AND c.uploader_id <> ALL(${uploaders}::uuid[]) ${playableLinkSql()}
       ORDER BY random() LIMIT 20`;
     const alt = candidates.find((c) => c.close) ?? candidates[0];
     if (!alt) return;
@@ -921,9 +946,9 @@ export class RoomsService {
   ) {
     const used = room.roundList.flatMap((r) => roundClips(r));
     const [clip] = await this.prisma.$queryRaw<{ id: string; duration_sec: number }[]>`
-      SELECT c.id, c.duration_sec FROM clips c
-      WHERE c.status = 'APPROVED' AND c.deleted_at IS NULL AND c.game_id = ${room.gameId}::uuid
-        AND c.uploader_id <> ALL(${everyone}::uuid[]) AND c.id <> ALL(${used}::uuid[])
+      SELECT c.id, c.duration_sec FROM clips c JOIN games g ON g.id = c.game_id
+      WHERE c.status = 'APPROVED' AND c.deleted_at IS NULL AND g.is_active AND (${room.gameId}::uuid IS NULL OR c.game_id = ${room.gameId}::uuid)
+        AND c.uploader_id <> ALL(${everyone}::uuid[]) AND c.id <> ALL(${used}::uuid[]) ${playableLinkSql()}
       ORDER BY random() LIMIT 1`;
     if (!clip) return this.finish(room.id, round, { sharedWinners: tied, finalists: tied, decidedBy: "SHARED" });
     const startsAt = later(ROOM_REVEAL_SEC * SEC);
@@ -1059,7 +1084,7 @@ export class RoomsService {
     });
     const lobbies = new Map<string, string>(); // emplacement → jeu de sa salle d'attente
     for (const o of open) {
-      if (!o._count.players && !playable.get(modeOf(o.systemSlot!))!.has(o.gameId)) {
+      if (!o._count.players && !playable.get(modeOf(o.systemSlot!))!.has(o.gameId!)) {
         // Vide et injouable : supprimée (seulement si toujours vide), l'emplacement est recréé ci-dessous
         const { count } = await this.prisma.room.deleteMany({ where: { id: o.id, status: "LOBBY", players: { none: {} } } });
         if (count) {
@@ -1067,7 +1092,7 @@ export class RoomsService {
           continue;
         }
       }
-      lobbies.set(o.systemSlot!, o.gameId);
+      lobbies.set(o.systemSlot!, o.gameId!); // un salon par défaut a toujours un jeu
     }
     let created = 0;
     for (const s of slots) {
@@ -1091,7 +1116,7 @@ export class RoomsService {
 
   /** Clips acceptés et non supprimés, par jeu */
   private async approvedClipsByGame(): Promise<Map<string, number>> {
-    const rows = await this.prisma.clip.groupBy({ by: ["gameId"], where: { status: "APPROVED", deletedAt: null }, _count: { _all: true } });
+    const rows = await this.prisma.clip.groupBy({ by: ["gameId"], where: { status: "APPROVED", deletedAt: null, ...playableLinkWhere() }, _count: { _all: true } });
     return new Map(rows.map((r) => [r.gameId, r._count._all]));
   }
 
@@ -1109,6 +1134,8 @@ export class RoomsService {
     for (const room of lobbies) {
       const key = `room:away:${room.id}`;
       const away = await this.redis.hgetall(key);
+      const activeKey = `room:active:${room.id}`;
+      const active = await this.redis.hgetall(activeKey);
       const online = new Set<string>();
       for (const p of room.players) {
         if (await this.gateway.isOnline(p.userId)) {
@@ -1120,12 +1147,18 @@ export class RoomsService {
         }
       }
       const since = (id: string) => (online.has(id) ? 0 : now - Number(away[id] ?? now));
-      // Joueurs absents trop longtemps : retirés (comme s'ils avaient quitté), seulement si quelqu'un est encore connecté
-      const gone = room.players.filter((p) => since(p.userId) >= PLAYER_AWAY_MS).map((p) => p.userId);
+      // Inactivité vérifiée par le serveur (en plus de l'alerte de l'écran) : un joueur connecté dont l'écran signale ses
+      // gestes (markActive) et qui n'en a fait aucun depuis l'alerte et son délai de réponse (plus une marge) quitte le
+      // salon, même si son écran ne l'a pas fait. Les écrans qui ne signalent rien (anciennes versions de l'application)
+      // ne sont jamais retirés pour inactivité.
+      const idle = (id: string) => online.has(id) && !!active[id] && now - Number(active[id]) >= IDLE_KICK_MS;
+      // Joueurs absents ou inactifs trop longtemps : retirés (comme s'ils avaient quitté), seulement si quelqu'un est encore connecté
+      const gone = room.players.filter((p) => since(p.userId) >= PLAYER_AWAY_MS || idle(p.userId)).map((p) => p.userId);
       if (gone.length && online.size) {
         for (const id of gone) {
           await this.leave(id, room.id).catch(() => undefined);
           await this.redis.hdel(key, id);
+          await this.redis.hdel(activeKey, id);
         }
         continue;
       }
@@ -1174,7 +1207,7 @@ export class RoomsService {
       vip: canCreate,
       current: current ? summary(current) : null,
       invites: invites.map((i): RoomInviteDto => ({
-        roomId: i.roomId, code: i.room.code, from: i.invitedBy.displayName, game: i.room.game,
+        roomId: i.roomId, code: i.room.code, from: i.invitedBy.displayName, game: i.room.game ?? ALL_GAMES,
         players: i.room._count.players, maxPlayers: i.room.maxPlayers, createdAt: i.createdAt.toISOString(),
       })),
       recent: seats.filter((s) => s.room.status === "FINISHED").slice(0, 10).map(summary),
@@ -1235,7 +1268,7 @@ export class RoomsService {
       id: room.id,
       code: room.code,
       status: room.status,
-      game: room.game,
+      game: room.game ?? ALL_GAMES,
       rounds: room.rounds,
       roundSec: room.roundSec,
       maxPlayers: room.maxPlayers,
@@ -1368,7 +1401,7 @@ export class RoomsService {
 
   /** État temporaire d'un salon retiré ou supprimé (Redis) : joueurs retirés par l'hôte, absences. */
   private async forget(roomId: string) {
-    await this.redis.del(`room:kicked:${roomId}`, `room:away:${roomId}`).catch(() => undefined);
+    await this.redis.del(`room:kicked:${roomId}`, `room:away:${roomId}`, `room:active:${roomId}`).catch(() => undefined);
   }
 
   /** Verrou sur le joueur : deux demandes simultanées ne peuvent pas l'inscrire dans deux salons. */
@@ -1407,11 +1440,12 @@ export class RoomsService {
   }
 
   /** Clips acceptés du jeu choisi, au hasard, jamais proposés par un joueur du salon. */
-  private async pickClips(gameId: string, rounds: number, players: string[], checkOnly = false): Promise<string[]> {
+  /** gameId null (« Tous les jeux ») : clips de tous les jeux actifs */
+  private async pickClips(gameId: string | null, rounds: number, players: string[], checkOnly = false): Promise<string[]> {
     const rows = await this.prisma.$queryRaw<{ id: string }[]>`
-      SELECT c.id FROM clips c
-      WHERE c.status = 'APPROVED' AND c.deleted_at IS NULL AND c.game_id = ${gameId}::uuid
-        AND c.uploader_id <> ALL(${players}::uuid[])
+      SELECT c.id FROM clips c JOIN games g ON g.id = c.game_id
+      WHERE c.status = 'APPROVED' AND c.deleted_at IS NULL AND g.is_active AND (${gameId}::uuid IS NULL OR c.game_id = ${gameId}::uuid)
+        AND c.uploader_id <> ALL(${players}::uuid[]) ${playableLinkSql()}
       ORDER BY random() LIMIT ${rounds}`;
     if (rows.length < rounds) {
       throw new NotFoundException({

@@ -13,9 +13,10 @@ import type { Prisma } from "../../generated/prisma/client.js";
 import { PrismaService } from "../../prisma/prisma.service.js";
 import { canHostVipGames } from "../shop/vip.js";
 import { StorageService } from "../storage/storage.service.js";
+import { clipVideo, playableLinkSql } from "../clips/clip-video.js";
 
 const clipSelect = {
-  id: true, storageKey: true, hlsKey: true, posterKey: true, durationSec: true,
+  id: true, storageKey: true, hlsKey: true, posterKey: true, durationSec: true, linkProvider: true, linkVideoId: true, linkStartSec: true,
   rank: { select: { id: true, name: true, tier: true, division: true, order: true, iconUrl: true, color: true } },
 } as const;
 type ClipRow = Prisma.ClipGetPayload<{ select: typeof clipSelect }>;
@@ -72,7 +73,7 @@ export class HigherLowerService {
       await tx.higherLowerRun.updateMany({ where: { userId, endedAt: null }, data: { endedAt: new Date(), endReason: "ABANDONED", nextClipId: null } });
       const [first] = await tx.$queryRaw<{ id: string; rank_order: number }[]>`
         SELECT c.id, r."order" AS rank_order FROM clips c JOIN ranks r ON r.id = c.rank_id
-        WHERE c.status = 'APPROVED' AND c.deleted_at IS NULL AND c.game_id = ${game.id}::uuid AND c.uploader_id <> ${userId}::uuid
+        WHERE c.status = 'APPROVED' AND c.deleted_at IS NULL AND c.game_id = ${game.id}::uuid AND c.uploader_id <> ${userId}::uuid ${playableLinkSql()}
         ORDER BY random() LIMIT 1`;
       if (!first) throw notEnough();
       const next = await this.pickNext(tx, game.id, userId, first.rank_order, [first.id]);
@@ -136,7 +137,7 @@ export class HigherLowerService {
     const [row] = await tx.$queryRaw<{ id: string }[]>`
       SELECT c.id FROM clips c JOIN ranks r ON r.id = c.rank_id
       WHERE c.status = 'APPROVED' AND c.deleted_at IS NULL AND c.game_id = ${gameId}::uuid AND c.uploader_id <> ${userId}::uuid
-        AND r."order" <> ${currentOrder} AND c.id <> ALL(${used}::uuid[])
+        AND r."order" <> ${currentOrder} AND c.id <> ALL(${used}::uuid[]) ${playableLinkSql()}
       ORDER BY random() LIMIT 1`;
     return row?.id ?? null;
   }
@@ -149,8 +150,7 @@ export class HigherLowerService {
   private async clipView(clip: ClipRow) {
     return {
       id: clip.id,
-      videoUrl: await this.storage.signedReadUrl(clip.hlsKey ?? clip.storageKey),
-      posterUrl: clip.posterKey ? await this.storage.signedReadUrl(clip.posterKey) : null,
+      ...(await clipVideo(this.storage, clip)),
       durationSec: clip.durationSec,
     };
   }

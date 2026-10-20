@@ -6,9 +6,12 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { PrismaService } from "../../prisma/prisma.service.js";
 import { env } from "../../config/env.js";
 import type { AuthUser } from "../../common/decorators/current-user.decorator.js";
+import { describeUserAgent, type SessionDto } from "@ranksight/shared";
 
 /** Repère « sessions fermées à telle date » : tout jeton d'accès émis avant est refusé. */
 export const revokedKey = (userId: string) => `auth:revoked:${userId}`;
+/** Session (appareil) fermée depuis le profil : ses jetons d'accès encore valides sont refusés */
+export const revokedSessionKey = (sid: string) => `auth:revoked-sid:${sid}`;
 
 const sha256 = (v: string) => createHash("sha256").update(v).digest("hex");
 
@@ -85,6 +88,40 @@ export class TokenService {
    * Ferme toutes les sessions d'un compte : refresh tokens révoqués et jetons d'accès déjà émis refusés
    * immédiatement (repère en Redis lu par JwtAuthGuard), sans attendre leur expiration.
    */
+  /** Appareils connectés : une session par famille de jetons encore valide (le dernier jeton émis est le seul actif) */
+  async sessions(userId: string, currentSid: string | undefined): Promise<SessionDto[]> {
+    const live = await this.prisma.refreshToken.findMany({
+      where: { userId, revokedAt: null, expiresAt: { gt: new Date() } },
+      select: { familyId: true, userAgent: true, createdAt: true },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    });
+    const families = [...new Map(live.map((t) => [t.familyId, t])).values()];
+    const first = await this.prisma.refreshToken.groupBy({
+      by: ["familyId"],
+      where: { familyId: { in: families.map((f) => f.familyId) } },
+      _min: { createdAt: true },
+    });
+    return families
+      .map((t) => ({
+        id: t.familyId,
+        device: describeUserAgent(t.userAgent),
+        createdAt: (first.find((f) => f.familyId === t.familyId)?._min.createdAt ?? t.createdAt).toISOString(),
+        lastActiveAt: t.createdAt.toISOString(),
+        current: t.familyId === currentSid,
+      }))
+      .sort((a, b) => Number(b.current) - Number(a.current) || b.lastActiveAt.localeCompare(a.lastActiveAt));
+  }
+
+  /** Ferme une session (un appareil) du compte ; false si elle n'existe pas ou n'est plus active */
+  async revokeSession(userId: string, familyId: string): Promise<boolean> {
+    const { count } = await this.prisma.refreshToken.updateMany({ where: { userId, familyId, revokedAt: null }, data: { revokedAt: new Date() } });
+    if (!count) return false;
+    // Jeton d'accès de cet appareil (15 minutes au plus) refusé tout de suite
+    await this.redis.set(revokedSessionKey(familyId), "1", "EX", 3600);
+    return true;
+  }
+
   async revokeAll(userId: string) {
     await this.prisma.refreshToken.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });
     await this.redis.set(revokedKey(userId), String(Date.now()), "EX", 86_400);

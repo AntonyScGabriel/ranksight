@@ -5,8 +5,8 @@ import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { io, type Socket } from "socket.io-client";
 import {
-  CHAT_EVENTS, GLOBAL_CHAT_EVENTS, ROOM_EVENT, ROOM_INVITE_EVENT, TOURNAMENT_EVENT, VERSUS_EVENT, formatRoomCode,
-  type ChatMessageDto, type GlobalMessageDto, type RoomInviteDto, type VersusMatchDto,
+  CHAT_EVENTS, GAME_CHAT_EVENT, GLOBAL_CHAT_EVENTS, ROOM_EVENT, ROOM_INVITE_EVENT, TOURNAMENT_EVENT, VERSUS_EVENT, formatRoomCode,
+  type ChatMessageDto, type GameChatEvent, type GlobalMessageDto, type RoomInviteDto, type VersusMatchDto,
 } from "@ranksight/shared";
 import { api, WS_URL } from "./api";
 import { useSession } from "./session";
@@ -38,6 +38,8 @@ interface ChatValue {
   onTournament: (fn: Listener<{ id: string }>) => () => void;
   /** Connexion temps réel (re)établie, après une coupure par exemple : l'écran relit son état sur le serveur */
   onConnect: (fn: () => void) => () => void;
+  /** Nouveau message du tchat d'un salon ou d'un tournoi du joueur */
+  onGameChat: (fn: Listener<GameChatEvent>) => () => void;
 }
 
 type GlobalHandlers = Parameters<ChatValue["joinGlobal"]>[0];
@@ -45,7 +47,7 @@ type GlobalHandlers = Parameters<ChatValue["joinGlobal"]>[0];
 const noop = () => () => {};
 const ChatContext = createContext<ChatValue>({
   unread: 0, refreshUnread: () => {}, onMessage: noop, onTyping: noop, sendTyping: () => {}, joinGlobal: noop, onVersus: noop, versusPending: 0,
-  onRoom: noop, roomInvites: 0, onTournament: noop, onConnect: noop,
+  onRoom: noop, roomInvites: 0, onTournament: noop, onConnect: noop, onGameChat: noop,
 });
 
 /**
@@ -88,6 +90,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const roomListeners = useRef(new Set<Listener<{ id: string }>>());
   const connectListeners = useRef(new Set<() => void>());
   const tournamentListeners = useRef(new Set<Listener<{ id: string }>>());
+  const gameChatListeners = useRef(new Set<Listener<GameChatEvent>>());
   const [roomInvites, setRoomInvites] = useState(0);
   // Invitation dans un salon : bandeau « Voir le salon » sur toutes les pages
   const [roomInvite, setRoomInvite] = useState<RoomInviteDto | null>(null);
@@ -131,6 +134,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     });
     s.on(ROOM_EVENT, (e: { id: string }) => roomListeners.current.forEach((fn) => fn(e)));
     s.on(TOURNAMENT_EVENT, (e: { id: string }) => tournamentListeners.current.forEach((fn) => fn(e)));
+    s.on(GAME_CHAT_EVENT, (e: GameChatEvent) => gameChatListeners.current.forEach((fn) => fn(e)));
     s.on(ROOM_INVITE_EVENT, (e: { id: string }) => {
       roomListeners.current.forEach((fn) => fn(e));
       refreshRooms();
@@ -196,6 +200,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  const onGameChat = useCallback((fn: Listener<GameChatEvent>) => {
+    gameChatListeners.current.add(fn);
+    return () => {
+      gameChatListeners.current.delete(fn);
+    };
+  }, []);
+
   const joinGlobal = useCallback((handlers: GlobalHandlers) => {
     globalHandlers.current.add(handlers);
     if (socketRef.current?.connected) socketRef.current.emit(GLOBAL_CHAT_EVENTS.join);
@@ -206,7 +217,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <ChatContext.Provider value={{ unread: me ? unread : 0, refreshUnread, onMessage, onTyping, sendTyping, joinGlobal, onVersus, versusPending: me ? versusPending : 0, onRoom, roomInvites: me ? roomInvites : 0, onTournament, onConnect }}>
+    <ChatContext.Provider value={{ unread: me ? unread : 0, refreshUnread, onMessage, onTyping, sendTyping, joinGlobal, onVersus, versusPending: me ? versusPending : 0, onRoom, roomInvites: me ? roomInvites : 0, onTournament, onConnect, onGameChat }}>
       {children}
       {invite && (
         <div role="alert" className="glass animate-rise fixed bottom-20 left-4 right-4 z-50 flex items-center gap-3 p-4 shadow-2xl sm:left-auto sm:max-w-sm md:bottom-6">

@@ -10,6 +10,7 @@ import { PrismaService } from "../../prisma/prisma.service.js";
 import { AdminService } from "./admin.service.js";
 import { PlayerHistoryService } from "./player-history.service.js";
 import { MfaService } from "../auth/mfa.service.js";
+import { AuthService } from "../auth/auth.service.js";
 import {
   AchievementBody, ConfirmTriageBody, CreateClipBody, ResetStatsBody, ResolveReportBody, ReviewClipBody, ScheduleDailyBody, UpdateUserBody,
   UploadUrlBody,
@@ -25,6 +26,7 @@ export class AdminController {
   constructor(
     private readonly admin: AdminService,
     private readonly mfa: MfaService,
+    private readonly auth: AuthService,
     private readonly history: PlayerHistoryService,
     private readonly prisma: PrismaService,
   ) {}
@@ -109,6 +111,16 @@ export class AdminController {
   @Roles("ADMIN") @Post("users/:id/verify-email") @HttpCode(204)
   async verifyEmail(@CurrentUser() u: AuthUser, @Param("id", ParseUUIDPipe) id: string) {
     await this.admin.verifyEmail(u.sub, id);
+  }
+
+  /** POST /v1/admin/users/:id/password-reset — envoie le lien « Mot de passe oublié » au joueur (il n'a pas reçu le sien) */
+  @Roles("ADMIN") @Post("users/:id/password-reset")
+  @HttpCode(200)
+  async sendPasswordReset(@CurrentUser() u: AuthUser, @Param("id", ParseUUIDPipe) id: string) {
+    await this.admin.assertManageable(u.sub, id);
+    const sent = await this.auth.sendPasswordResetFor(id);
+    if (sent) await this.admin.logAction(u.sub, "user.password_reset_sent", id);
+    return { sent };
   }
 
   /** Téléphone perdu : retire la double authentification d'un compte (fondateur) */

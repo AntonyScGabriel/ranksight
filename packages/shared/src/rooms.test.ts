@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { CreateRoomInput, JoinRoomInput, ROOM_CODE_ALPHABET, formatRoomCode, normalizeRoomCode, placements, roomRoundSec } from "./rooms.js";
+import { CreateRoomInput, JoinRoomInput, ROOM_CODE_ALPHABET, formatRoomCode, normalizeRoomCode, placements, roomIdleState, roomRoundSec } from "./rooms.js";
 
 test("code de salon : saisie souple, caractères ambigus refusés", () => {
   assert.equal(normalizeRoomCode("k7qm-2xpa"), "K7QM2XPA");
@@ -137,4 +137,12 @@ test("hôte perdu pendant une absence : message seulement si un autre joueur a v
   assert.equal(hostLostNotice(before, lobby(false, [{ ...bob, isHost: true }]), "me"), null, "plus dans la liste des joueurs");
   // Personne d'autre n'est hôte (salon par défaut sans hôte) : rien à annoncer
   assert.equal(hostLostNotice(before, lobby(false, [{ ...me, isHost: false }, bob]), "me"), null);
+});
+
+test("inactivité en salle d'attente : alerte après 3 min, départ 30 s plus tard sans réponse", () => {
+  const t0 = 1_000_000;
+  assert.deepEqual(roomIdleState(t0, t0 + 179_000), { phase: "active" });
+  assert.deepEqual(roomIdleState(t0, t0 + 180_000), { phase: "warning", secondsLeft: 30 });
+  assert.deepEqual(roomIdleState(t0, t0 + 195_500), { phase: "warning", secondsLeft: 15 });
+  assert.deepEqual(roomIdleState(t0, t0 + 210_000), { phase: "kick" });
 });

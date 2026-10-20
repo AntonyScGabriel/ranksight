@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AppState, Platform, Pressable, ScrollView, Share, Text, View } from "react-native";
+import { AppState, Platform, Pressable, Share, Text, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import {
-  STAGE_NAME, TOURNAMENT_DECIDED_BY_LABEL, TOURNAMENT_MIN_PLAYERS, TOURNAMENT_RULES, TOURNAMENT_STATUS_LABEL, formatRoomCode, stageCount,
+  STAGE_NAME, TOURNAMENT_DECIDED_BY_LABEL, TOURNAMENT_MIN_PLAYERS, TOURNAMENT_RULES, TOURNAMENT_STATUS_LABEL, tournamentRewardLabel, formatRoomCode, stageCount,
   type TournamentDecidedBy, type TournamentDto, type TournamentMatchDto, type TournamentPlayerDto,
 } from "@ranksight/shared";
 import { api, ApiError, WEB_URL } from "@/lib/api";
@@ -11,6 +11,8 @@ import { useConfirm } from "@/lib/confirm";
 import { useSession } from "@/lib/session";
 import { colors, font } from "@/lib/theme";
 import { errorMessage } from "@/components/AuthUi";
+import { GameChat } from "@/components/GameChat";
+import { KeyboardScroll } from "@/components/Keyboard";
 import { Avatar, Card, GhostButton, Hud, Loading, LoginRequired, Message, Muted, PrimaryButton } from "@/components/ui";
 
 /** Tournoi : inscriptions (code), match du joueur (« Je suis prêt »), tableau par tour, classement final. */
@@ -96,27 +98,32 @@ export default function TournamentScreen() {
   if (!t) return <Loading />;
 
   const name = (uid: string | null) => (uid ? (uid === me.id ? "Toi" : t.players.find((p) => p.id === uid)?.displayName ?? "?") : null);
-  const meP = t.players.find((p) => p.id === me.id)!;
+  const meP = t.players.find((p) => p.id === me.id);
+  const reward = tournamentRewardLabel(t.reward);
   const code = formatRoomCode(t.code);
 
   return (
-    <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 40 }}>
+    <KeyboardScroll contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 40 }}>
       <Card style={{ gap: 6 }}>
         <Hud>{TOURNAMENT_STATUS_LABEL[t.status]}</Hud>
-        <Text style={{ color: colors.ink, fontSize: 20, fontWeight: "700" }}>Tournoi · {t.game.name}</Text>
-        <Muted>{t.rounds} manches par match · {t.roundSec} s par manche · {t.players.length}/{t.capacity} joueurs</Muted>
+        <Text style={{ color: colors.ink, fontSize: 20, fontWeight: "700" }}>{t.isEvent ? t.title : "Tournoi"} · {t.game.name}</Text>
+        <Muted>{t.isEvent ? "Événement RankGuess · " : ""}{t.rounds} manches par match · {t.roundSec} s par manche · {t.players.length}/{t.capacity} joueurs</Muted>
+        {reward && <Text style={{ color: colors.warn, fontWeight: "700" }}>🏆 Récompense du vainqueur : {reward}</Text>}
+        {t.status === "LOBBY" && !t.member && (
+          <PrimaryButton label={t.players.length >= t.capacity ? "Complet" : "S'inscrire gratuitement"} disabled={t.players.length >= t.capacity} onPress={() => act(() => api.joinTournament(t.code))} />
+        )}
       </Card>
       {error && <Text style={{ color: colors.danger, textAlign: "center" }}>{error}</Text>}
 
       {t.status === "LOBBY" && (
         <>
-          <Card style={{ alignItems: "center", gap: 8 }}>
+          {t.member && <Card style={{ alignItems: "center", gap: 8 }}>
             <Hud>Code du tournoi</Hud>
             <Text selectable style={{ color: colors.neon, fontSize: 32, fontWeight: "700", letterSpacing: 5 }}>{code}</Text>
             <View style={{ alignSelf: "stretch" }}>
               <GhostButton label="Partager l'invitation" onPress={() => void Share.share({ message: `Inscris-toi à mon tournoi RankGuess sur ${t.game.name} : code ${code}\n${WEB_URL}/tournaments/join/${code}` })} />
             </View>
-          </Card>
+          </Card>}
           <Card style={{ gap: 10 }}>
             <Text style={{ color: colors.ink, fontSize: 17, fontWeight: "700" }}>Inscrits</Text>
             {t.players.map((p) => (
@@ -125,7 +132,13 @@ export default function TournamentScreen() {
                 <PlayerName p={p} meId={me.id} />
               </View>
             ))}
-            {t.isHost ? (
+            {t.isEvent ? (
+              <Muted center>
+                {t.startsAt
+                  ? `Début prévu le ${new Date(t.startsAt).toLocaleString("fr-FR", { dateStyle: "full", timeStyle: "short" })} : le tournoi se lancera tout seul (3 inscrits au moins). Rappel 10 minutes avant.`
+                  : "Le tournoi sera lancé par l'équipe RankGuess. Il ne démarre jamais tout seul, même quand il y a assez d'inscrits."}
+              </Muted>
+            ) : t.isHost ? (
               <>
                 <PrimaryButton label="Lancer le tournoi" disabled={!t.canStart} onPress={() => act(() => api.startTournament(id))} />
                 {!t.canStart && <Muted center>Il faut au moins {TOURNAMENT_MIN_PLAYERS} inscrits pour lancer le tournoi.</Muted>}
@@ -150,7 +163,9 @@ export default function TournamentScreen() {
         </>
       )}
 
-      {t.status === "ACTIVE" && <MyMatch t={t} match={myMatch} me={meP} now={now} name={name} onReady={() => act(() => api.readyForMatch(id))} />}
+      {t.status === "ACTIVE" && meP && <MyMatch t={t} match={myMatch} me={meP} now={now} name={name} onReady={() => act(() => api.readyForMatch(id))} />}
+      {/* Tchat de tous les inscrits jusqu'à la fin du tournoi */}
+      {(t.member || t.isHost) && (t.status === "LOBBY" || t.status === "ACTIVE") && <GameChat scope="tournament" id={t.id} meId={me.id} mutedIds={t.players.filter((p) => p.chatMuted).map((p) => p.id)} onModerated={load} />}
       {t.status === "FINISHED" && <Standings t={t} meId={me.id} />}
       {t.status === "CLOSED" && <Message title="Tournoi fermé" text="Ce tournoi a été fermé avant son lancement." />}
       {t.bracketSize && <Bracket t={t} name={name} meId={me.id} />}
@@ -162,7 +177,7 @@ export default function TournamentScreen() {
         </Card>
       )}
 
-      {(t.status === "LOBBY" || t.status === "ACTIVE") && !t.left && (
+      {t.member && (t.status === "LOBBY" || t.status === "ACTIVE") && !t.left && (
         <GhostButton
           label="Quitter le tournoi"
           danger
@@ -171,9 +186,9 @@ export default function TournamentScreen() {
               title: "Quitter le tournoi ?",
               message: t.status === "ACTIVE"
                 ? "Tu perdras ton match en cours ou à venir par forfait."
-                : t.isHost
-                  ? "L'organisation passera à un inscrit VIP. S'il n'y en a aucun, le tournoi restera en attente : un joueur VIP inscrit pourra reprendre l'organisation."
-                  : "Tu pourras te réinscrire avec le code tant que le tournoi n'a pas commencé.",
+                : t.isHost && !t.isEvent
+                  ? "Tu ne seras plus l'organisateur : c'est un autre inscrit VIP qui pourra lancer le tournoi. Si aucun inscrit n'est VIP, le tournoi reste en attente sans organisateur, jusqu'à ce qu'un joueur devenu VIP le reprenne ou qu'il se ferme au bout de 2 heures. Tu ne pourras pas créer d'autre tournoi tant que celui-ci est en attente."
+                  : t.isEvent ? "Tu pourras te réinscrire tant que l'événement n'a pas commencé." : "Tu pourras te réinscrire avec le code tant que le tournoi n'a pas commencé.",
               confirmLabel: "Quitter",
               danger: true,
             });
@@ -185,7 +200,7 @@ export default function TournamentScreen() {
           }}
         />
       )}
-    </ScrollView>
+    </KeyboardScroll>
   );
 }
 

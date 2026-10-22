@@ -33,19 +33,19 @@
     "expo-status-bar": "~57.0.1",
     "expo-video": "~57.0.5",
     "expo-web-browser": "~57.0.3",
-    "react": "19.2.3",
-    "react-native": "0.86.3",
-    "react-native-keyboard-controller": "1.21.9",
-    "react-native-reanimated": "~4.5.1",
-    "react-native-safe-area-context": "~5.7.0",
-    "react-native-screens": "~4.26.0",
-    "react-native-svg": "15.15.4",
+    "react": "19.3.1",
+    "react-native": "0.88.0",
+    "react-native-keyboard-controller": "1.22.8",
+    "react-native-reanimated": "~4.7.1",
+    "react-native-safe-area-context": "~5.10.1",
+    "react-native-screens": "~4.30.0",
+    "react-native-svg": "15.16.0",
     "react-native-webview": "13.16.1",
-    "react-native-worklets": "0.10.1",
+    "react-native-worklets": "0.13.0",
     "socket.io-client": "^4.8.4"
   },
   "devDependencies": {
-    "@types/react": "~19.2.18",
+    "@types/react": "~19.3.0",
     "typescript": "~5.9.3"
   }
 }

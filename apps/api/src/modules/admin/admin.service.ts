@@ -101,12 +101,10 @@ export class AdminService {
     if (!(await this.storage.exists(b.storageKey))) throw new BadRequestException("La vidéo n'a pas été reçue. Réessaie l'envoi.");
     if (b.posterKey && !KEY_PATTERN.test(b.posterKey)) throw new BadRequestException("Image d'aperçu invalide.");
     // Un clip ajouté par la modération est publié directement
-    const { promoConsent, ...data } = b;
     const clip = await this.prisma.clip.create({
-      data: { ...data, uploaderId: actorId, source: "ADMIN", status: "APPROVED", reviewerId: actorId, reviewedAt: new Date() },
+      data: { ...b, uploaderId: actorId, source: "ADMIN", status: "APPROVED", reviewerId: actorId, reviewedAt: new Date() },
     });
     await this.audit.log(actorId, "clip.create", "clip", clip.id);
-    if (promoConsent) await this.promo.setStaffConsent(actorId, clip.id, true);
     void this.processing.enqueue(clip.id);
     return clip;
   }
@@ -207,6 +205,8 @@ export class AdminService {
       where: { id },
       data: { ...data, reviewer: { connect: { id: actorId } }, reviewedAt: new Date() },
     });
+    // Clip refusé : l'accord de promotion prend fin (plus d'utilisation, vidéos publiées à retirer)
+    if (b.decision === "REJECT") await this.promo.endConsent(id, null, "clip refusé par la modération");
     await this.audit.log(
       actorId,
       `clip.${b.decision.toLowerCase()}`,
@@ -318,6 +318,7 @@ export class AdminService {
     if (clip.status !== "APPROVED") throw new BadRequestException("Seul un clip accepté peut être retiré de la publication.");
     await this.prisma.dailyChallenge.deleteMany({ where: { clipId: id, guesses: { none: {} } } });
     const updated = await this.prisma.clip.update({ where: { id }, data: { status: "PENDING_REVIEW", reviewedAt: null } });
+    await this.promo.endConsent(id, null, "clip retiré de la publication");
     await this.audit.log(actorId, "clip.unpublish", "clip", id);
     return updated;
   }

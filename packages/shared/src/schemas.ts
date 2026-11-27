@@ -474,6 +474,8 @@ export const MyClipDto = z.object({
   linkUrl: z.string().nullable().default(null),
   /** Accord à la promotion sur les réseaux sociaux ; null : option non proposée (clip à lien, ou fonction désactivée) */
   promoConsent: z.boolean().nullable().default(null),
+  /** Vérification du clip par l'équipe avant toute vidéo promotionnelle (null : option non proposée) */
+  promoReview: z.enum(["PENDING", "APPROVED", "REJECTED"]).nullable().default(null),
 });
 export type MyClipDto = z.infer<typeof MyClipDto>;
 
@@ -481,9 +483,16 @@ export type MyClipDto = z.infer<typeof MyClipDto>;
 
 /** Version des conditions de promotion acceptées (enregistrée avec chaque accord ou retrait) */
 export const PROMO_TERMS_VERSION = "promo-2026-12";
+/** Réseaux couverts par l'accord : publications organiques des comptes officiels RankSight uniquement */
+export const PROMO_PLATFORMS = ["TIKTOK", "YOUTUBE_SHORTS", "INSTAGRAM_REELS"] as const;
+export const PromoPlatform = z.enum(PROMO_PLATFORMS);
+export type PromoPlatform = z.infer<typeof PromoPlatform>;
+/** Délai annoncé pour supprimer des comptes officiels une vidéo dont l'accord a été retiré */
+export const PROMO_REMOVAL_DAYS = 30;
 export const PROMO_CONSENT_LABEL =
-  "J'accepte que RankSight reprenne ce clip dans ses vidéos publiées sur les réseaux sociaux (TikTok, YouTube Shorts, Instagram), " +
-  "avec son jeu et son rang. Mon pseudo n'apparaît jamais. Je peux retirer cet accord à tout moment depuis « Mes clips ».";
+  "J'accepte que RankSight reprenne ce clip dans des vidéos publiées sur ses comptes officiels TikTok, YouTube Shorts et " +
+  "Instagram Reels (publications non sponsorisées), avec le jeu et le rang. Mes pseudos n'apparaissent pas. Je peux retirer " +
+  "cet accord à tout moment depuis « Mes clips » : le clip n'est plus utilisé et les vidéos publiées sont retirées sous 30 jours.";
 export const PromoConsentInput = z.object({ consent: z.boolean() });
 export type PromoConsentInput = z.infer<typeof PromoConsentInput>;
 

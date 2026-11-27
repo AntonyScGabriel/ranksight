@@ -26,8 +26,12 @@ export default function MyClipsPage() {
 
   const togglePromo = async (clip: MyClipDto, consent: boolean) => {
     try {
-      await api.setPromoConsent(clip.id, consent);
-      setNotice(consent ? "Accord de promotion enregistré." : "Accord de promotion retiré : le clip ne sera plus utilisé dans de nouvelles vidéos.");
+      const r = await api.setPromoConsent(clip.id, consent);
+      setNotice(
+        consent
+          ? "Accord de promotion enregistré."
+          : `Accord retiré : le clip ne sera plus utilisé.${r.removalRequests ? ` ${r.removalRequests} vidéo(s) publiée(s) seront retirées sous 30 jours.` : ""}`,
+      );
       load();
     } catch (err) {
       setNotice(errorMessage(err));
@@ -118,9 +122,18 @@ export default function MyClipsPage() {
                   <label className="flex items-start gap-2 rounded-lg bg-white/5 p-3 text-xs text-muted">
                     <input type="checkbox" checked={c.promoConsent} onChange={(e) => togglePromo(c, e.target.checked)} className="mt-0.5" />
                     <span>
-                      {c.promoConsent
-                        ? "Tu as accepté que ce clip apparaisse dans les vidéos RankSight sur les réseaux sociaux. Décoche pour retirer ton accord : il ne sera plus jamais utilisé dans une nouvelle vidéo."
-                        : "Facultatif : accepter que ce clip apparaisse dans les vidéos RankSight sur les réseaux sociaux (jeu et rang affichés, jamais ton pseudo)."}
+                      {c.promoConsent ? (
+                        <>
+                          <span className="font-semibold text-ink">Autorisé dans les vidéos RankSight</span> (TikTok, YouTube Shorts, Instagram Reels,
+                          publications non sponsorisées des comptes officiels).
+                          {c.promoReview === "PENDING" && " L'équipe doit encore vérifier le clip avant toute vidéo."}
+                          {c.promoReview === "REJECTED" && " L'équipe n'a pas retenu ce clip : il ne sera pas utilisé."}
+                          {" "}Décoche pour retirer ton accord : le clip n&apos;est plus jamais utilisé, les vidéos en préparation sont abandonnées et
+                          celles déjà publiées sont retirées des comptes RankSight sous 30 jours (les copies faites par d&apos;autres ne peuvent pas être garanties).
+                        </>
+                      ) : (
+                        "Facultatif : accepter que ce clip apparaisse dans les vidéos RankSight sur TikTok, YouTube Shorts et Instagram Reels (jeu et rang affichés, jamais tes pseudos, jamais de publicité payante)."
+                      )}
                     </span>
                   </label>
                 )}

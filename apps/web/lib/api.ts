@@ -212,7 +212,7 @@ export const api = {
   myClips: () => request<MyClipDto[]>("/clips/mine"),
   withdrawClip: (id: string) => del(`/clips/mine/${id}`),
   promoTerms: () => request<{ enabled: boolean; version: string; label: string }>("/clips/promo-terms"),
-  setPromoConsent: (id: string, consent: boolean) => post<{ promoConsent: boolean }>(`/clips/mine/${id}/promo-consent`, { consent }),
+  setPromoConsent: (id: string, consent: boolean) => post<{ promoConsent: boolean; removalRequests: number }>(`/clips/mine/${id}/promo-consent`, { consent }),
   // Suggestions
   suggest: (body: SuggestionInput) => post<SuggestionDto>("/suggestions", body),
   mySuggestions: () => request<SuggestionDto[]>("/suggestions/me"),

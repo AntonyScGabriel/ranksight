@@ -79,7 +79,7 @@ export class SubmissionsService {
     });
     // Accord facultatif à la promotion : seulement si la fonction est ouverte et pour un fichier (jamais un lien)
     if (input.promoConsent && !link && this.promo.consentEnabled) {
-      clip.promoConsentAt = await this.promo.setConsent(clip.id, userId, true);
+      clip.promoConsentAt = await this.promo.grant(clip.id, userId);
     }
     // Compression en arrière-plan (720p) ; le joueur n'attend pas
     if (!link) void this.processing.enqueue(clip.id);
@@ -125,7 +125,7 @@ export class SubmissionsService {
     id: string; status: ClipStatus; rejectionReason: string | null;
     inGamePseudo: string | null; platform: string | null; region: string | null; timesPlayed: number; createdAt: Date; reviewedAt: Date | null; storageKey: string; fileDeletedAt: Date | null;
     durationSec: number; linkProvider: ClipLinkProvider | null; linkVideoId: string | null; linkStartSec: number | null;
-    promoConsentAt: Date | null;
+    promoConsentAt: Date | null; promoReviewStatus: "PENDING" | "APPROVED" | "REJECTED"; source: "ADMIN" | "COMMUNITY";
     game: { slug: string; name: string }; rank: { name: string; color: string };
   }): Promise<MyClipDto> {
     const status = submissionStatus(c.status);
@@ -144,7 +144,8 @@ export class SubmissionsService {
       // Vidéo d'un clip refusé depuis plus de 14 jours : supprimée du stockage (un clip à lien reste lisible)
       ...(c.fileDeletedAt && !c.linkProvider ? { previewUrl: null, videoKind: "FILE" as const } : await this.preview(c)),
       linkUrl: clipLinkUrl(c),
-      promoConsent: this.promo.consentEnabled && !c.linkProvider ? !!c.promoConsentAt : null,
+      promoConsent: this.promo.consentEnabled && !c.linkProvider && c.source === "COMMUNITY" ? !!c.promoConsentAt : null,
+      promoReview: this.promo.consentEnabled && !c.linkProvider && c.source === "COMMUNITY" ? c.promoReviewStatus : null,
     };
   }
 }

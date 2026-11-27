@@ -19,8 +19,6 @@ export const CreateClipBody = z.object({
   platform: Platform.optional(),
   region: Region.optional(),
   creatorConsent: z.literal(true, { message: "Le consentement du créateur est obligatoire" }),
-  /** L'auteur a aussi accepté la reprise dans les vidéos RankSight sur les réseaux sociaux (facultatif) */
-  promoConsent: z.boolean().optional(),
 });
 
 export const ReviewClipBody = z.discriminatedUnion("decision", [

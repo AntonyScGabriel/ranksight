@@ -61,7 +61,8 @@ jobs:
   # Tests d'interface du site (Playwright, Chromium) : parcours Duels, Salons, VIP, joueurs gratuits, fin de partie,
   # transfert d'hôte. Site (next start) et API démarrés sur la base de la CI.
   e2e-web:
-    runs-on: ubuntu-latest
+    # Version d'Ubuntu fixée : Playwright 1.56 ne sait pas installer Chromium et ses dépendances sur ubuntu-latest (26.04)
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:17-alpine

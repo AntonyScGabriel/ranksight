@@ -440,6 +440,8 @@ export const SubmitClipInput = z.object({
   proofUrl: z.string().url().max(500).optional(),
   note: z.string().max(300).optional(),
   ownsRights: z.literal(true, { message: "Tu dois être l'auteur du clip ou avoir l'accord de son auteur." }),
+  /** Accord facultatif à la reprise du clip dans les vidéos RankSight sur les réseaux sociaux (décoché par défaut) */
+  promoConsent: z.boolean().optional(),
 }).refine((c) => !!c.storageKey !== !!c.link, { message: "Envoie un fichier vidéo ou un lien YouTube / Medal.", path: ["link"] })
   .refine((c) => !c.link || parseClipLink(c.link), { message: "Seuls les liens YouTube et Medal sont acceptés.", path: ["link"] });
 export type SubmitClipInput = z.infer<typeof SubmitClipInput>;
@@ -470,8 +472,20 @@ export const MyClipDto = z.object({
   /** Même sens que PlayableClipDto.videoKind ; linkUrl : page YouTube / Medal d'origine d'un clip proposé par un lien */
   videoKind: ClipVideoKind.default("FILE"),
   linkUrl: z.string().nullable().default(null),
+  /** Accord à la promotion sur les réseaux sociaux ; null : option non proposée (clip à lien, ou fonction désactivée) */
+  promoConsent: z.boolean().nullable().default(null),
 });
 export type MyClipDto = z.infer<typeof MyClipDto>;
+
+// ---------- Promotion sur les réseaux sociaux ----------
+
+/** Version des conditions de promotion acceptées (enregistrée avec chaque accord ou retrait) */
+export const PROMO_TERMS_VERSION = "promo-2026-12";
+export const PROMO_CONSENT_LABEL =
+  "J'accepte que RankSight reprenne ce clip dans ses vidéos publiées sur les réseaux sociaux (TikTok, YouTube Shorts, Instagram), " +
+  "avec son jeu et son rang. Mon pseudo n'apparaît jamais. Je peux retirer cet accord à tout moment depuis « Mes clips ».";
+export const PromoConsentInput = z.object({ consent: z.boolean() });
+export type PromoConsentInput = z.infer<typeof PromoConsentInput>;
 
 // ---------- Amis ----------
 

@@ -1,3 +1,4 @@
+import { PromoService } from "../promo/promo.service.js";
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import type { z } from "zod";
 import { PrismaService } from "../../prisma/prisma.service.js";
@@ -30,6 +31,7 @@ export class AdminService {
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
     private readonly audit: AuditService,
+    private readonly promo: PromoService,
     private readonly achievements: AchievementEngine,
     private readonly removal: ClipRemovalService,
     private readonly clips: ClipsService,
@@ -99,10 +101,12 @@ export class AdminService {
     if (!(await this.storage.exists(b.storageKey))) throw new BadRequestException("La vidéo n'a pas été reçue. Réessaie l'envoi.");
     if (b.posterKey && !KEY_PATTERN.test(b.posterKey)) throw new BadRequestException("Image d'aperçu invalide.");
     // Un clip ajouté par la modération est publié directement
+    const { promoConsent, ...data } = b;
     const clip = await this.prisma.clip.create({
-      data: { ...b, uploaderId: actorId, source: "ADMIN", status: "APPROVED", reviewerId: actorId, reviewedAt: new Date() },
+      data: { ...data, uploaderId: actorId, source: "ADMIN", status: "APPROVED", reviewerId: actorId, reviewedAt: new Date() },
     });
     await this.audit.log(actorId, "clip.create", "clip", clip.id);
+    if (promoConsent) await this.promo.setStaffConsent(actorId, clip.id, true);
     void this.processing.enqueue(clip.id);
     return clip;
   }

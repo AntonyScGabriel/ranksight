@@ -30,6 +30,9 @@ export default function SubmitPage() {
   const [proofUrl, setProofUrl] = useState("");
   const [note, setNote] = useState("");
   const [rights, setRights] = useState(false);
+  // Accord facultatif à la promotion sur les réseaux sociaux (décoché par défaut, proposé une fois les conditions validées)
+  const [promoTerms, setPromoTerms] = useState<{ enabled: boolean; label: string } | null>(null);
+  const [promoConsent, setPromoConsent] = useState(false);
   const [progress, setProgress] = useState(0);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,6 +40,7 @@ export default function SubmitPage() {
 
   useEffect(() => {
     api.games().then(setGames).catch(() => setError("Impossible de charger la liste des jeux."));
+    api.promoTerms().then(setPromoTerms).catch(() => setPromoTerms(null));
   }, []);
 
   const game = games.find((g) => g.id === gameId);
@@ -91,6 +95,7 @@ export default function SubmitPage() {
         proofUrl: proofUrl.trim() || undefined,
         note: note.trim() || undefined,
         ownsRights: true,
+        promoConsent: promoTerms?.enabled ? promoConsent : undefined,
       });
       setDone(true);
     } catch (err) {
@@ -259,6 +264,14 @@ export default function SubmitPage() {
           <input type="checkbox" checked={rights} onChange={(e) => setRights(e.target.checked)} className="mt-1" />
           Je suis l&apos;auteur de ce clip ou j&apos;ai l&apos;accord de son auteur pour le publier.
         </label>
+        {promoTerms?.enabled && source === "FILE" && (
+          <label className="flex items-start gap-2 text-sm text-muted">
+            <input type="checkbox" checked={promoConsent} onChange={(e) => setPromoConsent(e.target.checked)} className="mt-1" />
+            <span>
+              Facultatif : {promoTerms.label}
+            </span>
+          </label>
+        )}
         {sending && progress > 0 && (
           <div className="h-2 rounded-full bg-white/5"><div className="h-full rounded-full bg-neon transition-[width]" style={{ width: `${progress * 100}%` }} /></div>
         )}

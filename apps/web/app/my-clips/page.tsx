@@ -24,6 +24,16 @@ export default function MyClipsPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const confirm = useConfirm();
 
+  const togglePromo = async (clip: MyClipDto, consent: boolean) => {
+    try {
+      await api.setPromoConsent(clip.id, consent);
+      setNotice(consent ? "Accord de promotion enregistré." : "Accord de promotion retiré : le clip ne sera plus utilisé dans de nouvelles vidéos.");
+      load();
+    } catch (err) {
+      setNotice(errorMessage(err));
+    }
+  };
+
   const load = useCallback(() => {
     api.myClips().then(
       (c) => {
@@ -103,6 +113,16 @@ export default function MyClipsPage() {
                 </p>
                 {c.status === "REJECTED" && c.rejectionReason && (
                   <p className="rounded-lg bg-danger/10 p-3 text-sm"><span className="font-semibold">Raison du refus : </span>{c.rejectionReason}</p>
+                )}
+                {c.promoConsent !== null && (
+                  <label className="flex items-start gap-2 rounded-lg bg-white/5 p-3 text-xs text-muted">
+                    <input type="checkbox" checked={c.promoConsent} onChange={(e) => togglePromo(c, e.target.checked)} className="mt-0.5" />
+                    <span>
+                      {c.promoConsent
+                        ? "Tu as accepté que ce clip apparaisse dans les vidéos RankSight sur les réseaux sociaux. Décoche pour retirer ton accord : il ne sera plus jamais utilisé dans une nouvelle vidéo."
+                        : "Facultatif : accepter que ce clip apparaisse dans les vidéos RankSight sur les réseaux sociaux (jeu et rang affichés, jamais ton pseudo)."}
+                    </span>
+                  </label>
                 )}
                 <button onClick={() => remove(c)} className="text-xs text-muted hover:text-danger">Supprimer ce clip</button>
               </div>

@@ -39,6 +39,7 @@ import { CosmeticsModule } from "./modules/cosmetics/cosmetics.module.js";
 import { TriageModule } from "./modules/triage/triage.module.js";
 import { AnnouncementModule } from "./modules/announcement/announcement.module.js";
 import { SuggestionsModule } from "./modules/suggestions/suggestions.module.js";
+import { PromoModule } from "./modules/promo/promo.module.js";
 import { HealthController } from "./health.controller.js";
 
 @Module({
@@ -77,6 +78,7 @@ import { HealthController } from "./health.controller.js";
     ContactModule,
     MaintenanceModule,
     SuggestionsModule,
+    PromoModule,
   ],
   controllers: [HealthController],
   providers: [

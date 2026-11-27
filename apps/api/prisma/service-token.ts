@@ -8,7 +8,14 @@
 import { config } from "dotenv";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma/client.js";
-import { newServiceToken, PROMO_SCOPE } from "../src/modules/promo/service-token.js";
+import { createHash, randomBytes } from "node:crypto";
+
+// Autonome (l'image de production ne contient pas src/) : même format que src/modules/promo/service-token.ts
+const PROMO_SCOPE = "promo:read";
+function newServiceToken() {
+  const token = "rsk_" + randomBytes(32).toString("base64url");
+  return { token, hash: createHash("sha256").update(token).digest("hex"), prefix: token.slice(0, 10) };
+}
 
 config({ path: "../../.env", quiet: true });
 config({ quiet: true });

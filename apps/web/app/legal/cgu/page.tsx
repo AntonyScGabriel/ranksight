@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { MIN_AGE } from "@ranksight/shared";
 import { LegalPage, Section } from "@/components/LegalPage";
 import { LEGAL } from "@/lib/legal";
+import { PromoTermsSection } from "./PromoTermsSection";
 
 export const metadata: Metadata = { title: "Conditions générales d'utilisation" };
 
@@ -49,6 +50,7 @@ export default function CguPage() {
           <li>Les images des jeux appartiennent à leurs éditeurs ; RankGuess les utilise dans le cadre de leurs règles pour les créations de fans.</li>
         </ul>
       </Section>
+      {LEGAL.promoTerms && <PromoTermsSection />}
       <Section title="5. VIP">
         <p>
           Le VIP est un avantage optionnel (bonus d&apos;XP, badge) vendu selon les <a href="/legal/cgv">conditions générales de vente</a>.

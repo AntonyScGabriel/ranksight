@@ -23,6 +23,8 @@ x-build-args: &build-args
   LEGAL_HOST_CONTACT: ${LEGAL_HOST_CONTACT:-}
   LEGAL_MEDIATOR_NAME: ${LEGAL_MEDIATOR_NAME:-}
   LEGAL_MEDIATOR_URL: ${LEGAL_MEDIATOR_URL:-}
+  # Vidéos promotionnelles : la section des CGU et de la politique de confidentialité n'est publiée qu'avec true
+  PROMO_CONSENT_ENABLED: ${PROMO_CONSENT_ENABLED:-false}
 
 services:
   postgres:

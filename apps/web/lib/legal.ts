@@ -19,6 +19,8 @@ export const LEGAL = {
   mediatorName: v("LEGAL_MEDIATOR_NAME"),
   mediatorUrl: v("LEGAL_MEDIATOR_URL"),
   siteUrl: (process.env.WEB_URL ?? "http://localhost:3000").replace(/\/+$/, ""),
+  /** Vidéos promotionnelles : conditions publiées seulement quand l'option est ouverte aux joueurs (même variable que l'API) */
+  promoTerms: process.env.PROMO_CONSENT_ENABLED === "true",
 };
 
 /** Valeur non renseignée dans le .env : affichée telle quelle pour être repérée avant la mise en ligne */

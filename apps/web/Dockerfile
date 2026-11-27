@@ -28,6 +28,7 @@ ARG LEGAL_HOST_ADDRESS=""
 ARG LEGAL_HOST_CONTACT=""
 ARG LEGAL_MEDIATOR_NAME=""
 ARG LEGAL_MEDIATOR_URL=""
+ARG PROMO_CONSENT_ENABLED="false"
 ENV NEXT_OUTPUT=standalone NEXT_TELEMETRY_DISABLED=1 NODE_ENV=production
 RUN npm run build -w @ranksight/shared && npm run build -w @ranksight/web
 

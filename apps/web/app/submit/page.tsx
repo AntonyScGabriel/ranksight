@@ -268,7 +268,8 @@ export default function SubmitPage() {
           <label className="flex items-start gap-2 text-sm text-muted">
             <input type="checkbox" checked={promoConsent} onChange={(e) => setPromoConsent(e.target.checked)} className="mt-1" />
             <span>
-              Facultatif : {promoTerms.label}
+              Facultatif : {promoTerms.label}{" "}
+              <a href="/legal/cgu" target="_blank" className="underline">Conditions (section 4 bis)</a>
             </span>
           </label>
         )}

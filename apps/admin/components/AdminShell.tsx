@@ -17,6 +17,7 @@ const NAV = [
   ["/events", "Événements", "🏆"],
   ["/ranks", "Rangs", "◆"],
   ["/reports", "Signalements clips", "⚑"],
+  ["/promo", "Vidéos promo à retirer", "⤫"],
   ["/moderation", "Signalements joueurs", "⚠"],
   ["/chat", "Chat global", "✉"],
   ["/suggestions", "Suggestions", "✎"],

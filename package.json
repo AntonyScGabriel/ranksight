@@ -17,7 +17,8 @@
     "db:up": "docker compose up -d --wait",
     "db:down": "docker compose down",
     "admin:promote": "npm run promote -w @ranksight/api --",
-    "account:password": "npm run account:password -w @ranksight/api --"
+    "account:password": "npm run account:password -w @ranksight/api --",
+    "promo:token": "npm run promo:token -w @ranksight/api --"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

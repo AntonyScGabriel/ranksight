@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { LegalPage, Section } from "@/components/LegalPage";
 import { LEGAL, orMissing } from "@/lib/legal";
+import { PromoPrivacyRows, PromoRetentionItems } from "./PromoPrivacy";
 
 export const metadata: Metadata = { title: "Politique de confidentialité" };
 
@@ -22,6 +23,7 @@ export default function PrivacyPage() {
             <tr><td>Adresse IP, appareil, journaux de connexion</td><td>Sécurité, lutte contre la triche et les abus</td><td>Intérêt légitime, obligation légale</td></tr>
             <tr><td>Achats VIP (montant, date ; jamais les données de carte)</td><td>Vente et comptabilité</td><td>Contrat, obligation légale</td></tr>
             <tr><td>Jeton de notification du téléphone</td><td>T&apos;envoyer les notifications que tu as acceptées</td><td>Consentement</td></tr>
+            {LEGAL.promoTerms && <PromoPrivacyRows />}
           </tbody>
         </table>
         <p>Aucune donnée n&apos;est vendue. Aucune publicité ciblée ni outil de mesure d&apos;audience tiers.</p>
@@ -34,6 +36,7 @@ export default function PrivacyPage() {
           <li>Photo de profil : supprimée dès que tu la changes ou la retires, ou à la suppression du compte.</li>
           <li>Journaux de connexion et de modération : 1 an.</li>
           <li>Données de facturation : 10 ans (obligation comptable).</li>
+          {LEGAL.promoTerms && <PromoRetentionItems />}
         </ul>
       </Section>
       <Section title="Destinataires et sous-traitants">

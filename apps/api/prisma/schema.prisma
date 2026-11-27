@@ -368,6 +368,17 @@ model Clip {
   /// Preuve du rang (lien match history, capture tracker…) — visible admin uniquement
   proofUrl        String?    @map("proof_url")
   creatorConsent  Boolean    @default(false) @map("creator_consent")
+  /// Consentement explicite, facultatif et révocable de l'auteur à la reprise du clip dans les vidéos promotionnelles
+  /// RankSight sur les réseaux sociaux (date de l'accord). NULL : pas d'accord ou accord retiré. Historique : promo_consent_events
+  promoConsentAt  DateTime?  @map("promo_consent_at")
+  /// Vérification par la modération que le clip peut être montré sur les réseaux sociaux (voix, identifiants, musique,
+  /// éléments protégés). Ce n'est jamais un consentement : seul l'auteur peut en donner un.
+  promoReviewStatus PromoReviewStatus @default(PENDING) @map("promo_review_status")
+  promoReviewedAt   DateTime?  @map("promo_reviewed_at")
+  promoReviewerId   String?    @map("promo_reviewer_id") @db.Uuid
+  promoReviewNote   String?    @map("promo_review_note") @db.VarChar(300)
+  /// Son du clip à couper dans les vidéos promotionnelles (voix ou musique non autorisées)
+  promoMuteAudio    Boolean    @default(false) @map("promo_mute_audio")
   /// Pseudo du joueur filmé, tel qu'il apparaît dans le jeu (distinct du pseudo RankGuess de l'auteur de l'envoi)
   inGamePseudo    String?    @map("in_game_pseudo") @db.VarChar(32)
   platform        String?    @db.VarChar(20)
@@ -1554,4 +1565,145 @@ model GameChatMessage {
   @@index([tournamentId, createdAt])
   @@index([userId])
   @@map("game_chat_messages")
+}
+
+// ---------- Promotion sur les réseaux sociaux (Toon Pilot) ----------
+
+enum PromoConsentAction {
+  GRANT
+  WITHDRAW
+}
+
+enum PromoReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+/// Réseaux couverts par l'accord : publications organiques des comptes officiels uniquement (jamais de publicité payante)
+enum PromoPlatform {
+  TIKTOK
+  YOUTUBE_SHORTS
+  INSTAGRAM_REELS
+}
+
+enum PromoRemovalStatus {
+  OPEN
+  DONE
+}
+
+/// Historique des accords et retraits de consentement à la promotion (qui, quand, quelle version des conditions)
+model PromoConsentEvent {
+  id           String             @id @default(uuid(7)) @db.Uuid
+  clipId       String             @map("clip_id") @db.Uuid
+  /// Auteur de l'action (le joueur, ou la modération pour un clip qu'elle a ajouté). Sans clé étrangère : historique figé
+  actorId      String?            @map("actor_id") @db.Uuid
+  action       PromoConsentAction
+  termsVersion String             @map("terms_version") @db.VarChar(32)
+  /// Motif d'un retrait : par le joueur, clip supprimé, refusé ou retiré de la publication
+  reason       String?            @db.VarChar(100)
+  createdAt    DateTime           @default(now()) @map("created_at")
+
+  @@index([clipId, createdAt])
+  @@map("promo_consent_events")
+}
+
+/// Jeton de service : accès machine en lecture seule aux routes /v1/promo, indépendant des comptes et de l'administration.
+/// Seule l'empreinte SHA-256 est stockée ; le jeton n'est affiché qu'une fois, à sa création.
+model ServiceToken {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  name        String    @db.VarChar(60)
+  tokenHash   String    @unique @map("token_hash") @db.Char(64)
+  /// Début du jeton (rsk_xxxx) pour le reconnaître dans la liste
+  prefix      String    @db.VarChar(12)
+  scopes      String[]
+  createdById String?   @map("created_by_id") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at")
+  lastUsedAt  DateTime? @map("last_used_at")
+  revokedAt   DateTime? @map("revoked_at")
+  revokedById String?   @map("revoked_by_id") @db.Uuid
+
+  accessLogs PromoAccessLog[]
+  uses       PromoUse[]
+
+  @@map("service_tokens")
+}
+
+/// Traçabilité des synchronisations : chaque appel d'un jeton de service et les clips transmis
+model PromoAccessLog {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  tokenId   String   @map("token_id") @db.Uuid
+  /// games, clips, clip, status, use
+  action    String   @db.VarChar(16)
+  clipIds   String[] @map("clip_ids") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  token ServiceToken @relation(fields: [tokenId], references: [id], onDelete: Restrict)
+
+  @@index([tokenId, createdAt])
+  @@map("promo_access_logs")
+}
+
+/// Utilisation promotionnelle déclarée par l'outil de production (une vidéo réalisée à partir du clip), reliée à l'accord en cours.
+/// Sans clé étrangère vers les clips : la preuve reste si le clip est supprimé.
+model PromoUse {
+  id               String    @id @default(uuid(7)) @db.Uuid
+  clipId           String    @map("clip_id") @db.Uuid
+  tokenId          String    @map("token_id") @db.Uuid
+  /// Rang du clip au moment de l'utilisation (rang validé par la modération)
+  rankId           String    @map("rank_id") @db.Uuid
+  /// Référence de la vidéo chez l'outil de production
+  reference        String    @db.VarChar(100)
+  consentEventId   String    @map("consent_event_id") @db.Uuid
+  consentVersion   String    @map("consent_version") @db.VarChar(32)
+  consentGrantedAt DateTime  @map("consent_granted_at")
+  /// Vidéo abandonnée et supprimée par l'outil de production sans avoir été publiée (retrait de l'accord, par exemple)
+  discardedAt      DateTime? @map("discarded_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  token        ServiceToken       @relation(fields: [tokenId], references: [id], onDelete: Restrict)
+  publications PromoPublication[]
+
+  @@index([clipId, createdAt])
+  @@map("promo_uses")
+}
+
+/// Publication d'une vidéo promotionnelle sur un compte officiel RankSight, déclarée par l'outil de production
+model PromoPublication {
+  id          String        @id @default(uuid(7)) @db.Uuid
+  useId       String        @map("use_id") @db.Uuid
+  clipId      String        @map("clip_id") @db.Uuid
+  platform    PromoPlatform
+  postUrl     String        @map("post_url") @db.VarChar(300)
+  publishedAt DateTime      @map("published_at")
+  createdAt   DateTime      @default(now()) @map("created_at")
+
+  use     PromoUse             @relation(fields: [useId], references: [id], onDelete: Restrict)
+  removal PromoRemovalRequest?
+
+  @@unique([useId, platform])
+  @@index([clipId])
+  @@map("promo_publications")
+}
+
+/// Demande de suppression d'une publication après le retrait de l'accord (délai annoncé : 30 jours) et son traitement
+model PromoRemovalRequest {
+  id              String             @id @default(uuid(7)) @db.Uuid
+  publicationId   String             @unique @map("publication_id") @db.Uuid
+  clipId          String             @map("clip_id") @db.Uuid
+  reason          String             @db.VarChar(100)
+  requestedAt     DateTime           @default(now()) @map("requested_at")
+  dueAt           DateTime           @map("due_at")
+  status          PromoRemovalStatus @default(OPEN)
+  doneAt          DateTime?          @map("done_at")
+  /// Qui a confirmé la suppression : l'outil de production (jeton) ou un membre de la modération
+  doneByTokenId   String?            @map("done_by_token_id") @db.Uuid
+  doneByUserId    String?            @map("done_by_user_id") @db.Uuid
+  note            String?            @db.VarChar(300)
+
+  publication PromoPublication @relation(fields: [publicationId], references: [id], onDelete: Restrict)
+
+  @@index([status, dueAt])
+  @@index([clipId])
+  @@map("promo_removal_requests")
 }

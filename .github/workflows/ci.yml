@@ -34,7 +34,8 @@ jobs:
         run: |
           cd apps/api
           npx tsx --env-file=../../.env prisma/seed.ts
-          node --env-file=../../.env dist/main.js > api.log 2>&1 &
+          # Accord de promotion activé pour cette API de test seulement (désactivé par défaut partout ailleurs)
+          PROMO_CONSENT_ENABLED=true node --env-file=../../.env dist/main.js > api.log 2>&1 &
           api=$!
           for i in $(seq 1 60); do curl -sf http://localhost:4000/v1/games > /dev/null && break; sleep 1; done
           npm run test:integration || { tail -50 api.log; kill $api; exit 1; }

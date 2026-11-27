@@ -252,6 +252,8 @@ export const api = {
   submitClip: (body: SubmitClipInput) => post<MyClipDto>("/clips", body),
   myClips: () => request<MyClipDto[]>("/clips/mine"),
   withdrawClip: (id: string) => del(`/clips/mine/${id}`),
+  setPromoConsent: (id: string, consent: boolean) =>
+    post<{ promoConsent: boolean; removalRequests: number }>(`/clips/mine/${id}/promo-consent`, { consent }),
   // Suggestions
   suggest: (body: SuggestionInput) => post<SuggestionDto>("/suggestions", body),
   mySuggestions: () => request<SuggestionDto[]>("/suggestions/me"),

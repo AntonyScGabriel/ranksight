@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service.js";
 import { StorageService } from "../storage/storage.service.js";
+import { PromoService } from "../promo/promo.service.js";
 
 /**
  * Suppression d'un clip, quel que soit son statut (en attente, accepté, refusé) :
@@ -11,7 +12,11 @@ import { StorageService } from "../storage/storage.service.js";
  */
 @Injectable()
 export class ClipRemovalService {
-  constructor(private readonly prisma: PrismaService, private readonly storage: StorageService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly storage: StorageService,
+    private readonly promo: PromoService,
+  ) {}
 
   private async deleteFiles(clip: { storageKey: string; posterKey: string | null; hlsKey: string | null }) {
     for (const key of [clip.storageKey, clip.posterKey, clip.hlsKey]) {
@@ -23,6 +28,8 @@ export class ClipRemovalService {
   async remove(clipId: string): Promise<"deleted" | "archived" | "missing"> {
     const clip = await this.prisma.clip.findUnique({ where: { id: clipId }, include: { _count: { select: { guesses: true } } } });
     if (!clip || clip.deletedAt) return "missing";
+    // Clip supprimé : l'accord de promotion prend fin avant la suppression (la preuve est conservée)
+    await this.promo.endConsent(clipId, null, "clip supprimé");
 
     await this.prisma.dailyChallenge.deleteMany({ where: { clipId, guesses: { none: {} } } });
     if (clip._count.guesses === 0 && (await this.prisma.dailyChallenge.count({ where: { clipId } })) === 0) {

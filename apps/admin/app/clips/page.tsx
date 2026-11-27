@@ -5,6 +5,7 @@ import { GAME_NAMES, GAME_SLUGS, PLATFORM_LABEL, REGION_LABEL, type ClipVideoKin
 import { adminFetch, media } from "@/lib/api";
 import { useConfirm } from "@/lib/confirm";
 import { LinkVideo } from "@/components/LinkVideo";
+import { PromoPanel } from "@/components/PromoPanel";
 
 type Status = "PENDING_REVIEW" | "TRIAGED" | "APPROVED" | "REJECTED" | "TODAY" | "SCHEDULED" | "AVAILABLE";
 type ClipRow = {
@@ -306,6 +307,7 @@ export default function ClipsPage() {
                 <button onClick={() => remove({ ...current, daily: items.find((c) => c.id === current.id)?.daily })} className="btn-ghost hover:!border-danger hover:!text-danger">Supprimer</button>
               </div>
             )}
+            <PromoPanel key={current.id} clipId={current.id} />
           </div>
         )}
       </div>

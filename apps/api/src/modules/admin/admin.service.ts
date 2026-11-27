@@ -1,3 +1,4 @@
+import { PromoService } from "../promo/promo.service.js";
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import type { z } from "zod";
 import { PrismaService } from "../../prisma/prisma.service.js";
@@ -30,6 +31,7 @@ export class AdminService {
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
     private readonly audit: AuditService,
+    private readonly promo: PromoService,
     private readonly achievements: AchievementEngine,
     private readonly removal: ClipRemovalService,
     private readonly clips: ClipsService,
@@ -203,6 +205,8 @@ export class AdminService {
       where: { id },
       data: { ...data, reviewer: { connect: { id: actorId } }, reviewedAt: new Date() },
     });
+    // Clip refusé : l'accord de promotion prend fin (plus d'utilisation, vidéos publiées à retirer)
+    if (b.decision === "REJECT") await this.promo.endConsent(id, null, "clip refusé par la modération");
     await this.audit.log(
       actorId,
       `clip.${b.decision.toLowerCase()}`,
@@ -314,6 +318,7 @@ export class AdminService {
     if (clip.status !== "APPROVED") throw new BadRequestException("Seul un clip accepté peut être retiré de la publication.");
     await this.prisma.dailyChallenge.deleteMany({ where: { clipId: id, guesses: { none: {} } } });
     const updated = await this.prisma.clip.update({ where: { id }, data: { status: "PENDING_REVIEW", reviewedAt: null } });
+    await this.promo.endConsent(id, null, "clip retiré de la publication");
     await this.audit.log(actorId, "clip.unpublish", "clip", id);
     return updated;
   }

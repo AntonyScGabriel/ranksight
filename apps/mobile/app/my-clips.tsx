@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { FlatList, Text, View } from "react-native";
+import { FlatList, Switch, Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import {
   PLATFORM_LABEL, REGION_LABEL, SUBMISSION_STATUS_LABEL, type MyClipDto, type Platform, type Region, type SubmissionStatus,
@@ -33,6 +33,22 @@ export default function MyClipsScreen() {
     if (ok !== false) api.withdrawClip(clip.id).then(load, load);
   };
 
+  /** Accord facultatif à la promotion : le retrait est immédiat et toujours possible */
+  const togglePromo = async (clip: MyClipDto, consent: boolean) => {
+    if (!consent) {
+      const ok = await confirm({
+        title: "Retirer ton accord ?",
+        message:
+          "Le clip ne sera plus utilisé dans les vidéos RankSight. Les vidéos en préparation sont abandonnées et celles déjà publiées " +
+          "sont retirées des comptes officiels sous 30 jours (les copies faites par d'autres ne peuvent pas être garanties).",
+        confirmLabel: "Retirer",
+        danger: true,
+      });
+      if (ok === false) return;
+    }
+    api.setPromoConsent(clip.id, consent).then(load, load);
+  };
+
   if (!clips) return <Loading />;
 
   return (
@@ -61,6 +77,18 @@ export default function MyClipsScreen() {
           </Text>
           {item.status === "REJECTED" && item.rejectionReason && (
             <Text style={{ color: colors.ink, backgroundColor: `${colors.danger}22`, padding: 10, borderRadius: 8 }}>Raison du refus : {item.rejectionReason}</Text>
+          )}
+          {item.promoConsent !== null && (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "#ffffff0d", padding: 10, borderRadius: 8 }}>
+              <Switch value={item.promoConsent} onValueChange={(v) => togglePromo(item, v)} />
+              <Text style={{ color: colors.muted, fontSize: 12, flex: 1 }}>
+                {item.promoConsent
+                  ? `Autorisé dans les vidéos RankSight (TikTok, YouTube Shorts, Instagram Reels, sans publicité payante).${
+                      item.promoReview === "PENDING" ? " En attente de vérification par l'équipe." : item.promoReview === "REJECTED" ? " Non retenu par l'équipe." : ""
+                    }`
+                  : "Facultatif : autoriser ce clip dans les vidéos RankSight sur les réseaux sociaux (jeu et rang affichés, jamais tes pseudos)."}
+              </Text>
+            </View>
           )}
           <Text onPress={() => remove(item)} style={{ color: colors.muted, fontSize: 12 }}>Supprimer ce clip</Text>
         </Card>
